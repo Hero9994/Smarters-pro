@@ -1,8 +1,9 @@
 package app.masahati.mobile
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.AlertDialog
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -31,7 +32,7 @@ import java.util.UUID
 import kotlin.math.roundToInt
 
 @SuppressLint("SetTextI18n")
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val database by lazy { MasahatiDatabase(this) }
     private var currentSpaceId: Long?=null
     private var showingArchive=false
@@ -42,15 +43,29 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor=getColor(R.color.masahati_teal_dark)
-        window.navigationBarColor=getColor(R.color.masahati_surface)
+        configureSystemBars()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (currentSpaceId != null) {
+                    currentSpaceId = null
+                    showHome()
+                } else {
+                    finish()
+                }
+            }
+        })
         currentSpaceId=savedInstanceState?.getLong(KEY_SPACE_ID,NO_SPACE)?.takeIf { it!=NO_SPACE }
         val requested=currentSpaceId
         if(requested!=null && database.getSpace(requested)!=null) showSpace(requested) else { currentSpaceId=null;showHome() }
     }
 
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState);outState.putLong(KEY_SPACE_ID,currentSpaceId?:NO_SPACE) }
-    @Deprecated("Deprecated in Java") override fun onBackPressed() { if(currentSpaceId!=null){currentSpaceId=null;showHome()}else super.onBackPressed() }
+    @Suppress("DEPRECATION")
+    private fun configureSystemBars() {
+        window.statusBarColor = getColor(R.color.masahati_teal_dark)
+        window.navigationBarColor = getColor(R.color.masahati_surface)
+    }
+
     override fun onDestroy() { database.close();super.onDestroy() }
 
     private fun showHome() {
