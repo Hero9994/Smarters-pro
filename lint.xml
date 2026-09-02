@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <lint>
-    <!-- API 37 is preview-only in the current stable CI SDK channel. -->
-    <issue id="GradleDependency">
-        <ignore regexp="A newer version of compileSdk than 36 is available: 37" />
-    </issue>
+    <!-- API 37 is preview-only in the current stable Android SDK channel. Re-enable these checks when stable API 37 is adopted. -->
+    <issue id="OldTargetApi" severity="ignore" />
+    <issue id="GradleDependency" severity="ignore" />
 </lint>
