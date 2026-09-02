@@ -10,8 +10,8 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     buildTypes {
@@ -25,9 +25,7 @@ android {
     }
 
     lint {
-        // API 37 is preview-only in the current SDK channel. Stay on stable API 36 until 37 is stable.
-        disable += "OldTargetApi"
-        disable += "GradleDependency"
+        lintConfig = file("../lint.xml")
     }
 
     compileOptions {
