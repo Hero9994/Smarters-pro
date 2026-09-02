@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<lint>
-    <!-- API 37 is preview-only in this CI environment. Keep stable API 36 until 37 is on the stable SDK channel. -->
-    <issue id="GradleDependency">
-        <ignore regexp="A newer version of compileSdk than 36 is available: 37" />
-    </issue>
-</lint>
