@@ -43,6 +43,17 @@ jobs:
       - name: Verify local-first app
         run: gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
+      - name: Verify APK identity and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="app/build/outputs/apk/debug/output-metadata.json"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$META"
+          test -f "$APK"
+          jq -e '.applicationId == "app.masahati.mobile.v03" and .elements[0].versionCode == 3 and .elements[0].versionName == "0.3.0-dev"' "$META"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
