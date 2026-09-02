@@ -16,7 +16,7 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".dev"
+            applicationIdSuffix = ".v03"
             versionNameSuffix = "-dev"
         }
         release {
@@ -35,5 +35,6 @@ android {
 }
 
 dependencies {
+    implementation("androidx.activity:activity-ktx:1.13.0")
     testImplementation("junit:junit:4.13.2")
 }
