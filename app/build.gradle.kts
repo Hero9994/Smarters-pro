@@ -25,8 +25,9 @@ android {
     }
 
     lint {
-        // API 37 is still on the preview SDK channel; production foundation stays on stable API 36.
+        // API 37 is preview-only in the current SDK channel. Stay on stable API 36 until 37 is stable.
         disable += "OldTargetApi"
+        disable += "GradleDependency"
     }
 
     compileOptions {
