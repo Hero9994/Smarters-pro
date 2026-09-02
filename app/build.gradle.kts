@@ -15,13 +15,17 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+        }
         release {
             isMinifyEnabled = false
         }
     }
 
     lint {
-        // API 37 is still on the preview SDK channel in CI; stay on stable API 36 for this foundation.
+        // API 37 is still on the preview SDK channel; production foundation stays on stable API 36.
         disable += "OldTargetApi"
     }
 
