@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace = "app.masahati.mobile"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "app.masahati.mobile"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 2
         versionName = "0.2.0"
     }

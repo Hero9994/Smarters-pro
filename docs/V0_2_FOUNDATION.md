@@ -19,7 +19,7 @@ This milestone replaces the fragile APK-generation path with a reproducible nati
 ### Automated
 
 - Gradle configuration resolves on JDK 17.
-- Android API 36 build succeeds.
+- Android API 37 build succeeds.
 - `lintDebug` passes.
 - `testDebugUnitTest` passes.
 - `assembleDebug` produces an APK.
