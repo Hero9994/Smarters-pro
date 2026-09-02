@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.AlertDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -40,6 +41,10 @@ class MainActivity : ComponentActivity() {
     private var homeAdapter: SpaceAdapter?=null
     private var messageAdapter: MessageAdapter?=null
     private var messageList: ListView?=null
+    private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val spaceId = currentSpaceId
+        if (uri != null && spaceId != null) importAttachment(spaceId, uri)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -166,13 +171,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun chooseFile() {
-        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE);type="*/*";putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("application/pdf","image/*","text/*","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document")) }
-        runCatching { startActivityForResult(intent,REQUEST_PICK_FILE) }.onFailure { toast("تعذر فتح مدير الملفات") }
-    }
-
-    @Deprecated("Deprecated in Java") override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
-        super.onActivityResult(requestCode,resultCode,data);if(requestCode!=REQUEST_PICK_FILE||resultCode!=RESULT_OK)return
-        val uri=data?.data?:return;val spaceId=currentSpaceId?:return;importAttachment(spaceId,uri)
+        runCatching {
+            openDocument.launch(
+                arrayOf(
+                    "application/pdf",
+                    "image/*",
+                    "text/*",
+                    "application/msword",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            )
+        }.onFailure { toast("تعذر فتح مدير الملفات") }
     }
 
     private fun importAttachment(spaceId: Long,uri: Uri) {
@@ -223,5 +232,5 @@ class MainActivity : ComponentActivity() {
     }
 
     private class AttachmentTooLargeException: Exception()
-    companion object { private const val REQUEST_PICK_FILE=4401;private const val KEY_SPACE_ID="current_space_id";private const val NO_SPACE=-1L;private const val MAX_ATTACHMENT_BYTES=50L*1024L*1024L }
+    companion object { private const val KEY_SPACE_ID="current_space_id";private const val NO_SPACE=-1L;private const val MAX_ATTACHMENT_BYTES=50L*1024L*1024L }
 }
