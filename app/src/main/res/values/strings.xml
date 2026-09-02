@@ -1,9 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">مساحاتي</string>
-    <string name="foundation_title">مساحاتي</string>
-    <string name="foundation_subtitle">الأساس الأصلي لتطبيق Android جاهز</string>
-    <string name="foundation_status">v0.2 Android Foundation</string>
-    <string name="foundation_body">هذه المرحلة تثبّت تشغيل التطبيق، دورة حياته، حفظ الحالة المحلي، الأمان الأساسي، والبناء الآلي قبل إضافة السكانر والذكاء الاصطناعي.</string>
-    <string name="launch_count_format">مرات التشغيل على هذا الجهاز: %1$d</string>
 </resources>
