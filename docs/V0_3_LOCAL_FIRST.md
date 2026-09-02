@@ -13,7 +13,7 @@ This milestone turns the Android foundation into a usable private self-space app
 - Open stored attachments through a read-only content provider and temporary URI permission.
 - Delete messages and their private attachment files.
 - Restore the currently open space across Activity recreation.
-- Debug package remains isolated as `app.masahati.mobile.dev`, so rollback builds can remain installed.
+- Debug package remains isolated as `app.masahati.mobile.v03`, so rollback builds can remain installed.
 
 ## Device-test acceptance
 1. Launch without crash.
