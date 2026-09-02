@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace = "app.masahati.mobile"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "app.masahati.mobile"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 2
         versionName = "0.2.0"
     }
@@ -18,6 +18,11 @@ android {
         release {
             isMinifyEnabled = false
         }
+    }
+
+    lint {
+        // API 37 is still on the preview SDK channel in CI; stay on stable API 36 for this foundation.
+        disable += "OldTargetApi"
     }
 
     compileOptions {
