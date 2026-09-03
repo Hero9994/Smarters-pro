@@ -32,6 +32,8 @@ object LocalAssistantFallback {
                 classification = "search"
                 val q = raw
                     .replace(Regex("^(وين|أين|اين|ابحث عن|دور على|فتش عن)\\s*"), "")
+                    .replace(Regex("^(حطيت|حطيتلي|وضعت|حفظت|خزنت)\\s*"), "")
+                    .replace(Regex("[؟?]+$"), "")
                     .trim().ifBlank { raw }
                 actions.put(JSONObject().put("type", "search").put("args", JSONObject().put("query", q)).put("requires_confirmation", false))
                 reply = "سأبحث داخل مساحاتك عن «$q» وأعرض لك أقرب النتائج."
