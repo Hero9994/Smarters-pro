@@ -37,7 +37,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import android.view.WindowManager
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -118,7 +117,6 @@ class MainActivity : ComponentActivity() {
         setTheme(if (darkMode) R.style.Theme_Masahati_Dark else R.style.Theme_Masahati)
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         applySystemBarAppearance()
         db = MasahatiDatabase(this)
         ReminderScheduler.ensureChannel(this)
