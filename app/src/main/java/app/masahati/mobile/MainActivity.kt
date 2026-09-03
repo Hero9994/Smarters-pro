@@ -445,6 +445,20 @@ class MainActivity : ComponentActivity() {
             val args = action.optJSONObject("args") ?: JSONObject()
             val needsConfirm = action.optBoolean("requires_confirmation", true)
             when (type) {
+                "create_space" -> {
+                    val name = args.optString("name").ifBlank { args.optString("title") }.ifBlank { args.optString("space_name") }.trim()
+                    if (name.isNotBlank()) {
+                        val existing = db.findSpaceByTitle(name)
+                        if (existing != null) {
+                            notes += "مساحة «${existing.title}» موجودة أصلاً."
+                        } else if (needsConfirm) {
+                            notes += "إنشاء مساحة «$name» جاهز وينتظر التأكيد."
+                        } else {
+                            db.createSpace(name)
+                            notes += "أنشأت مساحة «$name»."
+                        }
+                    }
+                }
                 "create_reminder" -> {
                     val created = ReminderScheduler.createFromAgent(this, db, spaceId, args, sourceText)
                     if (created == null) {
@@ -527,8 +541,11 @@ class MainActivity : ComponentActivity() {
                 }
                 "move_last_item" -> {
                     val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
-                    val target = db.findSpaceByTitle(targetName)
-                    val last = db.lastUserMessage(spaceId)
+                    val target = db.findSpaceByTitle(targetName) ?: if (!needsConfirm && args.optBoolean("create_if_missing", false) && targetName.isNotBlank()) {
+                        db.getSpace(db.createSpace(targetName))
+                    } else null
+                    val wantsDocument = args.optBoolean("prefer_file", false) || Regex("(ضعه|حطه|حطها|انقله|انقلها|المستند|العقد|الوثيقة|الملف)", RegexOption.IGNORE_CASE).containsMatchIn(sourceText)
+                    val last = if (wantsDocument) db.lastFileMessage(spaceId) ?: db.lastUserMessage(spaceId) else db.lastUserMessage(spaceId)
                     if (target != null && last != null) {
                         if (needsConfirm) notes += "النقل جاهز وينتظر التأكيد."
                         else {
