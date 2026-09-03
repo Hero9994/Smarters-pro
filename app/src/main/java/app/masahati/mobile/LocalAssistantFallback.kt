@@ -28,6 +28,17 @@ object LocalAssistantFallback {
         val classification: String
         val reply: String
         when {
+            (has("مساحة جديدة", "مساحه جديدة", "مساحة جديده") && has("ضعه", "حطه", "حطها", "انقله", "انقلها", "المستند", "العقد", "الملف")) -> {
+                classification = "command"
+                val targetName = Regex("(?:اسمها|سميها|وسميها|اسم المساحة)\\s*[«\\\"']?([^،,.!؟?\\n]{1,50})", RegexOption.IGNORE_CASE)
+                    .find(raw)?.groupValues?.getOrNull(1)?.trim()?.trim('«','»','\"','\'')
+                    ?.ifBlank { null } ?: "عقود"
+                actions.put(JSONObject().put("type", "create_space").put("args", JSONObject().put("name", targetName)).put("requires_confirmation", false))
+                actions.put(JSONObject().put("type", "move_last_item").put("args", JSONObject().put("target_space", targetName).put("prefer_file", true).put("create_if_missing", true)).put("requires_confirmation", false))
+                reply = "فهمت: سأنشئ مساحة «$targetName» إن لم تكن موجودة، وأنقل المستند السابق إليها."
+                addLabel("تنظيم")
+                addKeyword(targetName)
+            }
             has("وين", "أين", "اين", "ابحث", "دور", "فتش", "find ", "suche", "wo ist") -> {
                 classification = "search"
                 val q = raw
@@ -84,11 +95,28 @@ object LocalAssistantFallback {
                     else -> "فهمت أنها معلومة مرتبطة بالدوام وحفظتها للتصنيف والبحث."
                 }
             }
+            recent.any { it.kind == "file" } && (has("هي ", "هو ", "هذا", "هاد", "هالورقة", "الورقة", "الورقه", "المستند السابق")) -> {
+                classification = "document"
+                addLabel("توضيح مستند")
+                actions.put(JSONObject().put("type", "enrich_previous_document").put("args", JSONObject()
+                    .put("summary", raw.take(320))
+                    .put("labels", JSONArray(listOf("توضيح مستند")))
+                    .put("keywords", JSONArray(raw.split(Regex("[^\\p{L}\\p{N}]+")) .filter { it.length >= 3 }.take(8))))
+                    .put("requires_confirmation", false))
+                reply = "ربطت كلامك بالمستند السابق وسأحدّث وصفه وكلمات البحث بدل اعتباره ملاحظة منفصلة."
+            }
             has("جواز", "عقد", "فاتورة", "وثيقة", "مستند", "pdf", "rechnung", "vertrag", "pass") -> {
                 classification = "document"
                 addLabel("مستند")
+                val isContract = has("عقد", "vertrag", "contract", "kündigung", "kuendigung")
+                if (isContract) addLabel("عقد")
                 listOf("جواز", "عقد", "فاتورة", "وثيقة").firstOrNull { lower.contains(it) }?.let(::addLabel)
-                reply = "فهمت أنه مستند. حفظت وصفه وكلمات البحث محلياً حتى يسهل العثور عليه لاحقاً."
+                val hasDate = Regex("\\b\\d{1,2}[./-]\\d{1,2}(?:[./-]\\d{2,4})?\\b").containsMatchIn(raw)
+                reply = if (isContract && !hasDate) {
+                    "هذا يبدو عقداً، لكني لم أجد تاريخاً واضحاً للبدء أو الانتهاء/الإلغاء. إذا بدك أذكرك بموعد الإلغاء، قلّي التاريخ والوقت وسأنشئ التذكير."
+                } else {
+                    "فهمت أنه مستند. حفظت وصفه وكلمات البحث محلياً حتى يسهل العثور عليه لاحقاً."
+                }
             }
             has("فكرة", "مشروع", "idea") -> {
                 classification = "idea"
