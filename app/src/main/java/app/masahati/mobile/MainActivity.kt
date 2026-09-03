@@ -452,19 +452,34 @@ class MainActivity : ComponentActivity() {
                         put("activeReminders", remindersArr)
                     })
                 }
+                val localPlan = LocalAssistantFallback.analyze(content, spaceTitle, recent)
                 val remote = runCatching { postAgent(body) }.getOrNull()
-                val result = if (remote?.optBoolean("ok", false) == true) {
-                    remote
-                } else {
-                    LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                val result = if (remote?.optBoolean("ok", false) == true) remote else localPlan
+
+                // The language model improves understanding, while the local planner guarantees critical tools
+                // such as reminders, search and document-linking are not lost when a model omits an action.
+                val mergedActions = JSONArray()
+                val seenTypes = linkedSetOf<String>()
+                fun mergeActions(source: JSONArray?) {
+                    if (source == null) return
+                    for (i in 0 until source.length()) {
+                        val action = source.optJSONObject(i) ?: continue
+                        val type = action.optString("type").trim()
+                        if (type.isNotBlank() && seenTypes.add(type)) mergedActions.put(action)
+                    }
                 }
+                mergeActions(result.optJSONArray("actions"))
+                mergeActions(localPlan.optJSONArray("actions"))
+                result.put("actions", mergedActions)
+
                 val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
-                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
-                val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
-                db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
+                val actionText = executeAgentActions(spaceId, mergedActions, content)
+                val modelReply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                val finalReply = actionText.ifBlank { modelReply }
+                db.insertText(spaceId, "assistant", finalReply)
             } catch (_: Exception) {
                 val fallback = LocalAssistantFallback.analyze(content, spaceTitle)
                 db.updateAi(messageId, fallback.optString("classification", "note"), fallback.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty(), fallback.optString("summary", content.take(220)), fallback.toString())
