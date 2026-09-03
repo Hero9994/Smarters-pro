@@ -600,6 +600,44 @@ class MainActivity : ComponentActivity() {
                             db.moveMessage(last.id, target.id)
                             notes += "تم نقل آخر عنصر إلى «${target.title}»."
                         }
+                    } else if (targetName.isNotBlank()) {
+                        notes += "لم أجد مساحة باسم «$targetName»، لذلك لم أنقل شيئاً."
+                    }
+                }
+                "create_space" -> {
+                    val name = args.optString("name").ifBlank { args.optString("title") }.trim()
+                    if (name.isNotBlank()) {
+                        val existing = db.findSpaceByTitle(name)
+                        if (existing != null) notes += "مساحة «${existing.title}» موجودة أصلاً."
+                        else {
+                            db.createSpace(name)
+                            notes += "أنشأت مساحة «$name»."
+                        }
+                    }
+                }
+                "rename_last_document" -> {
+                    val newName = args.optString("new_name").ifBlank { args.optString("name") }.trim()
+                    val doc = db.lastFileMessage(spaceId)
+                    if (doc != null && newName.isNotBlank()) {
+                        if (needsConfirm) notes += "إعادة تسمية المستند جاهزة وتنتظر التأكيد."
+                        else {
+                            db.renameMessageDisplayName(doc.id, newName)
+                            notes += "غيّرت اسم المستند الأخير إلى «$newName»."
+                        }
+                    }
+                }
+                "move_last_document" -> {
+                    val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
+                    val target = db.findSpaceByTitle(targetName)
+                    val doc = db.lastFileMessage(spaceId)
+                    if (target != null && doc != null) {
+                        if (needsConfirm) notes += "نقل المستند جاهز وينتظر التأكيد."
+                        else {
+                            db.moveMessage(doc.id, target.id)
+                            notes += "نقلت المستند الأخير إلى «${target.title}»."
+                        }
+                    } else if (targetName.isNotBlank()) {
+                        notes += "لم أجد مساحة باسم «$targetName»، لذلك لم أنقل المستند."
                     }
                 }
             }
