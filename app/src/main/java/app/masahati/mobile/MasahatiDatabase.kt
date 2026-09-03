@@ -382,6 +382,13 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         }, "id=?", arrayOf(id.toString()))
     }
 
+    fun snoozeReminder(id: Long, nextFireAt: Long) {
+        writableDatabase.update("reminders", ContentValues().apply {
+            put("enabled", 1)
+            put("next_fire_at", nextFireAt)
+        }, "id=?", arrayOf(id.toString()))
+    }
+
     private fun reminderFrom(c: Cursor) = ReminderRow(
         id = c.getLong(c.getColumnIndexOrThrow("id")),
         spaceId = c.getLong(c.getColumnIndexOrThrow("space_id")),
