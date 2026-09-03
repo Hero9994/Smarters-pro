@@ -487,8 +487,8 @@ class MainActivity : ComponentActivity() {
     private fun postAgent(body: JSONObject): JSONObject {
         val conn = (URL(AGENT_URL).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = 8_000
-            readTimeout = 32_000
+            connectTimeout = 5_000
+            readTimeout = 20_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
