@@ -56,8 +56,20 @@ object LocalAssistantFallback {
                 classification = "reminder"
                 addLabel("تذكير")
                 if (day != null) addLabel(day)
+                val reminderArgs = JSONObject().apply {
+                    if (day != null) {
+                        put("day_of_week", day)
+                        put("repeat", "weekly")
+                    }
+                    if (time != null) put("time", time)
+                    if (has("كل يوم", "يومياً", "يوميا", "daily")) put("repeat", "daily")
+                    put("title", "تذكير مساحاتي")
+                    put("body", raw.take(500))
+                }
+                actions.put(JSONObject().put("type", "create_reminder").put("args", reminderArgs).put("requires_confirmation", false))
                 reply = when {
-                    day != null && time != null -> "فهمت التذكير: $day الساعة $time. حفظت المعلومة ضمن السياق، وإضافة إشعارات أندرويد الفعلية ستكون الخطوة التالية."
+                    day != null && time != null -> "فهمت التذكير: $day الساعة $time، وسأنشئ تنبيه أندرويد فعلياً."
+                    Regex("بعد\\s+\\d+").containsMatchIn(raw) -> "فهمت التذكير النسبي وسأنشئ له تنبيه أندرويد فعلياً."
                     day != null -> "فهمت أن التذكير مرتبط بـ$day، لكن لا يوجد وقت واضح بعد."
                     time != null -> "فهمت وقت التذكير $time، لكن اليوم أو التاريخ غير واضح بعد."
                     else -> "فهمت أنك تريد تذكيراً، لكن أحتاج اليوم أو الوقت حتى يكون محدداً."
