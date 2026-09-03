@@ -67,7 +67,7 @@ object ReminderNotification {
             .setShowWhen(true)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setColor(0xFF366F6B.toInt())
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
