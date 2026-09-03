@@ -1,6 +1,9 @@
 package app.masahati.mobile
 
-import android.Manifest\nimport android.app.AlertDialog\nimport android.content.pm.PackageManager\nimport android.os.Build
+import android.Manifest
+import android.app.AlertDialog
+import android.content.pm.PackageManager
+import android.os.Build
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
@@ -28,7 +31,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat\nimport androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -44,7 +48,8 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.Executors\nimport java.time.ZonedDateTime
+import java.util.concurrent.Executors
+import java.time.ZonedDateTime
 
 class MainActivity : ComponentActivity() {
     private val teal = Color.rgb(54, 111, 107)
