@@ -76,23 +76,42 @@ object LocalAssistantFallback {
                 classification = "reminder"
                 addLabel("تذكير")
                 if (day != null) addLabel(day)
-                val reminderArgs = JSONObject().apply {
-                    if (day != null) {
-                        put("day_of_week", day)
-                        put("repeat", "weekly")
+                val relative = Regex("بعد\\s+\\d+\\s*(?:دقيقة|دقائق|دقايق|ساعة|ساعات)", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+                val today = has("اليوم", "today", "heute")
+                val daily = has("كل يوم", "يومياً", "يوميا", "daily")
+                val passedToday = if (today && time != null && time.contains(':')) {
+                    val parts = time.split(':')
+                    val h = parts.getOrNull(0)?.toIntOrNull()
+                    val m = parts.getOrNull(1)?.take(2)?.toIntOrNull()
+                    if (h != null && m != null) !java.time.LocalTime.of(h, m).isAfter(java.time.LocalTime.now()) else false
+                } else false
+
+                if (passedToday) {
+                    reply = "الوقت $time اليوم مرّ بالفعل. هل تقصد غداً بنفس الوقت أم وقتاً آخر؟"
+                } else {
+                    val reminderArgs = JSONObject().apply {
+                        if (day != null) {
+                            put("day_of_week", day)
+                            put("repeat", "weekly")
+                        }
+                        if (time != null) put("time", time)
+                        if (daily) put("repeat", "daily")
+                        put("title", "تذكير مساحاتي")
+                        put("body", raw.take(500))
                     }
-                    if (time != null) put("time", time)
-                    if (has("كل يوم", "يومياً", "يوميا", "daily")) put("repeat", "daily")
-                    put("title", "تذكير مساحاتي")
-                    put("body", raw.take(500))
-                }
-                actions.put(JSONObject().put("type", "create_reminder").put("args", reminderArgs).put("requires_confirmation", false))
-                reply = when {
-                    day != null && time != null -> "فهمت التذكير: $day الساعة $time، وسأنشئ تنبيه أندرويد فعلياً."
-                    Regex("بعد\\s+\\d+").containsMatchIn(raw) -> "فهمت التذكير النسبي وسأنشئ له تنبيه أندرويد فعلياً."
-                    day != null -> "فهمت أن التذكير مرتبط بـ$day، لكن لا يوجد وقت واضح بعد."
-                    time != null -> "فهمت وقت التذكير $time، لكن اليوم أو التاريخ غير واضح بعد."
-                    else -> "فهمت أنك تريد تذكيراً، لكن أحتاج اليوم أو الوقت حتى يكون محدداً."
+                    val enough = relative || (time != null && (day != null || today || daily))
+                    if (enough) {
+                        actions.put(JSONObject().put("type", "create_reminder").put("args", reminderArgs).put("requires_confirmation", false))
+                    }
+                    reply = when {
+                        relative -> "فهمت التذكير النسبي وسأحوّله إلى تنبيه أندرويد فعلي."
+                        day != null && time != null -> "فهمت التذكير: $day الساعة $time."
+                        today && time != null -> "فهمت التذكير لليوم الساعة $time."
+                        daily && time != null -> "فهمت التذكير اليومي الساعة $time."
+                        day != null -> "فهمت أن التذكير مرتبط بـ$day، لكن أحتاج الساعة."
+                        time != null -> "فهمت الساعة $time، لكن أحتاج اليوم أو التاريخ."
+                        else -> "أحتاج اليوم والوقت حتى أنشئ التذكير."
+                    }
                 }
             }
             has("دوام", "شفت", "مناوبة", "arbeit", "schicht") -> {
