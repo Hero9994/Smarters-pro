@@ -467,7 +467,7 @@ class MainActivity : ComponentActivity() {
         return notes.joinToString("\n")
     }
 
-    private fun startSmartScanner( {
+    private fun startSmartScanner() {
         setBusyToast("جاري تجهيز السكانر الذكي…")
         scanner.getStartScanIntent(this)
             .addOnSuccessListener { sender -> scannerLauncher.launch(IntentSenderRequest.Builder(sender).build()) }
