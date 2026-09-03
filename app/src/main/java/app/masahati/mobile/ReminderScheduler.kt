@@ -146,8 +146,9 @@ object ReminderScheduler {
         val zone = ZoneId.systemDefault()
         val now = ZonedDateTime.now(zone)
         val explicitTitle = args.optString("title").trim()
-        val title = explicitTitle.ifBlank { "تذكير مساحاتي" }.take(100)
-        val body = args.optString("body").trim().ifBlank { sourceText.trim() }.take(500)
+        val reason = args.optString("reason").trim()
+        val title = explicitTitle.ifBlank { reason }.ifBlank { "تذكير مساحاتي" }.take(100)
+        val body = reason.ifBlank { args.optString("body").trim() }.ifBlank { sourceText.trim() }.take(500)
 
         val relativeMinutes = readRelativeMinutes(args, sourceText)
         if (relativeMinutes != null && relativeMinutes > 0) {
@@ -158,7 +159,7 @@ object ReminderScheduler {
             return ReminderCreationResult(id, "بعد $relativeMinutes دقيقة", exact)
         }
 
-        val triggerAt = parseTriggerAt(args, zone)
+        val triggerAt = parseTriggerAt(args, sourceText, zone)
         if (triggerAt != null) {
             val id = db.createReminder(spaceId, title, body, "none", null, null, null, triggerAt)
             val row = db.getReminder(id) ?: return null
@@ -247,17 +248,39 @@ object ReminderScheduler {
         return hours?.times(60)
     }
 
-    private fun parseTriggerAt(args: JSONObject, zone: ZoneId): Long? {
+    private fun parseTriggerAt(args: JSONObject, sourceText: String, zone: ZoneId): Long? {
         val raw = args.optString("trigger_at").trim().ifBlank { args.optString("datetime").trim() }
-        if (raw.isBlank()) return null
-        return try {
-            ZonedDateTime.parse(raw).toInstant().toEpochMilli()
-        } catch (_: DateTimeParseException) {
+        if (raw.isNotBlank()) {
             try {
-                LocalDateTime.parse(raw).atZone(zone).toInstant().toEpochMilli()
+                return ZonedDateTime.parse(raw).toInstant().toEpochMilli()
             } catch (_: DateTimeParseException) {
-                null
+                try {
+                    return LocalDateTime.parse(raw).atZone(zone).toInstant().toEpochMilli()
+                } catch (_: DateTimeParseException) { }
             }
+        }
+
+        val dateSource = listOf(
+            listOf(args.optString("date").trim(), args.optString("time").trim()).filter { it.isNotBlank() }.joinToString(" "),
+            sourceText
+        ).firstOrNull { Regex("\\b\\d{1,2}[./-]\\d{1,2}(?:[./-]\\d{2,4})?\\b").containsMatchIn(it) } ?: return null
+        val dateMatch = Regex("\\b(\\d{1,2})[./-](\\d{1,2})(?:[./-](\\d{2,4}))?\\b").find(dateSource) ?: return null
+        val clock = ReminderTime.parseClock(args.optString("time")) ?: ReminderTime.parseClock(dateSource) ?: return null
+        val now = ZonedDateTime.now(zone)
+        val day = dateMatch.groupValues[1].toIntOrNull() ?: return null
+        val month = dateMatch.groupValues[2].toIntOrNull() ?: return null
+        val rawYear = dateMatch.groupValues[3].toIntOrNull()
+        val year = when {
+            rawYear == null -> now.year
+            rawYear < 100 -> 2000 + rawYear
+            else -> rawYear
+        }
+        return try {
+            var candidate = LocalDate.of(year, month, day).atTime(clock.first, clock.second).atZone(zone)
+            if (rawYear == null && !candidate.isAfter(now)) candidate = candidate.plusYears(1)
+            candidate.toInstant().toEpochMilli()
+        } catch (_: Exception) {
+            null
         }
     }
 
