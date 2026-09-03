@@ -64,10 +64,10 @@ class MainActivity : ComponentActivity() {
     private val pageBg get() = if (darkMode) Color.rgb(18, 21, 20) else Color.rgb(239, 239, 234)
     private val surfaceBg get() = if (darkMode) Color.rgb(25, 29, 28) else Color.rgb(247, 246, 242)
     private val controlBg get() = if (darkMode) Color.rgb(35, 41, 39) else Color.rgb(230, 232, 228)
-    private val composerBg get() = if (darkMode) Color.rgb(33, 38, 36) else composerBg
-    private val primaryText get() = if (darkMode) Color.rgb(238, 242, 239) else primaryText
+    private val composerBg get() = if (darkMode) Color.rgb(33, 38, 36) else Color.rgb(244, 244, 240)
+    private val primaryText get() = if (darkMode) Color.rgb(238, 242, 239) else Color.rgb(30, 35, 35)
     private val secondaryText get() = if (darkMode) Color.rgb(170, 181, 176) else Color.rgb(112, 116, 114)
-    private val borderColor get() = if (darkMode) Color.rgb(54, 62, 59) else borderColor
+    private val borderColor get() = if (darkMode) Color.rgb(54, 62, 59) else Color.rgb(211, 214, 211)
     private val worker = Executors.newSingleThreadExecutor()
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private lateinit var db: MasahatiDatabase
