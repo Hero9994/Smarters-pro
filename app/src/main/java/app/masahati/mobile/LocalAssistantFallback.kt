@@ -90,6 +90,46 @@ object LocalAssistantFallback {
                 reply = "فهمت أنك تريد تثبيت هذه المساحة."
                 addLabel("تثبيت")
             }
+            has("أنشئ مساحة", "انشئ مساحة", "اعمل مساحة جديدة", "create space") -> {
+                classification = "command"
+                var name = tailAfter("اسمها", "باسم", "create space")
+                if (name.isBlank()) {
+                    name = Regex("(?:أنشئ|انشئ|اعمل)\\s+مساحة(?:\\s+جديدة)?\\s+(?:لـ|ل)?(.+)$", RegexOption.IGNORE_CASE)
+                        .find(raw)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+                }
+                if (name.startsWith("ل") && name.length > 2) name = name.drop(1).trim()
+                actions.put(JSONObject().put("type", "create_space").put("args", JSONObject().put("name", name.ifBlank { "مساحة جديدة" })).put("requires_confirmation", false))
+                reply = if (name.isBlank()) "فهمت أنك تريد إنشاء مساحة جديدة." else "فهمت أنك تريد مساحة جديدة باسم «$name»."
+                addLabel("مساحة")
+            }
+            has("غير اسم المساحة", "غيّر اسم المساحة", "سمي هالمساحة", "سمّي هالمساحة", "أعد تسمية المساحة", "اعد تسمية المساحة", "rename space", "benenne den bereich") -> {
+                classification = "command"
+                val name = tailAfter("إلى", "الى", " to ", " in ").removeSuffix(" um").trim()
+                actions.put(JSONObject().put("type", "rename_space").put("args", JSONObject().put("new_name", name)).put("requires_confirmation", false))
+                reply = if (name.isBlank()) "فهمت أنك تريد إعادة تسمية المساحة، لكن أحتاج الاسم الجديد." else "فهمت الاسم الجديد للمساحة: «$name»."
+                addLabel("إعادة تسمية")
+            }
+            has("انقل المستند الأخير", "انقل الورقة الأخيرة", "حرك الملف الأخير", "move last document") -> {
+                classification = "command"
+                val target = tailAfter("إلى", "الى", " to ")
+                actions.put(JSONObject().put("type", "move_last_document").put("args", JSONObject().put("target_space", target)).put("requires_confirmation", false))
+                reply = if (target.isBlank()) "فهمت طلب نقل المستند، لكن أحتاج اسم المساحة الهدف." else "فهمت أنك تريد نقل المستند الأخير إلى «$target»."
+                addLabel("نقل مستند")
+            }
+            has("سمي المستند الأخير", "سمّي المستند الأخير", "غير اسم الملف الأخير", "غيّر اسم الملف الأخير", "غير اسم الورقة الأخيرة", "غيّر اسم الورقة الأخيرة") -> {
+                classification = "command"
+                val name = tailAfter("إلى", "الى", "الأخير", "الأخيرة")
+                actions.put(JSONObject().put("type", "rename_last_document").put("args", JSONObject().put("new_name", name)).put("requires_confirmation", false))
+                reply = if (name.isBlank()) "فهمت طلب إعادة تسمية المستند، لكن أحتاج الاسم الجديد." else "فهمت الاسم الجديد للمستند: «$name»."
+                addLabel("تسمية مستند")
+            }
+            has("انقل آخر شي", "انقل آخر شيء", "انقل آخر ملاحظة", "حرك آخر شيء", "حرك آخر شي") -> {
+                classification = "command"
+                val target = tailAfter("إلى", "الى")
+                actions.put(JSONObject().put("type", "move_last_item").put("args", JSONObject().put("target_space", target)).put("requires_confirmation", false))
+                reply = if (target.isBlank()) "فهمت طلب النقل، لكن أحتاج اسم المساحة الهدف." else "فهمت أنك تريد نقل آخر عنصر إلى «$target»."
+                addLabel("نقل")
+            }
             has("ذكرني", "ذكّرني", "تذكير", "remind", "erinner") -> {
                 classification = "reminder"
                 addLabel("تذكير")
