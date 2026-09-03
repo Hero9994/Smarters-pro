@@ -248,13 +248,44 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun search(query: String, limit: Int = 12): List<MessageRow> {
-        val q = "%${query.trim()}%"
-        val c = readableDatabase.query(
-            "messages", null,
-            "text LIKE ? OR display_name LIKE ? OR ocr_text LIKE ? OR summary LIKE ? OR tags LIKE ? OR classification LIKE ?",
-            arrayOf(q, q, q, q, q, q), null, null, "created_at DESC", limit.toString()
-        )
-        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
+        val cleaned = query.trim()
+        if (cleaned.isBlank()) return emptyList()
+        val fields = listOf("text", "display_name", "ocr_text", "summary", "tags", "classification")
+        fun runLike(terms: List<String>): List<MessageRow> {
+            if (terms.isEmpty()) return emptyList()
+            val clauses = mutableListOf<String>()
+            val args = mutableListOf<String>()
+            terms.forEach { term ->
+                fields.forEach { field ->
+                    clauses += "$field LIKE ?"
+                    args += "%$term%"
+                }
+            }
+            val c = readableDatabase.query(
+                "messages", null, clauses.joinToString(" OR "), args.toTypedArray(), null, null,
+                "created_at DESC", limit.toString()
+            )
+            return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
+        }
+
+        val exact = runLike(listOf(cleaned))
+        if (exact.size >= limit) return exact
+
+        val tokens = cleaned
+            .split(Regex("[^\\p{L}\\p{N}]+"))
+            .map { it.trim() }
+            .filter { it.length >= 2 }
+            .flatMap { token ->
+                if (token.startsWith("ال") && token.length > 4) listOf(token, token.drop(2)) else listOf(token)
+            }
+            .distinct()
+            .take(6)
+        if (tokens.isEmpty()) return exact
+
+        val seen = exact.mapTo(linkedSetOf()) { it.id }
+        val merged = exact.toMutableList()
+        runLike(tokens).forEach { row -> if (seen.add(row.id) && merged.size < limit) merged += row }
+        return merged
     }
 
     private fun spaceFrom(c: Cursor) = SpaceRow(
