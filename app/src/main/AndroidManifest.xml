@@ -30,6 +30,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".ReminderSnoozeReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".ReminderBootReceiver"
             android:enabled="true"
             android:exported="false">
