@@ -24,10 +24,32 @@ object LocalAssistantFallback {
         val day = days.firstOrNull { lower.contains(it) } ?: days.firstOrNull { context.contains(it) }
         if (time != null) addKeyword(time)
         if (day != null) addKeyword(day)
+        val recentFile = recent.takeLast(4).lastOrNull { it.kind == "file" && it.role == "user" }
+        val documentClarification = recentFile != null && (
+            Regex("^(هي|هو|هاي|هاد|هيدا|هيدي|هذا|هذه)\\s+").containsMatchIn(lower) ||
+            has("الورقة", "المستند", "الوثيقة", "الملف السابق")
+        )
 
         val classification: String
         val reply: String
         when {
+            documentClarification -> {
+                classification = "document"
+                addLabel("مستند")
+                val description = raw.replace(Regex("^(هي|هو|هاي|هاد|هيدا|هيدي|هذا|هذه)\\s+"), "").trim().ifBlank { raw }
+                val detailKeywords = description.split(Regex("[^\\p{L}\\p{N}]+"))
+                    .map { it.trim() }.filter { it.length >= 3 }.distinct().take(10)
+                detailKeywords.forEach(::addKeyword)
+                actions.put(
+                    JSONObject().put("type", "enrich_previous_document").put(
+                        "args", JSONObject()
+                            .put("summary", description.take(320))
+                            .put("labels", JSONArray(listOf("مستند")))
+                            .put("keywords", JSONArray(detailKeywords))
+                    ).put("requires_confirmation", false)
+                )
+                reply = "فهمت وصفك للمستند السابق: ${description.take(220)}. سأربط هذا الوصف بالمستند حتى يظهر بالبحث الصحيح."
+            }
             has("وين", "أين", "اين", "ابحث", "دور", "فتش", "find ", "suche", "wo ist") -> {
                 classification = "search"
                 val q = raw
@@ -88,7 +110,7 @@ object LocalAssistantFallback {
                 classification = "document"
                 addLabel("مستند")
                 listOf("جواز", "عقد", "فاتورة", "وثيقة").firstOrNull { lower.contains(it) }?.let(::addLabel)
-                reply = "فهمت أنه مستند. حفظت وصفه وكلمات البحث محلياً حتى يسهل العثور عليه لاحقاً."
+                reply = "فهمت أنه مستند وسأفهرس وصفه والكلمات الأساسية حتى تقدر تلاقيه لاحقاً بالمعنى، مو فقط باسم الملف."
             }
             has("فكرة", "مشروع", "idea") -> {
                 classification = "idea"
@@ -103,7 +125,7 @@ object LocalAssistantFallback {
             else -> {
                 classification = "note"
                 addLabel("ملاحظة")
-                reply = "فهمت المحتوى وحفظته كملاحظة قابلة للبحث."
+                reply = "فهمت: ${raw.take(220)}"
             }
         }
 
