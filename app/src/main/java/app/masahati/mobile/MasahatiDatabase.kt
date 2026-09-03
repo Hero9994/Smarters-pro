@@ -284,6 +284,20 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }
     }
 
+    fun recentDocuments(limit: Int = 6): List<MessageRow> {
+        val c = readableDatabase.query(
+            "messages", null, "kind='file'", emptyArray(), null, null,
+            "created_at DESC, id DESC", limit.coerceIn(1, 20).toString()
+        )
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
+    }
+
+    fun renameMessageDisplayName(messageId: Long, newName: String) {
+        val clean = newName.trim().take(120)
+        if (clean.isBlank()) return
+        writableDatabase.update("messages", ContentValues().apply { put("display_name", clean) }, "id=?", arrayOf(messageId.toString()))
+    }
+
     fun moveMessage(messageId: Long, targetSpaceId: Long) {
         writableDatabase.update("messages", ContentValues().apply { put("space_id", targetSpaceId) }, "id=?", arrayOf(messageId.toString()))
         writableDatabase.update("spaces", ContentValues().apply { put("updated_at", System.currentTimeMillis()) }, "id=?", arrayOf(targetSpaceId.toString()))
