@@ -29,6 +29,25 @@ object LocalAssistantFallback {
         val classification: String
         val reply: String
         when {
+            previousFile != null && has("هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "الورقة هي", "الوثيقة هي") -> {
+                classification = "document"
+                addLabel("مستند")
+                raw.split(Regex("[^\\p{L}\\p{N}]+"))
+                    .map { it.trim() }
+                    .filter { it.length >= 3 }
+                    .take(10)
+                    .forEach(::addKeyword)
+                actions.put(JSONObject().apply {
+                    put("type", "enrich_previous_document")
+                    put("requires_confirmation", false)
+                    put("args", JSONObject().apply {
+                        put("summary", raw.take(500))
+                        put("labels", JSONArray(labels.toList()))
+                        put("keywords", JSONArray(keywords.toList()))
+                    })
+                })
+                reply = "فهمت أن كلامك يشرح المستند السابق، وسأربط الوصف به بدل حفظه كملاحظة منفصلة."
+            }
             has("وين", "أين", "اين", "ابحث", "دور", "فتش", "find ", "suche", "wo ist") -> {
                 classification = "search"
                 val q = raw
