@@ -78,6 +78,7 @@ object LocalAssistantFallback {
                 if (day != null) addLabel(day)
                 val relative = Regex("بعد\\s+\\d+\\s*(?:دقيقة|دقائق|دقايق|ساعة|ساعات)", RegexOption.IGNORE_CASE).containsMatchIn(raw)
                 val today = has("اليوم", "today", "heute")
+                val tomorrow = has("بكرا", "غداً", "غدا", "tomorrow", "morgen")
                 val daily = has("كل يوم", "يومياً", "يوميا", "daily")
                 val passedToday = if (today && time != null && time.contains(':')) {
                     val parts = time.split(':')
@@ -95,11 +96,19 @@ object LocalAssistantFallback {
                             put("repeat", "weekly")
                         }
                         if (time != null) put("time", time)
+                        if (tomorrow && time != null && time.contains(':')) {
+                            val parts = time.split(':')
+                            val h = parts.getOrNull(0)?.toIntOrNull()
+                            val m = parts.getOrNull(1)?.take(2)?.toIntOrNull()
+                            if (h != null && m != null) {
+                                put("trigger_at", java.time.ZonedDateTime.now().plusDays(1).withHour(h).withMinute(m).withSecond(0).withNano(0).toString())
+                            }
+                        }
                         if (daily) put("repeat", "daily")
                         put("title", "تذكير مساحاتي")
                         put("body", raw.take(500))
                     }
-                    val enough = relative || (time != null && (day != null || today || daily))
+                    val enough = relative || (time != null && (day != null || today || tomorrow || daily))
                     if (enough) {
                         actions.put(JSONObject().put("type", "create_reminder").put("args", reminderArgs).put("requires_confirmation", false))
                     }
@@ -107,6 +116,7 @@ object LocalAssistantFallback {
                         relative -> "فهمت التذكير النسبي وسأحوّله إلى تنبيه أندرويد فعلي."
                         day != null && time != null -> "فهمت التذكير: $day الساعة $time."
                         today && time != null -> "فهمت التذكير لليوم الساعة $time."
+                        tomorrow && time != null -> "فهمت التذكير لبكرا الساعة $time."
                         daily && time != null -> "فهمت التذكير اليومي الساعة $time."
                         day != null -> "فهمت أن التذكير مرتبط بـ$day، لكن أحتاج الساعة."
                         time != null -> "فهمت الساعة $time، لكن أحتاج اليوم أو التاريخ."
