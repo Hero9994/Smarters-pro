@@ -10,13 +10,13 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
     }
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".v05"
+            applicationIdSuffix = ".v06"
             versionNameSuffix = "-dev"
         }
         release {
