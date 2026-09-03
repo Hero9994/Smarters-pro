@@ -317,33 +317,8 @@ class ReminderReceiver : BroadcastReceiver() {
             if (!reminder.enabled) return
             ReminderScheduler.ensureChannel(appContext)
             if (ReminderScheduler.notificationsAllowed(appContext)) {
-                val openIntent = Intent(appContext, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    putExtra("open_space_id", reminder.spaceId)
-                }
-                val contentIntent = PendingIntent.getActivity(
-                    appContext,
-                    (id and 0x7fffffff).toInt(),
-                    openIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                val notification = NotificationCompat.Builder(appContext, ReminderScheduler.CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                    .setContentTitle(reminder.title)
-                    .setContentText(reminder.body)
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(reminder.body))
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setAutoCancel(true)
-                    .setCategory(NotificationCompat.CATEGORY_REMINDER)
-                    .setContentIntent(contentIntent)
-                    .build()
-                if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                    try {
-                        NotificationManagerCompat.from(appContext).notify((id and 0x7fffffff).toInt(), notification)
-                    } catch (_: SecurityException) {
-                        // Permission can be revoked between the check and notify call.
-                    }
-                }
+                val spaceTitle = db.getSpace(reminder.spaceId)?.title ?: "مساحة شخصية"
+                ReminderNotification.show(appContext, reminder, spaceTitle)
             }
             if (reminder.repeatRule == "none") {
                 db.disableReminder(id)
