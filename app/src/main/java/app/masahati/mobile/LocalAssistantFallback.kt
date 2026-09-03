@@ -30,7 +30,7 @@ object LocalAssistantFallback {
         when {
             (has("مساحة جديدة", "مساحه جديدة", "مساحة جديده") && has("ضعه", "حطه", "حطها", "انقله", "انقلها", "المستند", "العقد", "الملف")) -> {
                 classification = "command"
-                val targetName = Regex("(?:اسمها|سميها|وسميها|اسم المساحة)\\s*[«\\\"']?([^،,.!؟?\\n]{1,50})", RegexOption.IGNORE_CASE)
+                val targetName = Regex("(?:اسمها|واسميها|اسميها|سميها|وسميها|اسم المساحة)\\s*[«\\\"']?([^،,.!؟?\\n]{1,50})", RegexOption.IGNORE_CASE)
                     .find(raw)?.groupValues?.getOrNull(1)?.trim()?.trim('«','»','\"','\'')
                     ?.ifBlank { null } ?: "عقود"
                 actions.put(JSONObject().put("type", "create_space").put("args", JSONObject().put("name", targetName)).put("requires_confirmation", false))
