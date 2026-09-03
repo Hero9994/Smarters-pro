@@ -14,6 +14,7 @@ import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import org.json.JSONObject
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -72,18 +73,16 @@ object ReminderScheduler {
     private const val ACTION_FIRE = "app.masahati.mobile.REMINDER_FIRE"
 
     fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "تذكيرات مساحاتي",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "التذكيرات التي ينشئها مساعد مساحاتي"
-                enableVibration(true)
-            }
-            manager.createNotificationChannel(channel)
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "تذكيرات مساحاتي",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "التذكيرات التي ينشئها مساعد مساحاتي"
+            enableVibration(true)
         }
+        manager.createNotificationChannel(channel)
     }
 
     fun notificationsAllowed(context: Context): Boolean {
@@ -101,7 +100,7 @@ object ReminderScheduler {
     fun openExactAlarmSettings(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-            data = android.net.Uri.parse("package:${context.packageName}")
+            data = "package:${context.packageName}".toUri()
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         runCatching { context.startActivity(intent) }
@@ -315,7 +314,13 @@ class ReminderReceiver : BroadcastReceiver() {
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setContentIntent(contentIntent)
                     .build()
-                NotificationManagerCompat.from(appContext).notify((id and 0x7fffffff).toInt(), notification)
+                if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                    try {
+                        NotificationManagerCompat.from(appContext).notify((id and 0x7fffffff).toInt(), notification)
+                    } catch (_: SecurityException) {
+                        // Permission can be revoked between the check and notify call.
+                    }
+                }
             }
             if (reminder.repeatRule == "none") {
                 db.disableReminder(id)
