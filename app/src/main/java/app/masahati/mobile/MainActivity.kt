@@ -506,14 +506,19 @@ class MainActivity : ComponentActivity() {
             val needsConfirm = action.optBoolean("requires_confirmation", true)
             when (type) {
                 "create_reminder" -> {
-                    val created = ReminderScheduler.createFromAgent(this, db, spaceId, args, sourceText)
-                    if (created == null) {
-                        notes += "فهمت أنك تريد تنبيهاً، لكن الموعد غير واضح بما يكفي لإنشائه."
+                    val validation = ReminderScheduler.validateAgentRequest(args, sourceText)
+                    if (validation != null) {
+                        notes += validation
                     } else {
-                        val precision = if (created.exact) "" else " قد يتأخر بضع دقائق ما لم تفعّل دقة التنبيهات من إعدادات أندرويد."
-                        val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
-                        notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
-                        runOnUiThread { maybeRequestNotificationPermission() }
+                        val created = ReminderScheduler.createFromAgent(this, db, spaceId, args, sourceText)
+                        if (created == null) {
+                            notes += "فهمت طلب التذكير، لكن ينقصني اليوم أو الوقت. أعطني الجزء الناقص فقط."
+                        } else {
+                            val precision = if (created.exact) "" else " قد يتأخر بضع دقائق ما لم تفعّل دقة التنبيهات من إعدادات أندرويد."
+                            val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
+                            notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
+                            runOnUiThread { maybeRequestNotificationPermission() }
+                        }
                     }
                 }
                 "enrich_previous_document" -> {
