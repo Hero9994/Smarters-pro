@@ -16,6 +16,16 @@ object LocalAssistantFallback {
         fun has(vararg words: String) = words.any { lower.contains(it) }
         fun addLabel(value: String) { if (value.isNotBlank()) labels += value }
         fun addKeyword(value: String) { if (value.isNotBlank()) keywords += value }
+        fun tailAfter(vararg markers: String): String {
+            for (marker in markers) {
+                val idx = lower.lastIndexOf(marker.lowercase())
+                if (idx >= 0) {
+                    val candidate = raw.substring(idx + marker.length).trim().trim('«', '»', '"', '\'', ':', '-', ' ')
+                    if (candidate.isNotBlank()) return candidate.take(120)
+                }
+            }
+            return ""
+        }
 
         val time = Regex("(?:[01]?\\d|2[0-3])[:.]\\d{2}").find(raw)?.value?.replace('.', ':')
             ?: Regex("(?:[01]?\\d|2[0-3])\\s*(?:ص|م)").find(raw)?.value
