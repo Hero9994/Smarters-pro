@@ -214,6 +214,18 @@ object LocalAssistantFallback {
             }
         }
 
+        when {
+            has("طبيب", "دكتور", "مشفى", "مستشفى", "arzt", "krankenhaus", "doctor", "hospital") -> addLabel("صحة")
+        }
+        if (has("مدرسة", "school", "schule", "صف", "رحلة مدرسية")) addLabel("مدرسة")
+        if (has("كرة", "تدريب", "مباراة", "football", "fußball", "fussball", "dfb")) addLabel("كرة قدم")
+        if (has("سيارة", "auto", "fahrzeug", "kfz")) addLabel("سيارة")
+        if (has("تأمين", "versicherung", "insurance")) addLabel("تأمين")
+        if (has("بلدية", "bürgeramt", "behörde", "amt")) addLabel("إدارة")
+        if (has("إيجار", "ايجار", "miete", "wohnung")) addLabel("سكن")
+        if (has("ابني", "ابنتي", "زوجتي", "العائلة", "familie", "family")) addLabel("عائلة")
+        if (has("موعد", "termin", "appointment")) addLabel("موعد")
+
         raw.split(Regex("[^\\p{L}\\p{N}:.]+"))
             .map { it.trim() }
             .filter { it.length >= 3 }
