@@ -7,7 +7,8 @@ object LocalAssistantFallback {
     fun analyze(text: String, spaceTitle: String, recent: List<MessageRow> = emptyList()): JSONObject {
         val raw = text.trim()
         val lower = raw.lowercase()
-        val context = recent.takeLast(6).joinToString(" ") { (it.text.ifBlank { it.ocrText.orEmpty() }) }.lowercase()
+        val context = recent.takeLast(8).joinToString(" ") { (it.text.ifBlank { it.ocrText.orEmpty() }) }.lowercase()
+        val previousFile = recent.asReversed().firstOrNull { it.kind == "file" }
         val labels = linkedSetOf<String>()
         val keywords = linkedSetOf<String>()
         val actions = JSONArray()
