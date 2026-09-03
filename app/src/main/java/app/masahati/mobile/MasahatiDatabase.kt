@@ -30,7 +30,7 @@ data class MessageRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 1) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -67,10 +67,13 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
         db.execSQL("CREATE INDEX idx_messages_space_created ON messages(space_id, created_at)")
         db.execSQL("CREATE INDEX idx_spaces_archived_pinned ON spaces(archived, pinned, updated_at)")
-        seedDefaults(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("DELETE FROM spaces WHERE title IN (''ملاحظات'',''يومي'',''أوراقي'',''أفكار المشروع'') AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.space_id = spaces.id)")
+        }
+    }
 
     private fun seedDefaults(db: SQLiteDatabase) {
         if (DatabaseUtilsCompat.longForQuery(db, "SELECT COUNT(*) FROM spaces", emptyArray()) > 0) return
