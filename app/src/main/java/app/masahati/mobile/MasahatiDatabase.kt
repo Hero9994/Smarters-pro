@@ -30,7 +30,21 @@ data class MessageRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 2) {
+data class ReminderRow(
+    val id: Long,
+    val spaceId: Long,
+    val title: String,
+    val body: String,
+    val repeatRule: String,
+    val dayOfWeek: Int?,
+    val hour: Int?,
+    val minute: Int?,
+    val nextFireAt: Long?,
+    val enabled: Boolean,
+    val createdAt: Long
+)
+
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 3) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -67,12 +81,36 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
         db.execSQL("CREATE INDEX idx_messages_space_created ON messages(space_id, created_at)")
         db.execSQL("CREATE INDEX idx_spaces_archived_pinned ON spaces(archived, pinned, updated_at)")
+        createReminderTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db.execSQL("DELETE FROM spaces WHERE title IN ('ملاحظات','يومي','أوراقي','أفكار المشروع') AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.space_id = spaces.id)")
         }
+        if (oldVersion < 3) createReminderTable(db)
+    }
+
+    private fun createReminderTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS reminders(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              space_id INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              body TEXT NOT NULL,
+              repeat_rule TEXT NOT NULL DEFAULT 'none',
+              day_of_week INTEGER,
+              hour INTEGER,
+              minute INTEGER,
+              next_fire_at INTEGER,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at INTEGER NOT NULL,
+              FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_reminders_active_next ON reminders(enabled, next_fire_at)")
     }
 
     private fun seedDefaults(db: SQLiteDatabase) {
@@ -286,6 +324,78 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         val merged = exact.toMutableList()
         runLike(tokens).forEach { row -> if (seen.add(row.id) && merged.size < limit) merged += row }
         return merged
+    }
+
+    fun createReminder(
+        spaceId: Long,
+        title: String,
+        body: String,
+        repeatRule: String,
+        dayOfWeek: Int?,
+        hour: Int?,
+        minute: Int?,
+        nextFireAt: Long?
+    ): Long {
+        val now = System.currentTimeMillis()
+        return writableDatabase.insert("reminders", null, ContentValues().apply {
+            put("space_id", spaceId)
+            put("title", title.take(100))
+            put("body", body.take(500))
+            put("repeat_rule", repeatRule)
+            if (dayOfWeek == null) putNull("day_of_week") else put("day_of_week", dayOfWeek)
+            if (hour == null) putNull("hour") else put("hour", hour)
+            if (minute == null) putNull("minute") else put("minute", minute)
+            if (nextFireAt == null) putNull("next_fire_at") else put("next_fire_at", nextFireAt)
+            put("enabled", 1)
+            put("created_at", now)
+        })
+    }
+
+    fun getReminder(id: Long): ReminderRow? {
+        val c = readableDatabase.query("reminders", null, "id=?", arrayOf(id.toString()), null, null, null, "1")
+        return c.use { if (it.moveToFirst()) reminderFrom(it) else null }
+    }
+
+    fun listActiveReminders(): List<ReminderRow> {
+        val c = readableDatabase.query("reminders", null, "enabled=1", emptyArray(), null, null, "next_fire_at ASC")
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(reminderFrom(cursor)) } }
+    }
+
+    fun updateReminderNextFire(id: Long, nextFireAt: Long?) {
+        writableDatabase.update("reminders", ContentValues().apply {
+            if (nextFireAt == null) putNull("next_fire_at") else put("next_fire_at", nextFireAt)
+        }, "id=?", arrayOf(id.toString()))
+    }
+
+    fun disableReminder(id: Long) {
+        writableDatabase.update("reminders", ContentValues().apply {
+            put("enabled", 0)
+            putNull("next_fire_at")
+        }, "id=?", arrayOf(id.toString()))
+    }
+
+    private fun reminderFrom(c: Cursor) = ReminderRow(
+        id = c.getLong(c.getColumnIndexOrThrow("id")),
+        spaceId = c.getLong(c.getColumnIndexOrThrow("space_id")),
+        title = c.getString(c.getColumnIndexOrThrow("title")),
+        body = c.getString(c.getColumnIndexOrThrow("body")),
+        repeatRule = c.getString(c.getColumnIndexOrThrow("repeat_rule")),
+        dayOfWeek = c.intOrNull("day_of_week"),
+        hour = c.intOrNull("hour"),
+        minute = c.intOrNull("minute"),
+        nextFireAt = c.longOrNull("next_fire_at"),
+        enabled = c.getInt(c.getColumnIndexOrThrow("enabled")) == 1,
+        createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
+    )
+
+    private fun Cursor.intOrNull(name: String): Int? {
+        val i = getColumnIndexOrThrow(name)
+        return if (isNull(i)) null else getInt(i)
+    }
+
+    private fun Cursor.longOrNull(name: String): Long? {
+        val i = getColumnIndexOrThrow(name)
+        return if (isNull(i)) null else getLong(i)
     }
 
     private fun spaceFrom(c: Cursor) = SpaceRow(
