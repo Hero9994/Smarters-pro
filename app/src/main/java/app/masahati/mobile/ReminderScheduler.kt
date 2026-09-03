@@ -44,7 +44,7 @@ object ReminderTime {
     fun parseWeekday(value: String): Int? {
         val normalized = value.trim().lowercase(Locale.ROOT)
         return when (normalized) {
-            "الاثنين", "الإثنين", "اثنين", "monday", "mon", "montag" -> DayOfWeek.MONDAY.value
+            "الاثنين", "الإثنين", "اثنين", "الإثنين", "monday", "mon", "montag" -> DayOfWeek.MONDAY.value
             "الثلاثاء", "ثلاثاء", "tuesday", "tue", "dienstag" -> DayOfWeek.TUESDAY.value
             "الأربعاء", "الاربعاء", "أربعاء", "اربعاء", "wednesday", "wed", "mittwoch" -> DayOfWeek.WEDNESDAY.value
             "الخميس", "خميس", "thursday", "thu", "donnerstag" -> DayOfWeek.THURSDAY.value
@@ -279,7 +279,7 @@ object ReminderScheduler {
 
     private fun Int?.orElseFromText(text: String): Int? {
         if (this != null) return this
-        val candidates = listOf("الاثنين", "الإثنين", "الثلاثاء", "الأربعاء", "الاربعاء", "الخميس", "الجمعة", "السبت", "الأحد", "الاحد", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag")
+        val candidates = listOf("الاثنين", "الإثنين", "اثنين", "الثلاثاء", "ثلاثاء", "الأربعاء", "الاربعاء", "أربعاء", "اربعاء", "الخميس", "خميس", "الجمعة", "جمعة", "السبت", "سبت", "الأحد", "الاحد", "أحد", "احد", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag")
         return candidates.firstNotNullOfOrNull { token -> if (text.contains(token, ignoreCase = true)) ReminderTime.parseWeekday(token) else null }
     }
 }
