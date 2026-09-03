@@ -33,6 +33,11 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import android.view.WindowManager
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -52,12 +57,17 @@ import java.util.concurrent.Executors
 import java.time.ZonedDateTime
 
 class MainActivity : ComponentActivity() {
-    private val teal = Color.rgb(54, 111, 107)
-    private val paleTeal = Color.rgb(221, 233, 230)
-    private val assistantBg = Color.rgb(232, 234, 231)
-    private val pageBg = Color.rgb(239, 239, 234)
-    private val surfaceBg = Color.rgb(247, 246, 242)
-    private val controlBg = Color.rgb(230, 232, 228)
+    private var darkMode = false
+    private val teal get() = if (darkMode) Color.rgb(105, 174, 168) else Color.rgb(54, 111, 107)
+    private val paleTeal get() = if (darkMode) Color.rgb(31, 59, 56) else Color.rgb(221, 233, 230)
+    private val assistantBg get() = if (darkMode) Color.rgb(31, 35, 34) else Color.rgb(232, 234, 231)
+    private val pageBg get() = if (darkMode) Color.rgb(18, 21, 20) else Color.rgb(239, 239, 234)
+    private val surfaceBg get() = if (darkMode) Color.rgb(25, 29, 28) else Color.rgb(247, 246, 242)
+    private val controlBg get() = if (darkMode) Color.rgb(35, 41, 39) else Color.rgb(230, 232, 228)
+    private val composerBg get() = if (darkMode) Color.rgb(33, 38, 36) else composerBg
+    private val primaryText get() = if (darkMode) Color.rgb(238, 242, 239) else primaryText
+    private val secondaryText get() = if (darkMode) Color.rgb(170, 181, 176) else Color.rgb(112, 116, 114)
+    private val borderColor get() = if (darkMode) Color.rgb(54, 62, 59) else borderColor
     private val worker = Executors.newSingleThreadExecutor()
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private lateinit var db: MasahatiDatabase
@@ -104,7 +114,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        darkMode = getSharedPreferences("masahati_ui", MODE_PRIVATE).getBoolean("dark_mode", false)
+        setTheme(if (darkMode) R.style.Theme_Masahati_Dark else R.style.Theme_Masahati)
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        applySystemBarAppearance()
         db = MasahatiDatabase(this)
         ReminderScheduler.ensureChannel(this)
         root = LinearLayout(this).apply {
@@ -113,6 +128,13 @@ class MainActivity : ComponentActivity() {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
         setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(safe.left, safe.top + dp(8), safe.right, maxOf(safe.bottom, ime.bottom))
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (currentSpaceId != null) showHome() else finish()
@@ -149,10 +171,12 @@ class MainActivity : ComponentActivity() {
         val search = EditText(this).apply {
             hint = "ابحث في مساحاتك..."
             textSize = 17f
+            setTextColor(primaryText)
+            setHintTextColor(secondaryText)
             setText(homeSearch)
             setSingleLine(true)
             setPadding(dp(18), 0, dp(18), 0)
-            background = rounded(surfaceBg, 28f, Color.rgb(211, 214, 211), 1)
+            background = rounded(surfaceBg, 28f, borderColor, 1)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -194,7 +218,7 @@ class MainActivity : ComponentActivity() {
         host.removeAllViews()
         val spaces = db.listSpaces(showArchived, homeSearch)
         if (spaces.isEmpty()) {
-            host.addView(text(if (showArchived) "لا توجد مساحات مؤرشفة" else "لا توجد نتائج", 17f, Color.GRAY, false).apply {
+            host.addView(text(if (showArchived) "لا توجد مساحات مؤرشفة" else "لا توجد نتائج", 17f, secondaryText, false).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(70), 0, 0)
             })
@@ -221,7 +245,7 @@ class MainActivity : ComponentActivity() {
             val info = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), 0, dp(12), 0)
-                addView(text(space.title, 20f, Color.rgb(30, 35, 35), true))
+                addView(text(space.title, 20f, primaryText, true))
                 val last = db.listMessages(space.id).lastOrNull()
                 val preview = when {
                     last == null -> "ابدأ بالكتابة أو أضف مستنداً"
@@ -229,11 +253,11 @@ class MainActivity : ComponentActivity() {
                     last.role == "assistant" -> "مساعد مساحاتي: ${last.text.take(60)}"
                     else -> last.text.take(65)
                 }
-                addView(text(preview, 14f, Color.GRAY, false).apply { maxLines = 1 })
+                addView(text(preview, 14f, secondaryText, false).apply { maxLines = 1 })
             }
             row.addView(badge, LinearLayout.LayoutParams(dp(50), dp(50)))
             row.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(text(formatTime(space.updatedAt), 12f, Color.GRAY, false))
+            row.addView(text(formatTime(space.updatedAt), 12f, secondaryText, false))
             host.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(dp(10), dp(3), dp(10), dp(3))
             })
@@ -257,7 +281,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(surfaceBg)
         }
         val back = button("←", 26f).apply { setOnClickListener { showHome() } }
-        val title = text(currentSpaceTitle, 29f, Color.rgb(25, 30, 30), true).apply { gravity = Gravity.CENTER }
+        val title = text(currentSpaceTitle, 29f, primaryText, true).apply { gravity = Gravity.CENTER }
         val menu = button("⋮", 28f).apply { setOnClickListener { showChatMenu(this) } }
         top.addView(back, LinearLayout.LayoutParams(dp(56), dp(56)))
         top.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -287,10 +311,12 @@ class MainActivity : ComponentActivity() {
         composer = EditText(this).apply {
             hint = "اكتب لنفسك..."
             textSize = 18f
+            setTextColor(primaryText)
+            setHintTextColor(secondaryText)
             maxLines = 5
             minLines = 1
             setPadding(dp(17), dp(9), dp(17), dp(9))
-            background = rounded(Color.rgb(244, 244, 240), 28f)
+            background = rounded(composerBg, 28f)
         }
         val send = Button(this).apply {
             text = "إرسال"
@@ -314,7 +340,7 @@ class MainActivity : ComponentActivity() {
         host.removeAllViews()
         val messages = db.listMessages(spaceId)
         if (messages.isEmpty()) {
-            host.addView(text("اكتب ملاحظة أو امسح مستنداً. مساعد مساحاتي سيفهمه ويصنفه تلقائياً.", 16f, Color.GRAY, false).apply {
+            host.addView(text("اكتب ملاحظة أو امسح مستنداً. مساعد مساحاتي سيفهمه ويصنفه تلقائياً.", 16f, secondaryText, false).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(28), dp(70), dp(28), 0)
             })
@@ -337,7 +363,7 @@ class MainActivity : ComponentActivity() {
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(9))
-            background = rounded(if (m.role == "assistant") assistantBg else paleTeal, 25f, if (m.role == "assistant") Color.rgb(210, 214, 211) else Color.TRANSPARENT, if (m.role == "assistant") 1 else 0)
+            background = rounded(if (m.role == "assistant") assistantBg else paleTeal, 25f, if (m.role == "assistant") borderColor else Color.TRANSPARENT, if (m.role == "assistant") 1 else 0)
             alpha = if (temporary) 0.8f else 1f
         }
         if (m.role == "assistant") {
@@ -345,21 +371,21 @@ class MainActivity : ComponentActivity() {
         }
         if (m.kind == "file") {
             val name = m.displayName ?: "ملف"
-            bubble.addView(text("📎 $name", 17f, Color.rgb(35, 40, 40), true))
-            bubble.addView(text(if (m.ocrText.isNullOrBlank()) "اضغط لفتح الملف" else "تمت قراءته وتصنيفه للبحث", 14f, Color.DKGRAY, false))
+            bubble.addView(text("📎 $name", 17f, primaryText, true))
+            bubble.addView(text(if (m.ocrText.isNullOrBlank()) "اضغط لفتح الملف" else "تمت قراءته وتصنيفه للبحث", 14f, secondaryText, false))
             if (!temporary && m.filePath != null) {
                 bubble.setOnClickListener { openSavedFile(m) }
                 bubble.setOnLongClickListener { confirmDeleteMessage(m); true }
             }
         } else {
-            bubble.addView(text(m.text, 18f, Color.rgb(30, 35, 35), false))
+            bubble.addView(text(m.text, 18f, primaryText, false))
             if (!temporary && m.id > 0) bubble.setOnLongClickListener { confirmDeleteMessage(m); true }
         }
         if (m.id > 0 && !temporary && m.role != "assistant") {
             val meta = listOfNotNull(m.classification, m.tags).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) bubble.addView(text(meta.take(120), 12f, teal, false))
         }
-        if (!temporary) bubble.addView(text(formatTime(m.createdAt), 11f, Color.GRAY, false))
+        if (!temporary) bubble.addView(text(formatTime(m.createdAt), 11f, secondaryText, false))
         val bubbleWidth = (resources.displayMetrics.widthPixels * 0.78).toInt()
         wrap.addView(bubble, LinearLayout.LayoutParams(bubbleWidth, ViewGroup.LayoutParams.WRAP_CONTENT))
         return wrap
@@ -742,10 +768,12 @@ class MainActivity : ComponentActivity() {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
             menu.add("إعداد دقة التنبيهات")
+            menu.add(if (darkMode) "الوضع الفاتح" else "الوضع الداكن")
             setOnMenuItemClickListener {
                 when {
                     it.title.toString().contains("بحث") -> promptGlobalSearch()
                     it.title.toString().contains("دقة التنبيهات") -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
+                    it.title.toString().contains("الوضع") -> toggleDarkMode()
                     else -> { showArchived = !showArchived; showHome() }
                 }
                 true
@@ -859,6 +887,18 @@ class MainActivity : ComponentActivity() {
 
     private fun setBusyToast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
+    private fun applySystemBarAppearance() {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !darkMode
+            isAppearanceLightNavigationBars = !darkMode
+        }
+    }
+
+    private fun toggleDarkMode() {
+        getSharedPreferences("masahati_ui", MODE_PRIVATE).edit().putBoolean("dark_mode", !darkMode).apply()
+        recreate()
+    }
+
     private fun horizontal() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_RTL
@@ -867,7 +907,7 @@ class MainActivity : ComponentActivity() {
     private fun button(label: String, size: Float) = Button(this).apply {
         text = label
         textSize = size
-        setTextColor(Color.rgb(35, 40, 40))
+        setTextColor(primaryText)
         isAllCaps = false
         background = rounded(controlBg, 4f)
         setPadding(0, 0, 0, 0)
