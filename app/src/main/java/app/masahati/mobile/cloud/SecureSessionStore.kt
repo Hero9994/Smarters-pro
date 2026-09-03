@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.core.content.edit
 import org.json.JSONObject
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -11,6 +12,12 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+data class AuthSession(
+    val accessToken: String,
+    val refreshToken: String,
+    val expiresAtEpochSeconds: Long,
+    val userId: String,
+    val email: String?
 data class AuthSession(
     val accessToken: String,
     val refreshToken: String,
@@ -35,10 +42,10 @@ class SecureSessionStore(context: Context) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val encrypted = cipher.doFinal(payload)
-        prefs.edit()
-            .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .putString(KEY_PAYLOAD, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .apply()
+        prefs.edit {
+            putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            putString(KEY_PAYLOAD, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+        }
     }
 
     fun load(): AuthSession? {
@@ -66,7 +73,10 @@ class SecureSessionStore(context: Context) {
     }
 
     fun clear() {
-        prefs.edit().remove(KEY_IV).remove(KEY_PAYLOAD).apply()
+        prefs.edit {
+            remove(KEY_IV)
+            remove(KEY_PAYLOAD)
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
