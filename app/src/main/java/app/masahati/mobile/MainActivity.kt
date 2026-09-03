@@ -569,7 +569,7 @@ class MainActivity : ComponentActivity() {
         val conn = (URL(AGENT_URL).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 5_000
-            readTimeout = 20_000
+            readTimeout = 13_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
