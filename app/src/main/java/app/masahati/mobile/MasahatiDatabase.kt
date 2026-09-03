@@ -224,7 +224,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     fun recentForAi(spaceId: Long, limit: Int = 8): List<MessageRow> {
         val c = readableDatabase.query(
-            "messages", null, "space_id=? AND text<>''", arrayOf(spaceId.toString()), null, null,
+            "messages", null, "space_id=? AND (text<>'' OR (ocr_text IS NOT NULL AND ocr_text<>''))", arrayOf(spaceId.toString()), null, null,
             "created_at DESC, id DESC", limit.toString()
         )
         return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }.reversed()
