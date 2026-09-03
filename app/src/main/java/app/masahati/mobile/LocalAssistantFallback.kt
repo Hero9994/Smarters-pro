@@ -21,7 +21,12 @@ object LocalAssistantFallback {
             ?: Regex("(?:[01]?\\d|2[0-3])\\s*(?:ص|م)").find(raw)?.value
             ?: Regex("(?:[01]?\\d|2[0-3])[:.]\\d{2}").find(context)?.value?.replace('.', ':')
             ?: Regex("(?:[01]?\\d|2[0-3])\\s*(?:ص|م)").find(context)?.value
-        val days = listOf("الاثنين", "الإثنين", "اثنين", "الثلاثاء", "ثلاثاء", "الأربعاء", "الاربعاء", "أربعاء", "اربعاء", "الخميس", "خميس", "الجمعة", "جمعة", "السبت", "سبت", "الأحد", "الاحد", "أحد", "احد")
+        val days = listOf(
+            "الاثنين", "الإثنين", "اثنين", "الثلاثاء", "ثلاثاء", "الأربعاء", "الاربعاء", "أربعاء", "اربعاء",
+            "الخميس", "خميس", "الجمعة", "جمعة", "السبت", "سبت", "الأحد", "الاحد", "أحد", "احد",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+            "montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag"
+        )
         val day = days.firstOrNull { lower.contains(it) } ?: days.firstOrNull { context.contains(it) }
         if (time != null) addKeyword(time)
         if (day != null) addKeyword(day)
@@ -29,7 +34,10 @@ object LocalAssistantFallback {
         val classification: String
         val reply: String
         when {
-            previousFile != null && has("هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "الورقة هي", "الوثيقة هي") -> {
+            previousFile != null && has(
+                "هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "الورقة هي", "الوثيقة هي",
+                "هاد الملف", "هالـ pdf", "هال pdf", "هاي الصورة", "المسح يلي قبل", "الملف يلي قبل", "الورقة يلي قبل"
+            ) -> {
                 classification = "document"
                 addLabel("مستند")
                 raw.split(Regex("[^\\p{L}\\p{N}]+"))
@@ -48,7 +56,7 @@ object LocalAssistantFallback {
                 })
                 reply = "فهمت أن كلامك يشرح المستند السابق، وسأربط الوصف به بدل حفظه كملاحظة منفصلة."
             }
-            has("وين", "أين", "اين", "ابحث", "دور", "فتش", "find ", "suche", "wo ist") -> {
+            has("وين", "أين", "اين", "ابحث", "دور", "فتش", "find ", "search", "suche", "wo ist") -> {
                 classification = "search"
                 val q = raw
                     .replace(Regex("^(وين|أين|اين|ابحث عن|دور على|فتش عن)\\s*"), "")
@@ -66,7 +74,7 @@ object LocalAssistantFallback {
                 reply = "فهمت أنك تريد أرشفة هذه المساحة."
                 addLabel("أرشفة")
             }
-            has("ثبت المساحة", "ثبّت المساحة", "تثبيت المساحة") -> {
+            has("ثبت المساحة", "ثبّت المساحة", "تثبيت المساحة", "ثبت هالمساحة", "ثبّت هالمساحة", "ثبت المساحة الحالية", "ثبّت المساحة الحالية") -> {
                 classification = "command"
                 actions.put(JSONObject().put("type", "pin_space").put("args", JSONObject().put("space_name", spaceTitle)).put("requires_confirmation", false))
                 reply = "فهمت أنك تريد تثبيت هذه المساحة."
