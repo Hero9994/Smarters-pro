@@ -106,7 +106,7 @@ object LocalAssistantFallback {
                     else -> "فهمت أنها معلومة مرتبطة بالدوام وحفظتها للتصنيف والبحث."
                 }
             }
-            has("جواز", "عقد", "فاتورة", "وثيقة", "مستند", "pdf", "rechnung", "vertrag", "pass") -> {
+            has("جواز", "عقد", "فاتورة", "وثيقة", "مستند", "ورقة", "pdf", "rechnung", "vertrag", "pass") -> {
                 classification = "document"
                 addLabel("مستند")
                 listOf("جواز", "عقد", "فاتورة", "وثيقة").firstOrNull { lower.contains(it) }?.let(::addLabel)
