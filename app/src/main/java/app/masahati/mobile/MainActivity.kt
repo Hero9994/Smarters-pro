@@ -371,9 +371,20 @@ class MainActivity : ComponentActivity() {
                     put("spaceTitle", spaceTitle)
                     val arr = JSONArray()
                     recent.forEach { msg ->
+                        val contextText = if (msg.kind == "file") {
+                            buildString {
+                                append("مستند سابق")
+                                msg.displayName?.takeIf { it.isNotBlank() }?.let { append("؛ الاسم: ").append(it) }
+                                msg.summary?.takeIf { it.isNotBlank() }?.let { append("؛ الملخص السابق: ").append(it) }
+                                msg.tags?.takeIf { it.isNotBlank() }?.let { append("؛ الوسوم: ").append(it) }
+                                msg.ocrText?.takeIf { it.isNotBlank() }?.let { append("؛ النص المقروء: ").append(it) }
+                            }
+                        } else {
+                            msg.text
+                        }
                         arr.put(JSONObject().apply {
                             put("role", if (msg.role == "assistant") "assistant" else "user")
-                            put("text", (if (msg.text.isNotBlank()) msg.text else msg.ocrText.orEmpty()).take(1400))
+                            put("text", contextText.take(2200))
                         })
                     }
                     put("recent", arr)
@@ -416,6 +427,24 @@ class MainActivity : ComponentActivity() {
             val args = action.optJSONObject("args") ?: JSONObject()
             val needsConfirm = action.optBoolean("requires_confirmation", true)
             when (type) {
+                "enrich_previous_document" -> {
+                    val target = db.lastFileMessage(spaceId)
+                    if (target != null) {
+                        val newSummary = args.optString("summary").trim().ifBlank { target.summary.orEmpty() }
+                        val labelList = args.optJSONArray("labels")?.toStringList().orEmpty()
+                        val keywordList = args.optJSONArray("keywords")?.toStringList().orEmpty()
+                        val mergedTags = (labelList + keywordList + target.tags.orEmpty().split('،').map { it.trim() })
+                            .filter { it.isNotBlank() }.distinct().take(12).joinToString("، ")
+                        db.updateAi(
+                            target.id,
+                            "document",
+                            mergedTags,
+                            newSummary,
+                            JSONObject().put("source", "user_clarification").put("summary", newSummary).put("tags", mergedTags).toString()
+                        )
+                        notes += "ربطت هذه المعلومة بالمستند السابق وحدّثت وصفه وكلمات البحث."
+                    }
+                }
                 "search" -> {
                     val q = args.optString("query").trim()
                     if (q.isNotBlank()) {
