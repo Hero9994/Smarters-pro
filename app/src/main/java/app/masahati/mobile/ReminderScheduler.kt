@@ -136,6 +136,28 @@ object ReminderScheduler {
         }
     }
 
+    fun validateAgentRequest(args: JSONObject, sourceText: String): String? {
+        val zone = ZoneId.systemDefault()
+        val now = ZonedDateTime.now(zone)
+        val explicit = parseTriggerAt(args, zone)
+        if (explicit != null && explicit <= now.toInstant().toEpochMilli()) {
+            return "الموعد المحدد مضى بالفعل. أعطني وقتاً جديداً حتى أنشئ التنبيه."
+        }
+        val mentionsToday = sourceText.contains("اليوم", ignoreCase = true) ||
+            sourceText.contains("today", ignoreCase = true) || sourceText.contains("heute", ignoreCase = true)
+        if (mentionsToday) {
+            val clock = ReminderTime.parseClock(args.optString("time").ifBlank { sourceText })
+            if (clock != null) {
+                val candidate = now.withHour(clock.first).withMinute(clock.second).withSecond(0).withNano(0)
+                if (!candidate.isAfter(now)) {
+                    val t = "%02d:%02d".format(Locale.ROOT, clock.first, clock.second)
+                    return "الساعة $t اليوم مرّت بالفعل. هل تقصد غداً بنفس الوقت أم وقتاً آخر؟"
+                }
+            }
+        }
+        return null
+    }
+
     fun createFromAgent(
         context: Context,
         db: MasahatiDatabase,
