@@ -1,6 +1,6 @@
 package app.masahati.mobile
 
-import android.app.AlertDialog
+import android.Manifest\nimport android.app.AlertDialog\nimport android.content.pm.PackageManager\nimport android.os.Build
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
@@ -28,7 +28,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat\nimport androidx.core.content.FileProvider
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -44,7 +44,7 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.Executors
+import java.util.concurrent.Executors\nimport java.time.ZonedDateTime
 
 class MainActivity : ComponentActivity() {
     private val teal = Color.rgb(54, 111, 107)
@@ -89,9 +89,19 @@ class MainActivity : ComponentActivity() {
         if (uri != null) handlePickedFile(uri)
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            ReminderScheduler.rescheduleAll(this)
+            Toast.makeText(this, "تم تفعيل إشعارات التذكير", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "لن تظهر التنبيهات حتى تسمح بالإشعارات من إعدادات أندرويد", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         db = MasahatiDatabase(this)
+        ReminderScheduler.ensureChannel(this)
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(pageBg)
@@ -104,6 +114,7 @@ class MainActivity : ComponentActivity() {
             }
         })
         showHome()
+        intent.getLongExtra("open_space_id", -1L).takeIf { it > 0L }?.let { openSpace(it) }
     }
 
     override fun onDestroy() {
@@ -369,6 +380,8 @@ class MainActivity : ComponentActivity() {
                 val body = JSONObject().apply {
                     put("text", content.take(5000))
                     put("spaceTitle", spaceTitle)
+                    put("now", ZonedDateTime.now().toString())
+                    put("timezone", java.time.ZoneId.systemDefault().id)
                     val arr = JSONArray()
                     recent.forEach { msg ->
                         val contextText = if (msg.kind == "file") {
@@ -399,7 +412,7 @@ class MainActivity : ComponentActivity() {
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
-                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"))
+                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
@@ -418,7 +431,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun executeAgentActions(spaceId: Long, actions: JSONArray?): String {
+    private fun executeAgentActions(spaceId: Long, actions: JSONArray?, sourceText: String): String {
         if (actions == null) return ""
         val notes = mutableListOf<String>()
         for (i in 0 until actions.length()) {
@@ -427,6 +440,17 @@ class MainActivity : ComponentActivity() {
             val args = action.optJSONObject("args") ?: JSONObject()
             val needsConfirm = action.optBoolean("requires_confirmation", true)
             when (type) {
+                "create_reminder" -> {
+                    val created = ReminderScheduler.createFromAgent(this, db, spaceId, args, sourceText)
+                    if (created == null) {
+                        notes += "فهمت أنك تريد تنبيهاً، لكن الموعد غير واضح بما يكفي لإنشائه."
+                    } else {
+                        val precision = if (created.exact) "" else " قد يتأخر بضع دقائق ما لم تفعّل دقة التنبيهات من إعدادات أندرويد."
+                        val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
+                        notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
+                        runOnUiThread { maybeRequestNotificationPermission() }
+                    }
+                }
                 "enrich_previous_document" -> {
                     val target = db.lastFileMessage(spaceId)
                     if (target != null) {
@@ -511,6 +535,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         return notes.joinToString("\n")
+    }
+
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private fun postAgent(body: JSONObject): JSONObject {
@@ -706,9 +736,13 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
+            menu.add("إعداد دقة التنبيهات")
             setOnMenuItemClickListener {
-                if (it.title.toString().contains("بحث")) promptGlobalSearch()
-                else { showArchived = !showArchived; showHome() }
+                when {
+                    it.title.toString().contains("بحث") -> promptGlobalSearch()
+                    it.title.toString().contains("دقة التنبيهات") -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
+                    else -> { showArchived = !showArchived; showHome() }
+                }
                 true
             }
             show()
