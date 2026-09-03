@@ -33,6 +33,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -893,7 +894,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleDarkMode() {
-        getSharedPreferences("masahati_ui", MODE_PRIVATE).edit().putBoolean("dark_mode", !darkMode).apply()
+        getSharedPreferences("masahati_ui", MODE_PRIVATE).edit { putBoolean("dark_mode", !darkMode) }
         recreate()
     }
 
