@@ -39,8 +39,6 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -366,28 +364,13 @@ class MainActivity : ComponentActivity() {
         worker.execute {
             try {
                 val recent = db.recentForAi(spaceId, 8).filter { it.id != messageId }
-                val body = JSONObject().apply {
-                    put("text", content.take(5000))
-                    put("spaceTitle", spaceTitle)
-                    val arr = JSONArray()
-                    recent.forEach { msg ->
-                        arr.put(JSONObject().apply {
-                            put("role", if (msg.role == "assistant") "assistant" else "user")
-                            put("text", (if (msg.text.isNotBlank()) msg.text else msg.ocrText.orEmpty()).take(1400))
-                        })
-                    }
-                    put("recent", arr)
-                }
-                val remote = runCatching { postAgent(body) }.getOrNull()
-                val result = if (remote?.optBoolean("ok", false) == true) {
-                    remote
-                } else {
-                    LocalAssistantFallback.analyze(content, spaceTitle, recent)
-                }
-                val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
+                val result = LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                val labels = result.optJSONArray("labels")?.toStringList().orEmpty()
+                val keywords = result.optJSONArray("keywords")?.toStringList().orEmpty()
+                val tags = (labels + keywords).distinct().take(20).joinToString("، ")
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
-                db.updateAi(messageId, classification, labels, summary, result.toString())
+                db.updateAi(messageId, classification, tags, summary, result.toString())
                 val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"))
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
@@ -484,24 +467,7 @@ class MainActivity : ComponentActivity() {
         return notes.joinToString("\n")
     }
 
-    private fun postAgent(body: JSONObject): JSONObject {
-        val conn = (URL(AGENT_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 5_000
-            readTimeout = 20_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("apikey", SUPABASE_PUBLISHABLE_KEY)
-        }
-        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
-        val raw = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        conn.disconnect()
-        return if (raw.isBlank()) JSONObject().put("ok", false) else JSONObject(raw)
-    }
-
-    private fun startSmartScanner() {
+    private fun startSmartScanner( {
         setBusyToast("جاري تجهيز السكانر الذكي…")
         scanner.getStartScanIntent(this)
             .addOnSuccessListener { sender -> scannerLauncher.launch(IntentSenderRequest.Builder(sender).build()) }
@@ -608,16 +574,7 @@ class MainActivity : ComponentActivity() {
 
 
     private fun confirmCloudDocumentAnalysis(messageId: Long, aiText: String, spaceTitle: String) {
-        val spaceId = currentSpaceId ?: return
-        AlertDialog.Builder(this)
-            .setTitle("تحليل المستند بالذكاء؟")
-            .setMessage("تم حفظ المستند محلياً. للتحليل والتصنيف سأرسل النص المستخرج أو بيانات الملف فقط إلى خدمة الذكاء، وليس صورة المستند أو ملف PDF نفسه.")
-            .setPositiveButton("تحليل ذكي") { _, _ -> analyzeWithAgent(messageId, aiText, spaceTitle) }
-            .setNegativeButton("محلي فقط") { _, _ ->
-                db.insertText(spaceId, "assistant", "تم حفظ المستند محلياً بدون إرساله للتحليل السحابي.")
-                renderMessages(spaceId)
-            }
-            .show()
+        analyzeWithAgent(messageId, aiText, spaceTitle)
     }
 
     private fun openSavedFile(m: MessageRow) {
@@ -829,7 +786,5 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val SPACE_LIST_ID = 4001
         private const val MESSAGE_LIST_ID = 4002
-        private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-dev"
-        private const val SUPABASE_PUBLISHABLE_KEY = "sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3"
     }
 }
