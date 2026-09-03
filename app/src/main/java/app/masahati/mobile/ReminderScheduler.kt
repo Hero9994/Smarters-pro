@@ -283,6 +283,7 @@ object ReminderScheduler {
     }
 }
 
+
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getLongExtra("reminder_id", -1L)
@@ -292,6 +293,11 @@ class ReminderReceiver : BroadcastReceiver() {
         try {
             val reminder = db.getReminder(id) ?: return
             if (!reminder.enabled) return
+
+            val assistantMessage = buildAssistantMessage(reminder)
+            val subject = reminderSubject(reminder)
+            db.insertText(reminder.spaceId, "assistant", assistantMessage)
+
             ReminderScheduler.ensureChannel(appContext)
             if (ReminderScheduler.notificationsAllowed(appContext)) {
                 val openIntent = Intent(appContext, MainActivity::class.java).apply {
@@ -304,14 +310,20 @@ class ReminderReceiver : BroadcastReceiver() {
                     openIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
+                val assistantPerson = androidx.core.app.Person.Builder()
+                    .setName("مساعد مساحاتي")
+                    .setImportant(true)
+                    .build()
+                val messagingStyle = NotificationCompat.MessagingStyle(assistantPerson)
+                    .addMessage(assistantMessage, System.currentTimeMillis(), assistantPerson)
                 val notification = NotificationCompat.Builder(appContext, ReminderScheduler.CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                    .setContentTitle(reminder.title)
-                    .setContentText(reminder.body)
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(reminder.body))
+                    .setContentTitle("مساعد مساحاتي")
+                    .setContentText(subject)
+                    .setStyle(messagingStyle)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
-                    .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setContentIntent(contentIntent)
                     .build()
                 if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -322,6 +334,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     }
                 }
             }
+
             if (reminder.repeatRule == "none") {
                 db.disableReminder(id)
             } else {
@@ -330,6 +343,87 @@ class ReminderReceiver : BroadcastReceiver() {
         } finally {
             db.close()
         }
+    }
+
+    private fun buildAssistantMessage(reminder: ReminderRow): String {
+        val subject = reminderSubject(reminder)
+        val timing = scheduleLabel(reminder)
+        return buildString {
+            append("⏰ تذكيرك الآن: ")
+            append(subject)
+            append("\n")
+            if (timing.isNotBlank()) {
+                append("أنت طلبت مني أذكرك بهذا ")
+                append(timing)
+                append(".")
+            } else {
+                append("هذا هو التذكير الذي طلبته مني.")
+            }
+        }
+    }
+
+    private fun reminderSubject(reminder: ReminderRow): String {
+        val cleanedBody = cleanReminderCommand(reminder.body)
+        if (cleanedBody.isNotBlank()) return cleanedBody.take(220)
+        val title = reminder.title.trim()
+        if (title.isNotBlank() && !title.equals("تذكير مساحاتي", ignoreCase = true)) return title.take(220)
+        return reminder.body.trim().ifBlank { "التذكير الذي طلبته" }.take(220)
+    }
+
+    private fun cleanReminderCommand(raw: String): String {
+        var text = raw.trim()
+        text = text.replace(
+            Regex("^(?:بدي\\s+)?(?:تذكرني|تذكّرني|ذكرني|ذكّرني|ذكريني|ذكّريني)\\s+", RegexOption.IGNORE_CASE),
+            ""
+        )
+        text = text.replace(
+            Regex("\\s+(?:اليوم|بكرا|غدا|غداً|غدًا|tomorrow|heute|morgen)(?=\\s|$)", RegexOption.IGNORE_CASE),
+            " "
+        )
+        text = text.replace(
+            Regex("\\s*(?:الساعة|ساعه)\\s*(?:[01]?\\d|2[0-3])[:.]([0-5]\\d)", RegexOption.IGNORE_CASE),
+            " "
+        )
+        text = text.replace(
+            Regex("\\s+(?:بتاريخ|تاريخ)\\s+\\d{1,2}[./-]\\d{1,2}(?:[./-]\\d{2,4})?", RegexOption.IGNORE_CASE),
+            " "
+        )
+        return text.replace(Regex("\\s{2,}"), " ").trim(' ', '.', '،', ',')
+    }
+
+    private fun scheduleLabel(reminder: ReminderRow): String {
+        fun clock(hour: Int?, minute: Int?): String {
+            if (hour == null || minute == null) return ""
+            return "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
+        }
+        return when (reminder.repeatRule) {
+            "daily" -> "كل يوم الساعة ${clock(reminder.hour, reminder.minute)}"
+            "weekly" -> {
+                val day = reminder.dayOfWeek?.let(::weekdayArabic).orEmpty()
+                "كل $day الساعة ${clock(reminder.hour, reminder.minute)}".trim()
+            }
+            else -> {
+                val epoch = reminder.nextFireAt ?: return ""
+                val zone = ZoneId.systemDefault()
+                val dt = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(epoch), zone)
+                val dayText = if (dt.toLocalDate() == LocalDate.now(zone)) {
+                    "اليوم"
+                } else {
+                    dt.format(DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.GERMANY))
+                }
+                "$dayText الساعة ${dt.format(DateTimeFormatter.ofPattern("HH:mm", Locale.GERMANY))}"
+            }
+        }
+    }
+
+    private fun weekdayArabic(day: Int): String = when (day) {
+        1 -> "الاثنين"
+        2 -> "الثلاثاء"
+        3 -> "الأربعاء"
+        4 -> "الخميس"
+        5 -> "الجمعة"
+        6 -> "السبت"
+        else -> "الأحد"
     }
 }
 
