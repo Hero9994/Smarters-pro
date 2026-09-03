@@ -52,7 +52,7 @@ object DocumentImageEnhancer {
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
-        while (max(bounds.outWidth / sample, bounds.outHeight / sample) > maxSide * 2) sample *= 2
+        while (max(bounds.outWidth / sample, bounds.outHeight / sample) > maxSide) sample *= 2
         val options = BitmapFactory.Options().apply {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
