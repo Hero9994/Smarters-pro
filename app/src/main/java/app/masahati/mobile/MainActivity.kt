@@ -47,10 +47,12 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
-    private val teal = Color.rgb(11, 110, 105)
-    private val paleTeal = Color.rgb(222, 244, 241)
-    private val assistantBg = Color.rgb(245, 247, 247)
-    private val pageBg = Color.rgb(250, 250, 250)
+    private val teal = Color.rgb(54, 111, 107)
+    private val paleTeal = Color.rgb(221, 233, 230)
+    private val assistantBg = Color.rgb(232, 234, 231)
+    private val pageBg = Color.rgb(239, 239, 234)
+    private val surfaceBg = Color.rgb(247, 246, 242)
+    private val controlBg = Color.rgb(230, 232, 228)
     private val worker = Executors.newSingleThreadExecutor()
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private lateinit var db: MasahatiDatabase
@@ -134,7 +136,7 @@ class MainActivity : ComponentActivity() {
             setText(homeSearch)
             setSingleLine(true)
             setPadding(dp(18), 0, dp(18), 0)
-            background = rounded(Color.WHITE, 28f, Color.rgb(225, 229, 229), 1)
+            background = rounded(surfaceBg, 28f, Color.rgb(211, 214, 211), 1)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -186,7 +188,7 @@ class MainActivity : ComponentActivity() {
             val row = horizontal().apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(14), dp(13), dp(14), dp(13))
-                background = rounded(Color.WHITE, 0f)
+                background = rounded(surfaceBg, 0f)
                 setOnClickListener { openSpace(space.id) }
                 setOnLongClickListener {
                     showSpaceMenu(this, space)
@@ -236,7 +238,7 @@ class MainActivity : ComponentActivity() {
         val top = horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(10), dp(7), dp(10), dp(7))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(surfaceBg)
         }
         val back = button("←", 26f).apply { setOnClickListener { showHome() } }
         val title = text(currentSpaceTitle, 29f, Color.rgb(25, 30, 30), true).apply { gravity = Gravity.CENTER }
@@ -260,10 +262,10 @@ class MainActivity : ComponentActivity() {
         val bottom = horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(12))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(surfaceBg)
         }
         val plus = button("+", 34f).apply {
-            background = rounded(Color.rgb(225, 228, 228), 4f)
+            background = rounded(controlBg, 4f)
             setOnClickListener { showAttachMenu(this) }
         }
         composer = EditText(this).apply {
@@ -272,7 +274,7 @@ class MainActivity : ComponentActivity() {
             maxLines = 5
             minLines = 1
             setPadding(dp(17), dp(9), dp(17), dp(9))
-            background = rounded(Color.rgb(247, 248, 248), 28f)
+            background = rounded(Color.rgb(244, 244, 240), 28f)
         }
         val send = Button(this).apply {
             text = "إرسال"
@@ -319,7 +321,7 @@ class MainActivity : ComponentActivity() {
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(9))
-            background = rounded(if (m.role == "assistant") assistantBg else paleTeal, 25f, if (m.role == "assistant") Color.rgb(225, 229, 229) else Color.TRANSPARENT, if (m.role == "assistant") 1 else 0)
+            background = rounded(if (m.role == "assistant") assistantBg else paleTeal, 25f, if (m.role == "assistant") Color.rgb(210, 214, 211) else Color.TRANSPARENT, if (m.role == "assistant") 1 else 0)
             alpha = if (temporary) 0.8f else 1f
         }
         if (m.role == "assistant") {
@@ -376,20 +378,23 @@ class MainActivity : ComponentActivity() {
                     }
                     put("recent", arr)
                 }
-                val result = postAgent(body)
-                if (result.optBoolean("ok", false)) {
-                    val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
-                    val classification = result.optString("classification", "other")
-                    val summary = result.optString("summary", "")
-                    db.updateAi(messageId, classification, labels, summary, result.toString())
-                    val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"))
-                    val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
-                    db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
+                val remote = runCatching { postAgent(body) }.getOrNull()
+                val result = if (remote?.optBoolean("ok", false) == true) {
+                    remote
                 } else {
-                    db.insertText(spaceId, "assistant", "تم حفظ المحتوى محلياً. تعذر الوصول للمساعد الذكي هذه المرة، ويمكنك المتابعة دون فقدان أي شيء.")
+                    LocalAssistantFallback.analyze(content, spaceTitle, recent)
                 }
+                val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
+                val classification = result.optString("classification", "other")
+                val summary = result.optString("summary", "")
+                db.updateAi(messageId, classification, labels, summary, result.toString())
+                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"))
+                val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
-                db.insertText(spaceId, "assistant", "تم حفظ المحتوى محلياً. تعذر الوصول للمساعد الذكي هذه المرة، ويمكنك المتابعة دون فقدان أي شيء.")
+                val fallback = LocalAssistantFallback.analyze(content, spaceTitle)
+                db.updateAi(messageId, fallback.optString("classification", "note"), fallback.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty(), fallback.optString("summary", content.take(220)), fallback.toString())
+                db.insertText(spaceId, "assistant", fallback.optString("reply", "فهمت المحتوى وحفظته كملاحظة قابلة للبحث."))
             } finally {
                 busyCount = (busyCount - 1).coerceAtLeast(0)
                 runOnUiThread {
@@ -517,29 +522,35 @@ class MainActivity : ComponentActivity() {
                 val now = System.currentTimeMillis()
                 val fileName = "Scan-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(now))}.pdf"
                 val target = File(filesDir, "documents").apply { mkdirs() }.resolve(fileName)
-                if (pdf != null) {
-                    contentResolver.openInputStream(pdf.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
-                } else {
-                    throw IllegalStateException("PDF result missing")
-                }
-                val ocr = buildString {
-                    pages.forEachIndexed { index, page ->
+                val ocrBuilder = StringBuilder()
+                val cleanedPageCount = if (pages.isNotEmpty()) {
+                    DocumentImageEnhancer.processPagesToPdf(
+                        this@MainActivity,
+                        pages.map { it.imageUri },
+                        target
+                    ) { index, cleanedBitmap ->
                         try {
-                            val image = InputImage.fromFilePath(this@MainActivity, page.imageUri)
-                            val text = Tasks.await(recognizer.process(image)).text.trim()
-                            if (text.isNotBlank()) {
-                                if (isNotEmpty()) append("\n\n")
-                                append("صفحة ${index + 1}:\n")
-                                append(text)
+                            val image = InputImage.fromBitmap(cleanedBitmap, 0)
+                            val recognized = Tasks.await(recognizer.process(image)).text.trim()
+                            if (recognized.isNotBlank()) {
+                                if (ocrBuilder.isNotEmpty()) ocrBuilder.append("\n\n")
+                                ocrBuilder.append("صفحة ${index + 1}:\n")
+                                ocrBuilder.append(recognized)
                             }
                         } catch (_: Exception) { }
                     }
+                } else {
+                    if (pdf == null) throw IllegalStateException("PDF result missing")
+                    contentResolver.openInputStream(pdf.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
+                        ?: throw IllegalStateException("Cannot read scanned PDF")
+                    pdf.pageCount
                 }
+                val ocr = ocrBuilder.toString()
                 val messageId = db.insertFile(spaceId, "user", fileName, target.absolutePath, "application/pdf", ocr)
                 val aiText = if (ocr.isBlank()) {
-                    "مستند ممسوح ضوئياً باسم $fileName وعدد صفحاته ${pdf.pageCount}. صنفه ونظم كلمات البحث المناسبة بدون اختراع محتوى غير ظاهر."
+                    "مستند ممسوح ضوئياً باسم $fileName وعدد صفحاته $cleanedPageCount. صنفه ونظم كلمات البحث المناسبة بدون اختراع محتوى غير ظاهر."
                 } else {
-                    "مستند ممسوح ضوئياً باسم $fileName. النص المستخرج محلياً:\n${ocr.take(4800)}"
+                    "مستند ممسوح ضوئياً باسم $fileName بعد تنظيف الظلال تلقائياً. النص المستخرج محلياً:\n${ocr.take(4800)}"
                 }
                 runOnUiThread {
                     busyCount = (busyCount - 1).coerceAtLeast(0)
@@ -790,7 +801,7 @@ class MainActivity : ComponentActivity() {
         textSize = size
         setTextColor(Color.rgb(35, 40, 40))
         isAllCaps = false
-        background = rounded(Color.rgb(242, 243, 243), 4f)
+        background = rounded(controlBg, 4f)
         setPadding(0, 0, 0, 0)
     }
 
