@@ -1,11 +1,25 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
     <style name="Theme.Masahati" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">#FAFAFA</item>
-        <item name="android:navigationBarColor">#FAFAFA</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:colorAccent">#0B6E69</item>
+        <item name="android:colorAccent">#366F6B</item>
         <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">#EFEFEA</item>
+    </style>
+
+    <style name="Theme.Masahati.Dark" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#69AEA8</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">#121514</item>
     </style>
 </resources>
