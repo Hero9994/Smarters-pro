@@ -380,13 +380,16 @@ class MainActivity : ComponentActivity() {
         busyCount++
         renderMessages(spaceId)
         worker.execute {
+            val recent = db.recentForAi(spaceId, 10).filter { it.id != messageId }
             try {
-                val recent = db.recentForAi(spaceId, 8).filter { it.id != messageId }
                 val body = JSONObject().apply {
                     put("text", content.take(5000))
                     put("spaceTitle", spaceTitle)
                     put("now", ZonedDateTime.now().toString())
                     put("timezone", java.time.ZoneId.systemDefault().id)
+                    val spaces = JSONArray()
+                    db.listSpaces(false).forEach { spaces.put(it.title) }
+                    put("spaces", spaces)
                     val arr = JSONArray()
                     recent.forEach { msg ->
                         val contextText = if (msg.kind == "file") {
@@ -413,15 +416,17 @@ class MainActivity : ComponentActivity() {
                 } else {
                     LocalAssistantFallback.analyze(content, spaceTitle, recent)
                 }
-                val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
+                val labelList = result.optJSONArray("labels")?.toStringList().orEmpty()
+                val keywordList = result.optJSONArray("keywords")?.toStringList().orEmpty()
+                val searchTags = (labelList + keywordList).filter { it.isNotBlank() }.distinct().take(16).joinToString("، ")
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
-                db.updateAi(messageId, classification, labels, summary, result.toString())
+                db.updateAi(messageId, classification, searchTags, summary, result.toString())
                 val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
-                val fallback = LocalAssistantFallback.analyze(content, spaceTitle)
+                val fallback = LocalAssistantFallback.analyze(content, spaceTitle, recent)
                 db.updateAi(messageId, fallback.optString("classification", "note"), fallback.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty(), fallback.optString("summary", content.take(220)), fallback.toString())
                 db.insertText(spaceId, "assistant", fallback.optString("reply", "فهمت المحتوى وحفظته كملاحظة قابلة للبحث."))
             } finally {
@@ -512,6 +517,18 @@ class MainActivity : ComponentActivity() {
                         else {
                             db.setPinned(space.id, true)
                             notes += "تم تثبيت مساحة «${space.title}»."
+                        }
+                    }
+                }
+                "create_space" -> {
+                    val title = args.optString("title").trim()
+                    if (title.isNotBlank()) {
+                        val existing = db.findSpaceByTitle(title)
+                        if (existing != null) notes += "مساحة «${existing.title}» موجودة أصلاً."
+                        else if (needsConfirm) notes += "إنشاء مساحة «$title» جاهز وينتظر التأكيد."
+                        else {
+                            db.createSpace(title)
+                            notes += "تم إنشاء مساحة «$title»."
                         }
                     }
                 }
