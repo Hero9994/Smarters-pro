@@ -71,7 +71,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
-            db.execSQL("DELETE FROM spaces WHERE title IN (''ملاحظات'',''يومي'',''أوراقي'',''أفكار المشروع'') AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.space_id = spaces.id)")
+            db.execSQL("DELETE FROM spaces WHERE title IN ('ملاحظات','يومي','أوراقي','أفكار المشروع') AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.space_id = spaces.id)")
         }
     }
 
