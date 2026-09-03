@@ -43,6 +43,17 @@ jobs:
       - name: Build, lint and test
         run: gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
+      - name: Regression gates for agent and keyboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'WindowInsetsCompat.Type.ime()' app/src/main/java/app/masahati/mobile/MainActivity.kt
+          grep -Fq 'ReminderScheduler.validateAgentRequest' app/src/main/java/app/masahati/mobile/MainActivity.kt
+          grep -Fq 'val mergedActions = JSONArray()' app/src/main/java/app/masahati/mobile/MainActivity.kt
+          grep -Fq '"enrich_previous_document"' app/src/main/java/app/masahati/mobile/LocalAssistantFallback.kt
+          grep -Fq 'recentDocuments' app/src/main/java/app/masahati/mobile/MainActivity.kt
+          grep -Fq 'android:windowSoftInputMode="adjustResize"' app/src/main/AndroidManifest.xml
+
       - name: Verify integrated APK identity and signature
         shell: bash
         run: |
