@@ -394,7 +394,7 @@ class MainActivity : ComponentActivity() {
         renderMessages(spaceId)
         worker.execute {
             try {
-                val recent = db.recentForAi(spaceId, 8).filter { it.id != messageId }
+                val recent = db.recentForAi(spaceId, 12).filter { it.id != messageId }
                 val body = JSONObject().apply {
                     put("text", content.take(5000))
                     put("spaceTitle", spaceTitle)
@@ -419,6 +419,38 @@ class MainActivity : ComponentActivity() {
                         })
                     }
                     put("recent", arr)
+
+                    val spacesArr = JSONArray()
+                    (db.listSpaces(false) + db.listSpaces(true)).distinctBy { it.id }.take(30).forEach { space ->
+                        spacesArr.put(JSONObject().apply {
+                            put("name", space.title)
+                            put("archived", space.archived)
+                            put("pinned", space.pinned)
+                        })
+                    }
+                    val docsArr = JSONArray()
+                    db.recentDocuments(6).forEach { doc ->
+                        docsArr.put(JSONObject().apply {
+                            put("space", db.getSpace(doc.spaceId)?.title.orEmpty())
+                            put("name", doc.displayName.orEmpty())
+                            put("summary", doc.summary.orEmpty().take(350))
+                            put("tags", doc.tags.orEmpty().take(240))
+                        })
+                    }
+                    val remindersArr = JSONArray()
+                    db.listActiveReminders().take(8).forEach { reminder ->
+                        remindersArr.put(JSONObject().apply {
+                            put("space", db.getSpace(reminder.spaceId)?.title.orEmpty())
+                            put("title", reminder.title)
+                            put("repeat", reminder.repeatRule)
+                            put("nextFireAt", reminder.nextFireAt ?: JSONObject.NULL)
+                        })
+                    }
+                    put("appState", JSONObject().apply {
+                        put("spaces", spacesArr)
+                        put("recentDocuments", docsArr)
+                        put("activeReminders", remindersArr)
+                    })
                 }
                 val remote = runCatching { postAgent(body) }.getOrNull()
                 val result = if (remote?.optBoolean("ok", false) == true) {
