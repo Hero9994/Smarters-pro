@@ -10,13 +10,13 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
     }
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".v04"
+            applicationIdSuffix = ".v05"
             versionNameSuffix = "-dev"
         }
         release {
@@ -25,16 +25,21 @@ android {
     }
 
     lint {
-        lintConfig = file("../lint.xml")
+        abortOnError = true
+        warningsAsErrors = true
+        disable += setOf("OldTargetApi")
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JaVaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
 dependencies {
     implementation("androidx.activity:activity-ktx:1.13.0")
+    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     testImplementation("junit:junit:4.13.2")
 }

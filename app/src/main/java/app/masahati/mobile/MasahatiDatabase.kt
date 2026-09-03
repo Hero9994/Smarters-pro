@@ -1,0 +1,292 @@
+package app.masahati.mobile
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+
+data class SpaceRow(
+    val id: Long,
+    val title: String,
+    val pinned: Boolean,
+    val archived: Boolean,
+    val updatedAt: Long
+)
+
+data class MessageRow(
+    val id: Long,
+    val spaceId: Long,
+    val role: String,
+    val kind: String,
+    val text: String,
+    val filePath: String?,
+    val mimeType: String?,
+    val displayName: String?,
+    val ocrText: String?,
+    val classification: String?,
+    val tags: String?,
+    val summary: String?,
+    val createdAt: Long
+)
+
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 1) {
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE spaces(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              title TEXT NOT NULL,
+              pinned INTEGER NOT NULL DEFAULT 0,
+              archived INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE messages(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              space_id INTEGER NOT NULL,
+              role TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              text TEXT NOT NULL DEFAULT '',
+              file_path TEXT,
+              mime_type TEXT,
+              display_name TEXT,
+              ocr_text TEXT,
+              classification TEXT,
+              tags TEXT,
+              summary TEXT,
+              ai_json TEXT,
+              created_at INTEGER NOT NULL,
+              FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX idx_messages_space_created ON messages(space_id, created_at)")
+        db.execSQL("CREATE INDEX idx_spaces_archived_pinned ON spaces(archived, pinned, updated_at)")
+        seedDefaults(db)
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+
+    private fun seedDefaults(db: SQLiteDatabase) {
+        if (DatabaseUtilsCompat.longForQuery(db, "SELECT COUNT(*) FROM spaces", emptyArray()) > 0) return
+        listOf("ملاحظات", "يومي", "أوراقي", "أفكار المشروع").forEach { title ->
+            val now = System.currentTimeMillis()
+            val v = ContentValues().apply {
+                put("title", title)
+                put("created_at", now)
+                put("updated_at", now)
+            }
+            db.insert("spaces", null, v)
+        }
+    }
+
+    fun listSpaces(archived: Boolean = false, query: String = ""): List<SpaceRow> {
+        val args = mutableListOf(if (archived) "1" else "0")
+        val where = StringBuilder("archived = ?")
+        if (query.isNotBlank()) {
+            where.append(" AND title LIKE ?")
+            args += "%${query.trim()}%"
+        }
+        val c = readableDatabase.query(
+            "spaces", null, where.toString(), args.toTypedArray(), null, null,
+            "pinned DESC, updated_at DESC"
+        )
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(spaceFrom(cursor)) } }
+    }
+
+    fun createSpace(title: String): Long {
+        val now = System.currentTimeMillis()
+        val id = writableDatabase.insert("spaces", null, ContentValues().apply {
+            put("title", title.trim().ifBlank { "مساحة جديدة" })
+            put("created_at", now)
+            put("updated_at", now)
+        })
+        return id
+    }
+
+    fun findSpaceByTitle(title: String): SpaceRow? {
+        val c = readableDatabase.query(
+            "spaces", null, "LOWER(title)=LOWER(?)", arrayOf(title.trim()), null, null, null, "1"
+        )
+        return c.use { if (it.moveToFirst()) spaceFrom(it) else null }
+    }
+
+    fun getSpace(id: Long): SpaceRow? {
+        val c = readableDatabase.query("spaces", null, "id=?", arrayOf(id.toString()), null, null, null, "1")
+        return c.use { if (it.moveToFirst()) spaceFrom(it) else null }
+    }
+
+    fun renameSpace(id: Long, title: String) {
+        writableDatabase.update("spaces", ContentValues().apply {
+            put("title", title.trim().take(120))
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(id.toString()))
+    }
+
+    fun setPinned(id: Long, pinned: Boolean) {
+        writableDatabase.update("spaces", ContentValues().apply {
+            put("pinned", if (pinned) 1 else 0)
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(id.toString()))
+    }
+
+    fun setArchived(id: Long, archived: Boolean) {
+        writableDatabase.update("spaces", ContentValues().apply {
+            put("archived", if (archived) 1 else 0)
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(id.toString()))
+    }
+
+    fun deleteSpace(id: Long) {
+        writableDatabase.delete("messages", "space_id=?", arrayOf(id.toString()))
+        writableDatabase.delete("spaces", "id=?", arrayOf(id.toString()))
+    }
+
+    fun insertText(spaceId: Long, role: String, text: String): Long = insertMessage(
+        spaceId = spaceId,
+        role = role,
+        kind = "text",
+        text = text
+    )
+
+    fun insertFile(
+        spaceId: Long,
+        role: String,
+        displayName: String,
+        filePath: String,
+        mimeType: String,
+        ocrText: String? = null,
+        text: String = ""
+    ): Long = insertMessage(
+        spaceId = spaceId,
+        role = role,
+        kind = "file",
+        text = text,
+        filePath = filePath,
+        mimeType = mimeType,
+        displayName = displayName,
+        ocrText = ocrText
+    )
+
+    private fun insertMessage(
+        spaceId: Long,
+        role: String,
+        kind: String,
+        text: String,
+        filePath: String? = null,
+        mimeType: String? = null,
+        displayName: String? = null,
+        ocrText: String? = null
+    ): Long {
+        val now = System.currentTimeMillis()
+        val id = writableDatabase.insert("messages", null, ContentValues().apply {
+            put("space_id", spaceId)
+            put("role", role)
+            put("kind", kind)
+            put("text", text)
+            put("file_path", filePath)
+            put("mime_type", mimeType)
+            put("display_name", displayName)
+            put("ocr_text", ocrText)
+            put("created_at", now)
+        })
+        writableDatabase.update("spaces", ContentValues().apply { put("updated_at", now) }, "id=?", arrayOf(spaceId.toString()))
+        return id
+    }
+
+    fun updateOcr(messageId: Long, ocrText: String) {
+        writableDatabase.update("messages", ContentValues().apply { put("ocr_text", ocrText) }, "id=?", arrayOf(messageId.toString()))
+    }
+
+    fun updateAi(messageId: Long, classification: String?, tags: String?, summary: String?, aiJson: String) {
+        writableDatabase.update("messages", ContentValues().apply {
+            put("classification", classification)
+            put("tags", tags)
+            put("summary", summary)
+            put("ai_json", aiJson)
+        }, "id=?", arrayOf(messageId.toString()))
+    }
+
+    fun listMessages(spaceId: Long): List<MessageRow> {
+        val c = readableDatabase.query(
+            "messages", null, "space_id=?", arrayOf(spaceId.toString()), null, null, "created_at ASC, id ASC"
+        )
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
+    }
+
+    fun recentForAi(spaceId: Long, limit: Int = 8): List<MessageRow> {
+        val c = readableDatabase.query(
+            "messages", null, "space_id=? AND text<>''", arrayOf(spaceId.toString()), null, null,
+            "created_at DESC, id DESC", limit.toString()
+        )
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }.reversed()
+    }
+
+    fun lastUserMessage(spaceId: Long): MessageRow? {
+        val c = readableDatabase.query(
+            "messages", null, "space_id=? AND role='user'", arrayOf(spaceId.toString()), null, null,
+            "created_at DESC, id DESC", "1"
+        )
+        return c.use { if (it.moveToFirst()) messageFrom(it) else null }
+    }
+
+    fun moveMessage(messageId: Long, targetSpaceId: Long) {
+        writableDatabase.update("messages", ContentValues().apply { put("space_id", targetSpaceId) }, "id=?", arrayOf(messageId.toString()))
+        writableDatabase.update("spaces", ContentValues().apply { put("updated_at", System.currentTimeMillis()) }, "id=?", arrayOf(targetSpaceId.toString()))
+    }
+
+    fun deleteMessage(messageId: Long) {
+        writableDatabase.delete("messages", "id=?", arrayOf(messageId.toString()))
+    }
+
+    fun search(query: String, limit: Int = 12): List<MessageRow> {
+        val q = "%${query.trim()}%"
+        val c = readableDatabase.query(
+            "messages", null,
+            "text LIKE ? OR display_name LIKE ? OR ocr_text LIKE ? OR summary LIKE ? OR tags LIKE ? OR classification LIKE ?",
+            arrayOf(q, q, q, q, q, q), null, null, "created_at DESC", limit.toString()
+        )
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
+    }
+
+    private fun spaceFrom(c: Cursor) = SpaceRow(
+        id = c.getLong(c.getColumnIndexOrThrow("id")),
+        title = c.getString(c.getColumnIndexOrThrow("title")),
+        pinned = c.getInt(c.getColumnIndexOrThrow("pinned")) == 1,
+        archived = c.getInt(c.getColumnIndexOrThrow("archived")) == 1,
+        updatedAt = c.getLong(c.getColumnIndexOrThrow("updated_at"))
+    )
+
+    private fun messageFrom(c: Cursor) = MessageRow(
+        id = c.getLong(c.getColumnIndexOrThrow("id")),
+        spaceId = c.getLong(c.getColumnIndexOrThrow("space_id")),
+        role = c.getString(c.getColumnIndexOrThrow("role")),
+        kind = c.getString(c.getColumnIndexOrThrow("kind")),
+        text = c.getString(c.getColumnIndexOrThrow("text")) ?: "",
+        filePath = c.stringOrNull("file_path"),
+        mimeType = c.stringOrNull("mime_type"),
+        displayName = c.stringOrNull("display_name"),
+        ocrText = c.stringOrNull("ocr_text"),
+        classification = c.stringOrNull("classification"),
+        tags = c.stringOrNull("tags"),
+        summary = c.stringOrNull("summary"),
+        createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
+    )
+
+    private fun Cursor.stringOrNull(name: String): String? {
+        val i = getColumnIndexOrThrow(name)
+        return if (isNull(i)) null else getString(i)
+    }
+}
+
+private object DatabaseUtilsCompat {
+    fun longForQuery(db: SQLiteDatabase, sql: String, args: Array<String>): Long {
+        val c = db.rawQuery(sql, args)
+        return c.use { if (it.moveToFirst()) it.getLong(0) else 0L }
+    }
+}

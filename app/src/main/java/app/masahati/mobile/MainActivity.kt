@@ -1,10 +1,8 @@
 package app.masahati.mobile
 
-import android.annotation.SuppressLint
 import android.app.AlertDialog
-import androidx.activity.ComponentActivity
-import androidx.activity.OnBackPressedCallback
-import androidx.activity.result.contract.ActivityResultContracts
+import android.content.ActivityNotFoundException
+import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -17,220 +15,810 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.BaseAdapter
+import android.webkit.MimeTypeMap
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ListView
+import android.widget.PopupMenu
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import app.masahati.mobile.data.MasahatiDatabase
-import app.masahati.mobile.data.MessageRecord
-import app.masahati.mobile.data.SpaceSummary
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
-import java.util.UUID
-import kotlin.math.roundToInt
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.Executors
 
-@SuppressLint("SetTextI18n")
 class MainActivity : ComponentActivity() {
-    private val database by lazy { MasahatiDatabase(this) }
-    private var currentSpaceId: Long?=null
-    private var showingArchive=false
-    private var searchQuery=""
-    private var homeAdapter: SpaceAdapter?=null
-    private var messageAdapter: MessageAdapter?=null
-    private var messageList: ListView?=null
-    private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        val spaceId = currentSpaceId
-        if (uri != null && spaceId != null) importAttachment(spaceId, uri)
+    private val teal = Color.rgb(11, 110, 105)
+    private val paleTeal = Color.rgb(222, 244, 241)
+    private val assistantBg = Color.rgb(245, 247, 247)
+    private val pageBg = Color.rgb(250, 250, 250)
+    private val worker = Executors.newSingleThreadExecutor()
+    private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    private lateinit var db: MasahatiDatabase
+    private lateinit var root: LinearLayout
+    private var currentSpaceId: Long? = null
+    private var currentSpaceTitle: String = ""
+    private var showArchived = false
+    private var homeSearch: String = ""
+    private var chatScroll: ScrollView? = null
+    private var composer: EditText? = null
+    private var busyCount = 0
+
+    private val scannerOptions by lazy {
+        GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(true)
+            .setPageLimit(20)
+            .setResultFormats(
+                GmsDocumentScannerOptions.RESULT_FORMAT_JPEG,
+                GmsDocumentScannerOptions.RESULT_FORMAT_PDF
+            )
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+    }
+
+    private val scanner by lazy { GmsDocumentScanning.getClient(scannerOptions) }
+
+    private val scannerLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val scan = GmsDocumentScanningResult.fromActivityResultIntent(result.data) ?: return@registerForActivityResult
+        handleScan(scan)
+    }
+
+    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) handlePickedFile(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        configureSystemBars()
+        db = MasahatiDatabase(this)
+        root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(pageBg)
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+        }
+        setContentView(root)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (currentSpaceId != null) {
-                    currentSpaceId = null
-                    showHome()
-                } else {
-                    finish()
-                }
+                if (currentSpaceId != null) showHome() else finish()
             }
         })
-        currentSpaceId=savedInstanceState?.getLong(KEY_SPACE_ID,NO_SPACE)?.takeIf { it!=NO_SPACE }
-        val requested=currentSpaceId
-        if(requested!=null && database.getSpace(requested)!=null) showSpace(requested) else { currentSpaceId=null;showHome() }
+        showHome()
     }
 
-    override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState);outState.putLong(KEY_SPACE_ID,currentSpaceId?:NO_SPACE) }
-    @Suppress("DEPRECATION")
-    private fun configureSystemBars() {
-        window.statusBarColor = getColor(R.color.masahati_teal_dark)
-        window.navigationBarColor = getColor(R.color.masahati_surface)
+    override fun onDestroy() {
+        recognizer.close()
+        worker.shutdown()
+        db.close()
+        super.onDestroy()
     }
-
-    override fun onDestroy() { database.close();super.onDestroy() }
 
     private fun showHome() {
-        currentSpaceId=null
-        val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(getColor(R.color.masahati_surface));layoutDirection=View.LAYOUT_DIRECTION_RTL }
-        root.addView(buildHomeToolbar());root.addView(buildSearchBox())
-        val filters=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.START;setPadding(dp(16),dp(6),dp(16),dp(8)) }
-        filters.addView(filterChip("المساحات",!showingArchive){showingArchive=false;showHome()})
-        filters.addView(filterChip("الأرشيف",showingArchive){showingArchive=true;showHome()})
-        root.addView(filters)
-        val list=ListView(this).apply { divider=null;dividerHeight=0;setBackgroundColor(Color.TRANSPARENT);isVerticalScrollBarEnabled=false }
-        homeAdapter=SpaceAdapter(loadSpaces()).also { list.adapter=it }
-        list.setOnItemClickListener { _,_,position,_ -> homeAdapter?.getItem(position)?.let { showSpace(it.id) } }
-        list.setOnItemLongClickListener { _,_,position,_ -> homeAdapter?.getItem(position)?.let(::showSpaceActions);true }
-        root.addView(list,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f))
-        setContentView(root)
-    }
+        currentSpaceId = null
+        currentSpaceTitle = ""
+        root.removeAllViews()
 
-    private fun buildHomeToolbar(): View {
-        val bar=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(18),dp(14),dp(12),dp(10)) }
-        val title=TextView(this).apply { text="مساحاتي";textSize=28f;setTextColor(getColor(R.color.masahati_teal));setTypeface(typeface,Typeface.BOLD) }
-        bar.addView(title,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))
-        val add=Button(this).apply { text="＋";textSize=24f;contentDescription="إنشاء مساحة جديدة";minWidth=dp(52);setOnClickListener { promptCreateSpace() } }
-        bar.addView(add,LinearLayout.LayoutParams(dp(58),dp(52)))
-        return bar
-    }
-
-    private fun buildSearchBox(): View {
-        val container=LinearLayout(this).apply { setPadding(dp(16),dp(4),dp(16),dp(4)) }
-        val search=EditText(this).apply {
-            hint="ابحث في المساحات والمحتوى";setSingleLine(true);textSize=16f;setPadding(dp(18),dp(12),dp(18),dp(12));background=rounded(Color.WHITE,20f,0xFFE0E8E6.toInt());setText(searchQuery);setSelection(text.length)
-            addTextChangedListener(object:TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit;override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int)=Unit;override fun afterTextChanged(s:Editable?){searchQuery=s?.toString().orEmpty();homeAdapter?.replace(loadSpaces())} })
+        val top = horizontal().apply {
+            setPadding(dp(18), dp(14), dp(18), dp(10))
+            gravity = Gravity.CENTER_VERTICAL
         }
-        container.addView(search,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));return container
+        val title = text("مساحاتي", 30f, teal, true).apply { gravity = Gravity.START }
+        val menu = button("⋮", 28f).apply {
+            setOnClickListener { showHomeMenu(this) }
+        }
+        top.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(menu, LinearLayout.LayoutParams(dp(52), dp(52)))
+        root.addView(top)
+
+        val search = EditText(this).apply {
+            hint = "ابحث في مساحاتك..."
+            textSize = 17f
+            setText(homeSearch)
+            setSingleLine(true)
+            setPadding(dp(18), 0, dp(18), 0)
+            background = rounded(Color.WHITE, 28f, Color.rgb(225, 229, 229), 1)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    homeSearch = s?.toString().orEmpty()
+                    renderSpaceList()
+                }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
+        }
+        root.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply {
+            setMargins(dp(16), 0, dp(16), dp(10))
+        })
+
+        val listHost = LinearLayout(this).apply {
+            id = SPACE_LIST_ID
+            orientation = LinearLayout.VERTICAL
+        }
+        val scroll = ScrollView(this).apply {
+            addView(listHost, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        val add = Button(this).apply {
+            text = "+ مساحة جديدة"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            background = rounded(teal, 28f)
+            isAllCaps = false
+            setOnClickListener { promptNewSpace() }
+        }
+        root.addView(add, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply {
+            setMargins(dp(22), dp(10), dp(22), dp(18))
+        })
+        renderSpaceList()
     }
 
-    private fun filterChip(text:String,selected:Boolean,onClick:()->Unit): View=TextView(this).apply {
-        this.text=text;textSize=14f;gravity=Gravity.CENTER;setPadding(dp(16),dp(8),dp(16),dp(8));setTextColor(if(selected)Color.WHITE else getColor(R.color.masahati_teal_dark));background=rounded(if(selected)getColor(R.color.masahati_teal)else Color.WHITE,18f,if(selected)null else 0xFFD8E4E1.toInt());setOnClickListener { onClick() };layoutParams=LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd=dp(8) }
-    }
-
-    private fun loadSpaces(): List<SpaceSummary> = database.listSpaces(searchQuery,showingArchive)
-
-    private fun promptCreateSpace() {
-        val input=EditText(this).apply { hint="اسم المساحة";setSingleLine(true) }
-        AlertDialog.Builder(this).setTitle("مساحة جديدة").setView(wrapDialogInput(input)).setNegativeButton("إلغاء",null).setPositiveButton("إنشاء") { _,_ -> val title=input.text.toString().trim();if(title.isNotEmpty())showSpace(database.createSpace(title)) }.show()
-    }
-
-    private fun showSpaceActions(space: SpaceSummary) {
-        val actions=arrayOf("فتح","إعادة تسمية",if(space.pinned)"إلغاء التثبيت" else "تثبيت",if(space.archived)"إرجاع من الأرشيف" else "أرشفة","حذف")
-        AlertDialog.Builder(this).setTitle(space.title).setItems(actions) { _,which ->
-            when(which) {
-                0->showSpace(space.id)
-                1->promptRenameSpace(space)
-                2->{database.setPinned(space.id,!space.pinned);if(currentSpaceId==space.id)showSpace(space.id)else refreshHome()}
-                3->{database.setArchived(space.id,!space.archived);if(currentSpaceId==space.id){currentSpaceId=null;showHome()}else refreshHome()}
-                4->confirmDeleteSpace(space)
+    private fun renderSpaceList() {
+        val host = root.findViewById<LinearLayout>(SPACE_LIST_ID) ?: return
+        host.removeAllViews()
+        val spaces = db.listSpaces(showArchived, homeSearch)
+        if (spaces.isEmpty()) {
+            host.addView(text(if (showArchived) "لا توجد مساحات مؤرشفة" else "لا توجد نتائج", 17f, Color.GRAY, false).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(70), 0, 0)
+            })
+            return
+        }
+        spaces.forEach { space ->
+            val row = horizontal().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(13), dp(14), dp(13))
+                background = rounded(Color.WHITE, 0f)
+                setOnClickListener { openSpace(space.id) }
+                setOnLongClickListener {
+                    showSpaceMenu(this, space)
+                    true
+                }
             }
-        }.show()
-    }
-
-    private fun promptRenameSpace(space: SpaceSummary) {
-        val input=EditText(this).apply { setText(space.title);setSelection(text.length);setSingleLine(true) }
-        AlertDialog.Builder(this).setTitle("إعادة تسمية").setView(wrapDialogInput(input)).setNegativeButton("إلغاء",null).setPositiveButton("حفظ") { _,_ -> val title=input.text.toString().trim();if(title.isNotEmpty()){database.renameSpace(space.id,title);if(currentSpaceId==space.id)showSpace(space.id)else refreshHome()} }.show()
-    }
-
-    private fun confirmDeleteSpace(space: SpaceSummary) {
-        AlertDialog.Builder(this).setTitle("حذف ${space.title}؟").setMessage("سيتم حذف الرسائل والملفات المحلية داخل هذه المساحة.").setNegativeButton("إلغاء",null).setPositiveButton("حذف") { _,_ -> database.deleteSpace(space.id);if(currentSpaceId==space.id){currentSpaceId=null;showHome()}else refreshHome() }.show()
-    }
-
-    private fun refreshHome() { homeAdapter?.replace(loadSpaces()) }
-
-    private fun showSpace(spaceId: Long) {
-        val space=database.getSpace(spaceId)?:run { showHome();return }
-        currentSpaceId=spaceId
-        val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(getColor(R.color.masahati_surface));layoutDirection=View.LAYOUT_DIRECTION_RTL }
-        root.addView(buildSpaceToolbar(spaceId,space.title))
-        val list=ListView(this).apply { divider=null;dividerHeight=dp(5);setPadding(dp(10),dp(8),dp(10),dp(8));clipToPadding=false;transcriptMode=ListView.TRANSCRIPT_MODE_ALWAYS_SCROLL }
-        messageList=list;messageAdapter=MessageAdapter(database.listMessages(spaceId)).also { list.adapter=it }
-        list.setOnItemClickListener { _,_,position,_ -> messageAdapter?.getItem(position)?.takeIf { it.type=="file" }?.let(::openAttachment) }
-        list.setOnItemLongClickListener { _,_,position,_ -> messageAdapter?.getItem(position)?.let(::showMessageActions);true }
-        root.addView(list,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f));root.addView(buildComposer(spaceId));setContentView(root);scrollMessagesToBottom()
-    }
-
-    private fun buildSpaceToolbar(spaceId: Long,title:String): View {
-        val bar=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(8),dp(10),dp(12),dp(8));setBackgroundColor(Color.WHITE) }
-        val back=Button(this).apply { text="←";textSize=22f;contentDescription="رجوع";setOnClickListener { currentSpaceId=null;showHome() } };bar.addView(back,LinearLayout.LayoutParams(dp(54),dp(50)))
-        val titleView=TextView(this).apply { text=title;textSize=21f;setTextColor(getColor(R.color.masahati_text));setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER_VERTICAL or Gravity.START;setPadding(dp(10),0,dp(10),0) };bar.addView(titleView,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.MATCH_PARENT,1f))
-        val more=Button(this).apply { text="⋮";textSize=22f;contentDescription="خيارات المساحة";setOnClickListener { database.getSpace(spaceId)?.let { r -> showSpaceActions(SpaceSummary(r.id,r.title,r.pinned,r.archived,null,System.currentTimeMillis())) } } };bar.addView(more,LinearLayout.LayoutParams(dp(54),dp(50)))
-        return bar
-    }
-
-    private fun buildComposer(spaceId: Long): View {
-        val composer=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.BOTTOM;setPadding(dp(8),dp(8),dp(8),dp(10));setBackgroundColor(Color.WHITE) }
-        val attach=Button(this).apply { text="＋";textSize=22f;contentDescription="إرفاق ملف";setOnClickListener { chooseFile() } };composer.addView(attach,LinearLayout.LayoutParams(dp(54),dp(54)))
-        val input=EditText(this).apply { hint="اكتب لنفسك...";minLines=1;maxLines=5;textSize=16f;setPadding(dp(16),dp(10),dp(16),dp(10));background=rounded(0xFFF2F6F5.toInt(),22f) };composer.addView(input,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f).apply { marginStart=dp(6);marginEnd=dp(6) })
-        val send=Button(this).apply { text="إرسال";textSize=14f;setTextColor(Color.WHITE);background=rounded(getColor(R.color.masahati_teal),22f);setOnClickListener { val text=input.text.toString().trim();if(text.isNotEmpty()){database.addTextMessage(spaceId,text);input.text.clear();refreshMessages(spaceId)} } };composer.addView(send,LinearLayout.LayoutParams(dp(76),dp(54)))
-        return composer
-    }
-
-    private fun chooseFile() {
-        runCatching {
-            openDocument.launch(
-                arrayOf(
-                    "application/pdf",
-                    "image/*",
-                    "text/*",
-                    "application/msword",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-            )
-        }.onFailure { toast("تعذر فتح مدير الملفات") }
-    }
-
-    private fun importAttachment(spaceId: Long,uri: Uri) {
-        val originalName=queryDisplayName(uri)?:"file";val safeName=MasahatiFormat.safeFileName(originalName);val dir=File(filesDir,"attachments").apply { mkdirs() };val stored=File(dir,"${UUID.randomUUID()}_$safeName")
-        try {
-            contentResolver.openInputStream(uri).use { input -> requireNotNull(input);stored.outputStream().use { output -> val buffer=ByteArray(DEFAULT_BUFFER_SIZE);var total=0L;while(true){val count=input.read(buffer);if(count<0)break;total+=count;if(total>MAX_ATTACHMENT_BYTES)throw AttachmentTooLargeException();output.write(buffer,0,count)} } }
-            database.addFileMessage(spaceId,originalName,stored.absolutePath,contentResolver.getType(uri));refreshMessages(spaceId)
-        } catch(_:AttachmentTooLargeException) { stored.delete();toast("الملف أكبر من 50 MB") } catch(_:Exception) { stored.delete();toast("تعذر حفظ الملف") }
-    }
-
-    private fun queryDisplayName(uri: Uri): String? = runCatching { contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { c -> if(c.moveToFirst())c.getString(0)else null } }.getOrNull()
-
-    private fun openAttachment(message: MessageRecord) {
-        val path=message.filePath?:return;val file=File(path);if(!file.isFile){toast("الملف غير موجود على الجهاز");return}
-        val uri=runCatching { MasahatiFileProvider.uriFor(this,file) }.getOrElse { toast("تعذر فتح الملف");return }
-        val intent=Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri,message.mimeType?:"application/octet-stream");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        try { startActivity(Intent.createChooser(intent,"فتح الملف")) } catch(_:Exception) { toast("لا يوجد تطبيق مناسب لفتح هذا الملف") }
-    }
-
-    private fun showMessageActions(message: MessageRecord) { AlertDialog.Builder(this).setItems(arrayOf("حذف")) { _,_ -> AlertDialog.Builder(this).setMessage("حذف هذا العنصر؟").setNegativeButton("إلغاء",null).setPositiveButton("حذف") { _,_ -> database.deleteMessage(message);currentSpaceId?.let(::refreshMessages) }.show() }.show() }
-    private fun refreshMessages(spaceId: Long) { messageAdapter?.replace(database.listMessages(spaceId));scrollMessagesToBottom() }
-    private fun scrollMessagesToBottom() { messageList?.post { val count=messageAdapter?.count?:0;if(count>0)messageList?.setSelection(count-1) } }
-    private fun wrapDialogInput(input: EditText): View=FrameLayout(this).apply { setPadding(dp(20),dp(4),dp(20),0);addView(input,FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT)) }
-    private fun rounded(fillColor:Int,radiusDp:Float,strokeColor:Int?=null): GradientDrawable=GradientDrawable().apply { shape=GradientDrawable.RECTANGLE;setColor(fillColor);cornerRadius=dp(radiusDp);if(strokeColor!=null)setStroke(dp(1),strokeColor) }
-    private fun dp(value:Int):Int=(value*resources.displayMetrics.density).roundToInt()
-    private fun dp(value:Float):Float=value*resources.displayMetrics.density
-    private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
-
-    private inner class SpaceAdapter(private var items:List<SpaceSummary>): BaseAdapter() {
-        override fun getCount()=items.size;override fun getItem(position:Int)=items[position];override fun getItemId(position:Int)=items[position].id
-        fun replace(newItems:List<SpaceSummary>){items=newItems;notifyDataSetChanged()}
-        override fun getView(position:Int,convertView:View?,parent:ViewGroup?):View {
-            val item=getItem(position);val row=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(16),dp(11),dp(16),dp(11));background=rounded(Color.WHITE,16f) }
-            val avatar=TextView(this@MainActivity).apply { text=item.title.trim().firstOrNull()?.toString()?:"م";textSize=20f;gravity=Gravity.CENTER;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD);background=rounded(getColor(R.color.masahati_teal),18f) };row.addView(avatar,LinearLayout.LayoutParams(dp(54),dp(54)))
-            val col=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL;setPadding(dp(12),0,dp(12),0) };col.addView(TextView(this@MainActivity).apply { text=(if(item.pinned)"📌 "else "")+item.title;textSize=18f;setTextColor(getColor(R.color.masahati_text));setTypeface(typeface,Typeface.BOLD);maxLines=1 });col.addView(TextView(this@MainActivity).apply { text=item.lastPreview?.take(80)?:"لا يوجد محتوى بعد";textSize=14f;setTextColor(0xFF687A77.toInt());maxLines=1 });row.addView(col,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));row.addView(TextView(this@MainActivity).apply { text=MasahatiFormat.listDate(item.lastActivityAt);textSize=12f;setTextColor(0xFF71807E.toInt()) })
-            return LinearLayout(this@MainActivity).apply { setPadding(dp(10),dp(4),dp(10),dp(4));addView(row,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT)) }
+            val badge = TextView(this).apply {
+                text = if (space.pinned) "★" else space.title.take(1)
+                textSize = 21f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                background = rounded(teal, 16f)
+            }
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), 0, dp(12), 0)
+                addView(text(space.title, 20f, Color.rgb(30, 35, 35), true))
+                val last = db.listMessages(space.id).lastOrNull()
+                val preview = when {
+                    last == null -> "ابدأ بالكتابة أو أضف مستنداً"
+                    last.kind == "file" -> "📎 ${last.displayName ?: "ملف"}"
+                    last.role == "assistant" -> "مساعد مساحاتي: ${last.text.take(60)}"
+                    else -> last.text.take(65)
+                }
+                addView(text(preview, 14f, Color.GRAY, false).apply { maxLines = 1 })
+            }
+            row.addView(badge, LinearLayout.LayoutParams(dp(50), dp(50)))
+            row.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(text(formatTime(space.updatedAt), 12f, Color.GRAY, false))
+            host.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(dp(10), dp(3), dp(10), dp(3))
+            })
         }
     }
 
-    private inner class MessageAdapter(private var items:List<MessageRecord>): BaseAdapter() {
-        override fun getCount()=items.size;override fun getItem(position:Int)=items[position];override fun getItemId(position:Int)=items[position].id
-        fun replace(newItems:List<MessageRecord>){items=newItems;notifyDataSetChanged()}
-        override fun getView(position:Int,convertView:View?,parent:ViewGroup?):View {
-            val item=getItem(position);val bubble=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(10),dp(14),dp(8));background=rounded(0xFFDDF2EE.toInt(),17f) }
-            bubble.addView(TextView(this@MainActivity).apply { text=if(item.type=="file")"📎 ${item.fileName?:"ملف"}\nاضغط لفتح الملف"else item.text.orEmpty();textSize=16f;setTextColor(getColor(R.color.masahati_text));maxWidth=dp(310) });bubble.addView(TextView(this@MainActivity).apply { text=MasahatiFormat.shortTime(item.createdAt);textSize=11f;setTextColor(0xFF60716E.toInt());gravity=Gravity.END;setPadding(0,dp(5),0,0) })
-            return FrameLayout(this@MainActivity).apply { setPadding(dp(8),dp(2),dp(8),dp(2));addView(bubble,FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.END)) }
+    private fun openSpace(id: Long) {
+        val space = db.getSpace(id) ?: return
+        currentSpaceId = id
+        currentSpaceTitle = space.title
+        showChat()
+    }
+
+    private fun showChat() {
+        val spaceId = currentSpaceId ?: return
+        root.removeAllViews()
+
+        val top = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            setBackgroundColor(Color.WHITE)
+        }
+        val back = button("←", 26f).apply { setOnClickListener { showHome() } }
+        val title = text(currentSpaceTitle, 29f, Color.rgb(25, 30, 30), true).apply { gravity = Gravity.CENTER }
+        val menu = button("⋮", 28f).apply { setOnClickListener { showChatMenu(this) } }
+        top.addView(back, LinearLayout.LayoutParams(dp(56), dp(56)))
+        top.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(menu, LinearLayout.LayoutParams(dp(56), dp(56)))
+        root.addView(top)
+
+        val messagesHost = LinearLayout(this).apply {
+            id = MESSAGE_LIST_ID
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(16))
+        }
+        chatScroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(messagesHost, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(chatScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        val bottom = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(12))
+            setBackgroundColor(Color.WHITE)
+        }
+        val plus = button("+", 34f).apply {
+            background = rounded(Color.rgb(225, 228, 228), 4f)
+            setOnClickListener { showAttachMenu(this) }
+        }
+        composer = EditText(this).apply {
+            hint = "اكتب لنفسك..."
+            textSize = 18f
+            maxLines = 5
+            minLines = 1
+            setPadding(dp(17), dp(9), dp(17), dp(9))
+            background = rounded(Color.rgb(247, 248, 248), 28f)
+        }
+        val send = Button(this).apply {
+            text = "إرسال"
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            isAllCaps = false
+            background = rounded(teal, 26f)
+            setOnClickListener { sendText() }
+        }
+        bottom.addView(plus, LinearLayout.LayoutParams(dp(62), dp(58)))
+        bottom.addView(composer, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            setMargins(dp(10), 0, dp(10), 0)
+        })
+        bottom.addView(send, LinearLayout.LayoutParams(dp(94), dp(58)))
+        root.addView(bottom)
+        renderMessages(spaceId)
+    }
+
+    private fun renderMessages(spaceId: Long) {
+        val host = root.findViewById<LinearLayout>(MESSAGE_LIST_ID) ?: return
+        host.removeAllViews()
+        val messages = db.listMessages(spaceId)
+        if (messages.isEmpty()) {
+            host.addView(text("اكتب ملاحظة أو امسح مستنداً. مساعد مساحاتي سيفهمه ويصنفه تلقائياً.", 16f, Color.GRAY, false).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(28), dp(70), dp(28), 0)
+            })
+        } else {
+            messages.forEach { host.addView(messageBubble(it)) }
+        }
+        if (busyCount > 0) {
+            val waiting = MessageRow(-1, spaceId, "assistant", "text", "جاري الفهم والترتيب…", null, null, null, null, null, null, null, System.currentTimeMillis())
+            host.addView(messageBubble(waiting, temporary = true))
+        }
+        chatScroll?.post { chatScroll?.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun messageBubble(m: MessageRow, temporary: Boolean = false): View {
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = if (m.role == "assistant") Gravity.START else Gravity.END
+            setPadding(0, dp(5), 0, dp(5))
+        }
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(9))
+            background = rounded(if (m.role == "assistant") assistantBg else paleTeal, 25f, if (m.role == "assistant") Color.rgb(225, 229, 229) else Color.TRANSPARENT, if (m.role == "assistant") 1 else 0)
+            alpha = if (temporary) 0.8f else 1f
+        }
+        if (m.role == "assistant") {
+            bubble.addView(text("مساعد مساحاتي", 12f, teal, true))
+        }
+        if (m.kind == "file") {
+            val name = m.displayName ?: "ملف"
+            bubble.addView(text("📎 $name", 17f, Color.rgb(35, 40, 40), true))
+            bubble.addView(text(if (m.ocrText.isNullOrBlank()) "اضغط لفتح الملف" else "تمت قراءته وتصنيفه للبحث", 14f, Color.DKGRAY, false))
+            if (!temporary && m.filePath != null) {
+                bubble.setOnClickListener { openSavedFile(m) }
+                bubble.setOnLongClickListener { confirmDeleteMessage(m); true }
+            }
+        } else {
+            bubble.addView(text(m.text, 18f, Color.rgb(30, 35, 35), false))
+            if (!temporary && m.id > 0) bubble.setOnLongClickListener { confirmDeleteMessage(m); true }
+        }
+        if (m.id > 0 && !temporary && m.role != "assistant") {
+            val meta = listOfNotNull(m.classification, m.tags).filter { it.isNotBlank() }.joinToString(" · ")
+            if (meta.isNotBlank()) bubble.addView(text(meta.take(120), 12f, teal, false))
+        }
+        if (!temporary) bubble.addView(text(formatTime(m.createdAt), 11f, Color.GRAY, false))
+        val bubbleWidth = (resources.displayMetrics.widthPixels * 0.78).toInt()
+        wrap.addView(bubble, LinearLayout.LayoutParams(bubbleWidth, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return wrap
+    }
+
+    private fun sendText() {
+        val spaceId = currentSpaceId ?: return
+        val value = composer?.text?.toString()?.trim().orEmpty()
+        if (value.isBlank()) return
+        composer?.setText("")
+        val id = db.insertText(spaceId, "user", value)
+        renderMessages(spaceId)
+        analyzeWithAgent(id, value, currentSpaceTitle)
+    }
+
+    private fun analyzeWithAgent(messageId: Long, content: String, spaceTitle: String) {
+        val spaceId = currentSpaceId ?: return
+        busyCount++
+        renderMessages(spaceId)
+        worker.execute {
+            try {
+                val recent = db.recentForAi(spaceId, 8).filter { it.id != messageId }
+                val body = JSONObject().apply {
+                    put("text", content.take(5000))
+                    put("spaceTitle", spaceTitle)
+                    val arr = JSONArray()
+                    recent.forEach { msg ->
+                        arr.put(JSONObject().apply {
+                            put("role", if (msg.role == "assistant") "assistant" else "user")
+                            put("text", (if (msg.text.isNotBlank()) msg.text else msg.ocrText.orEmpty()).take(1400))
+                        })
+                    }
+                    put("recent", arr)
+                }
+                val result = postAgent(body)
+                if (result.optBoolean("ok", false)) {
+                    val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
+                    val classification = result.optString("classification", "other")
+                    val summary = result.optString("summary", "")
+                    db.updateAi(messageId, classification, labels, summary, result.toString())
+                    val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"))
+                    val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                    db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
+                } else {
+                    db.insertText(spaceId, "assistant", "تم حفظ المحتوى محلياً. تعذر الوصول للمساعد الذكي هذه المرة، ويمكنك المتابعة دون فقدان أي شيء.")
+                }
+            } catch (_: Exception) {
+                db.insertText(spaceId, "assistant", "تم حفظ المحتوى محلياً. تعذر الوصول للمساعد الذكي هذه المرة، ويمكنك المتابعة دون فقدان أي شيء.")
+            } finally {
+                busyCount = (busyCount - 1).coerceAtLeast(0)
+                runOnUiThread {
+                    if (currentSpaceId == spaceId) {
+                        currentSpaceTitle = db.getSpace(spaceId)?.title ?: currentSpaceTitle
+                        showChat()
+                    }
+                }
+            }
         }
     }
 
-    private class AttachmentTooLargeException: Exception()
-    companion object { private const val KEY_SPACE_ID="current_space_id";private const val NO_SPACE=-1L;private const val MAX_ATTACHMENT_BYTES=50L*1024L*1024L }
+    private fun executeAgentActions(spaceId: Long, actions: JSONArray?): String {
+        if (actions == null) return ""
+        val notes = mutableListOf<String>()
+        for (i in 0 until actions.length()) {
+            val action = actions.optJSONObject(i) ?: continue
+            val type = action.optString("type")
+            val args = action.optJSONObject("args") ?: JSONObject()
+            val needsConfirm = action.optBoolean("requires_confirmation", true)
+            when (type) {
+                "search" -> {
+                    val q = args.optString("query").trim()
+                    if (q.isNotBlank()) {
+                        val found = db.search(q, 8)
+                        if (found.isEmpty()) notes += "لم أجد نتيجة محلية مطابقة لـ «$q»."
+                        else {
+                            val lines = found.mapNotNull { m ->
+                                val s = db.getSpace(m.spaceId)?.title ?: return@mapNotNull null
+                                val preview = when {
+                                    !m.displayName.isNullOrBlank() -> m.displayName
+                                    m.summary?.isNotBlank() == true -> m.summary
+                                    else -> m.text.take(85)
+                                }
+                                "• $s — $preview"
+                            }
+                            notes += "وجدت محلياً:\n${lines.joinToString("\n")}"
+                        }
+                    }
+                }
+                "archive_space" -> {
+                    val target = args.optString("space_name").ifBlank { db.getSpace(spaceId)?.title.orEmpty() }
+                    val space = db.findSpaceByTitle(target) ?: db.getSpace(spaceId)
+                    if (space != null) {
+                        if (needsConfirm) notes += "الأرشفة جاهزة، لكني لم أنفذها لأن الإجراء يحتاج تأكيداً."
+                        else {
+                            db.setArchived(space.id, true)
+                            notes += "تمت أرشفة مساحة «${space.title}»."
+                        }
+                    }
+                }
+                "pin_space" -> {
+                    val target = args.optString("space_name").ifBlank { db.getSpace(spaceId)?.title.orEmpty() }
+                    val space = db.findSpaceByTitle(target) ?: db.getSpace(spaceId)
+                    if (space != null) {
+                        if (needsConfirm) notes += "التثبيت جاهز وينتظر التأكيد."
+                        else {
+                            db.setPinned(space.id, true)
+                            notes += "تم تثبيت مساحة «${space.title}»."
+                        }
+                    }
+                }
+                "rename_space" -> {
+                    val newName = args.optString("new_name").ifBlank { args.optString("title") }.trim()
+                    if (newName.isNotBlank()) {
+                        if (needsConfirm) notes += "إعادة التسمية جاهزة وينتظر التأكيد."
+                        else {
+                            db.renameSpace(spaceId, newName)
+                            notes += "تم تغيير اسم المساحة إلى «$newName»."
+                        }
+                    }
+                }
+                "move_last_item" -> {
+                    val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
+                    val target = db.findSpaceByTitle(targetName)
+                    val last = db.lastUserMessage(spaceId)
+                    if (target != null && last != null) {
+                        if (needsConfirm) notes += "النقل جاهز وينتظر التأكيد."
+                        else {
+                            db.moveMessage(last.id, target.id)
+                            notes += "تم نقل آخر عنصر إلى «${target.title}»."
+                        }
+                    }
+                }
+            }
+        }
+        return notes.joinToString("\n")
+    }
+
+    private fun postAgent(body: JSONObject): JSONObject {
+        val conn = (URL(AGENT_URL).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 8_000
+            readTimeout = 32_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("apikey", SUPABASE_PUBLISHABLE_KEY)
+        }
+        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+        val raw = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        conn.disconnect()
+        return if (raw.isBlank()) JSONObject().put("ok", false) else JSONObject(raw)
+    }
+
+    private fun startSmartScanner() {
+        setBusyToast("جاري تجهيز السكانر الذكي…")
+        scanner.getStartScanIntent(this)
+            .addOnSuccessListener { sender -> scannerLauncher.launch(IntentSenderRequest.Builder(sender).build()) }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "تعذر تشغيل السكانر: ${e.localizedMessage ?: "غير متاح"}", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    private fun handleScan(scan: GmsDocumentScanningResult) {
+        val spaceId = currentSpaceId ?: return
+        val pdf = scan.pdf
+        val pages = scan.pages.orEmpty()
+        if (pdf == null && pages.isEmpty()) return
+        busyCount++
+        renderMessages(spaceId)
+        worker.execute {
+            try {
+                val now = System.currentTimeMillis()
+                val fileName = "Scan-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(now))}.pdf"
+                val target = File(filesDir, "documents").apply { mkdirs() }.resolve(fileName)
+                if (pdf != null) {
+                    contentResolver.openInputStream(pdf.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
+                } else {
+                    throw IllegalStateException("PDF result missing")
+                }
+                val ocr = buildString {
+                    pages.forEachIndexed { index, page ->
+                        try {
+                            val image = InputImage.fromFilePath(this@MainActivity, page.imageUri)
+                            val text = Tasks.await(recognizer.process(image)).text.trim()
+                            if (text.isNotBlank()) {
+                                if (isNotEmpty()) append("\n\n")
+                                append("صفحة ${index + 1}:\n")
+                                append(text)
+                            }
+                        } catch (_: Exception) { }
+                    }
+                }
+                val messageId = db.insertFile(spaceId, "user", fileName, target.absolutePath, "application/pdf", ocr)
+                val aiText = if (ocr.isBlank()) {
+                    "مستند ممسوح ضوئياً باسم $fileName وعدد صفحاته ${pdf.pageCount}. صنفه ونظم كلمات البحث المناسبة بدون اختراع محتوى غير ظاهر."
+                } else {
+                    "مستند ممسوح ضوئياً باسم $fileName. النص المستخرج محلياً:\n${ocr.take(4800)}"
+                }
+                runOnUiThread {
+                    busyCount = (busyCount - 1).coerceAtLeast(0)
+                    if (currentSpaceId == spaceId) renderMessages(spaceId)
+                    confirmCloudDocumentAnalysis(messageId, aiText, currentSpaceTitle)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    busyCount = (busyCount - 1).coerceAtLeast(0)
+                    renderMessages(spaceId)
+                    Toast.makeText(this, "لم يكتمل حفظ المسح: ${e.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun handlePickedFile(uri: Uri) {
+        val spaceId = currentSpaceId ?: return
+        try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
+        busyCount++
+        renderMessages(spaceId)
+        worker.execute {
+            try {
+                val displayName = queryDisplayName(uri) ?: "ملف-${System.currentTimeMillis()}"
+                val mime = contentResolver.getType(uri) ?: guessMime(displayName)
+                val target = File(filesDir, "documents").apply { mkdirs() }.resolve(safeFileName(displayName))
+                contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
+                    ?: throw IllegalStateException("Cannot read file")
+                var ocr = ""
+                if (mime.startsWith("image/")) {
+                    try {
+                        val image = InputImage.fromFilePath(this@MainActivity, uri)
+                        ocr = Tasks.await(recognizer.process(image)).text.trim()
+                    } catch (_: Exception) { }
+                }
+                val id = db.insertFile(spaceId, "user", displayName, target.absolutePath, mime, ocr)
+                val aiText = when {
+                    ocr.isNotBlank() -> "ملف مرفق باسم $displayName. النص المستخرج محلياً:\n${ocr.take(4800)}"
+                    else -> "تم إرفاق ملف باسم $displayName ونوعه $mime. صنفه بالاعتماد فقط على الاسم والنوع ولا تخترع محتوى داخله."
+                }
+                runOnUiThread {
+                    busyCount = (busyCount - 1).coerceAtLeast(0)
+                    renderMessages(spaceId)
+                    confirmCloudDocumentAnalysis(id, aiText, currentSpaceTitle)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    busyCount = (busyCount - 1).coerceAtLeast(0)
+                    renderMessages(spaceId)
+                    Toast.makeText(this, "تعذر حفظ الملف: ${e.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+
+    private fun confirmCloudDocumentAnalysis(messageId: Long, aiText: String, spaceTitle: String) {
+        val spaceId = currentSpaceId ?: return
+        AlertDialog.Builder(this)
+            .setTitle("تحليل المستند بالذكاء؟")
+            .setMessage("تم حفظ المستند محلياً. للتحليل والتصنيف سأرسل النص المستخرج أو بيانات الملف فقط إلى خدمة الذكاء، وليس صورة المستند أو ملف PDF نفسه.")
+            .setPositiveButton("تحليل ذكي") { _, _ -> analyzeWithAgent(messageId, aiText, spaceTitle) }
+            .setNegativeButton("محلي فقط") { _, _ ->
+                db.insertText(spaceId, "assistant", "تم حفظ المستند محلياً بدون إرساله للتحليل السحابي.")
+                renderMessages(spaceId)
+            }
+            .show()
+    }
+
+    private fun openSavedFile(m: MessageRow) {
+        val path = m.filePath ?: return
+        val file = File(path)
+        if (!file.exists()) {
+            Toast.makeText(this, "الملف غير موجود", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, m.mimeType ?: "application/octet-stream")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try { startActivity(intent) } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, "لا يوجد تطبيق مناسب لفتح هذا الملف", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun showAttachMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add("سكانر ذكي")
+            menu.add("إرفاق ملف أو صورة")
+            setOnMenuItemClickListener {
+                when (it.title.toString()) {
+                    "سكانر ذكي" -> startSmartScanner()
+                    else -> filePicker.launch(arrayOf("application/pdf", "image/*", "text/*"))
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun showChatMenu(anchor: View) {
+        val space = currentSpaceId?.let { db.getSpace(it) } ?: return
+        PopupMenu(this, anchor).apply {
+            menu.add(if (space.pinned) "إلغاء التثبيت" else "تثبيت")
+            menu.add("إعادة تسمية")
+            menu.add("بحث شامل")
+            menu.add("أرشفة")
+            setOnMenuItemClickListener {
+                when (it.title.toString()) {
+                    "تثبيت" -> { db.setPinned(space.id, true); Toast.makeText(this@MainActivity, "تم التثبيت", Toast.LENGTH_SHORT).show() }
+                    "إلغاء التثبيت" -> { db.setPinned(space.id, false); Toast.makeText(this@MainActivity, "تم إلغاء التثبيت", Toast.LENGTH_SHORT).show() }
+                    "إعادة تسمية" -> promptRename(space)
+                    "بحث شامل" -> promptGlobalSearch()
+                    "أرشفة" -> confirmArchive(space)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun showHomeMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
+            menu.add("بحث ذكي شامل")
+            setOnMenuItemClickListener {
+                if (it.title.toString().contains("بحث")) promptGlobalSearch()
+                else { showArchived = !showArchived; showHome() }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun showSpaceMenu(anchor: View, space: SpaceRow) {
+        PopupMenu(this, anchor).apply {
+            menu.add(if (space.pinned) "إلغاء التثبيت" else "تثبيت")
+            menu.add(if (space.archived) "استعادة" else "أرشفة")
+            menu.add("إعادة تسمية")
+            menu.add("حذف")
+            setOnMenuItemClickListener {
+                when (it.title.toString()) {
+                    "تثبيت" -> db.setPinned(space.id, true)
+                    "إلغاء التثبيت" -> db.setPinned(space.id, false)
+                    "أرشفة" -> db.setArchived(space.id, true)
+                    "استعادة" -> db.setArchived(space.id, false)
+                    "إعادة تسمية" -> promptRename(space)
+                    "حذف" -> confirmDeleteSpace(space)
+                }
+                renderSpaceList()
+                true
+            }
+            show()
+        }
+    }
+
+    private fun promptGlobalSearch() {
+        val input = EditText(this).apply { hint = "مثال: جواز السفر أو جدول دوامي"; setPadding(dp(16), dp(10), dp(16), dp(10)) }
+        AlertDialog.Builder(this)
+            .setTitle("بحث شامل")
+            .setView(input)
+            .setPositiveButton("بحث") { _, _ ->
+                val q = input.text.toString().trim()
+                if (q.isBlank()) return@setPositiveButton
+                val results = db.search(q, 20)
+                val text = if (results.isEmpty()) "لم أجد نتائج لـ «$q»." else results.joinToString("\n\n") { m ->
+                    val s = db.getSpace(m.spaceId)?.title ?: "مساحة"
+                    val p = m.displayName ?: m.summary ?: m.text.take(100)
+                    "• $s\n$p"
+                }
+                AlertDialog.Builder(this).setTitle("نتائج البحث").setMessage(text).setPositiveButton("حسناً", null).show()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun promptNewSpace() {
+        val input = EditText(this).apply { hint = "اسم المساحة" }
+        AlertDialog.Builder(this).setTitle("مساحة جديدة").setView(input)
+            .setPositiveButton("إنشاء") { _, _ ->
+                val id = db.createSpace(input.text.toString())
+                openSpace(id)
+            }.setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun promptRename(space: SpaceRow) {
+        val input = EditText(this).apply { setText(space.title); selectAll() }
+        AlertDialog.Builder(this).setTitle("إعادة تسمية").setView(input)
+            .setPositiveButton("حفظ") { _, _ ->
+                val value = input.text.toString().trim()
+                if (value.isNotBlank()) {
+                    db.renameSpace(space.id, value)
+                    if (currentSpaceId == space.id) { currentSpaceTitle = value; showChat() } else renderSpaceList()
+                }
+            }.setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun confirmArchive(space: SpaceRow) {
+        AlertDialog.Builder(this).setTitle("أرشفة المساحة؟")
+            .setMessage("ستبقى محفوظة ويمكن استعادتها من المؤرشفة.")
+            .setPositiveButton("أرشفة") { _, _ -> db.setArchived(space.id, true); showHome() }
+            .setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun confirmDeleteSpace(space: SpaceRow) {
+        AlertDialog.Builder(this).setTitle("حذف «${space.title}»؟")
+            .setMessage("سيتم حذف محتوى هذه المساحة من النسخة التجريبية.")
+            .setPositiveButton("حذف") { _, _ -> db.deleteSpace(space.id); renderSpaceList() }
+            .setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun confirmDeleteMessage(m: MessageRow) {
+        AlertDialog.Builder(this).setTitle("حذف هذا العنصر؟")
+            .setPositiveButton("حذف") { _, _ ->
+                m.filePath?.let { runCatching { File(it).delete() } }
+                db.deleteMessage(m.id)
+                currentSpaceId?.let { renderMessages(it) }
+            }.setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        val c = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null) ?: return null
+        return c.use { if (it.moveToFirst()) it.getString(0) else null }
+    }
+
+    private fun guessMime(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+    }
+
+    private fun safeFileName(name: String): String {
+        val clean = name.replace(Regex("[^A-Za-z0-9._\\-ء-ي]"), "_").take(100).ifBlank { "file" }
+        return "${System.currentTimeMillis()}-$clean"
+    }
+
+    private fun formatTime(epoch: Long): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(epoch))
+
+    private fun setBusyToast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+
+    private fun horizontal() = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_RTL
+    }
+
+    private fun button(label: String, size: Float) = Button(this).apply {
+        text = label
+        textSize = size
+        setTextColor(Color.rgb(35, 40, 40))
+        isAllCaps = false
+        background = rounded(Color.rgb(242, 243, 243), 4f)
+        setPadding(0, 0, 0, 0)
+    }
+
+    private fun text(value: String, size: Float, color: Int, bold: Boolean) = TextView(this).apply {
+        text = value
+        textSize = size
+        setTextColor(color)
+        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        setLineSpacing(0f, 1.08f)
+    }
+
+    private fun rounded(fill: Int, radiusDp: Float, stroke: Int = Color.TRANSPARENT, strokeWidthDp: Int = 0) = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(fill)
+        cornerRadius = dp(radiusDp.toInt()).toFloat()
+        if (strokeWidthDp > 0 && stroke != Color.TRANSPARENT) setStroke(dp(strokeWidthDp), stroke)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun JSONArray.toStringList(): List<String> = buildList {
+        for (i in 0 until length()) optString(i).takeIf { it.isNotBlank() }?.let(::add)
+    }
+
+    companion object {
+        private const val SPACE_LIST_ID = 4001
+        private const val MESSAGE_LIST_ID = 4002
+        private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-dev"
+        private const val SUPABASE_PUBLISHABLE_KEY = "sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3"
+    }
 }
