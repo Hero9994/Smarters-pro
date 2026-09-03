@@ -427,8 +427,10 @@ class MainActivity : ComponentActivity() {
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
                 val fallback = LocalAssistantFallback.analyze(content, spaceTitle, recent)
-                db.updateAi(messageId, fallback.optString("classification", "note"), fallback.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty(), fallback.optString("summary", content.take(220)), fallback.toString())
-                db.insertText(spaceId, "assistant", fallback.optString("reply", "فهمت المحتوى وحفظته كملاحظة قابلة للبحث."))
+                val fallbackTags = (fallback.optJSONArray("labels")?.toStringList().orEmpty() + fallback.optJSONArray("keywords")?.toStringList().orEmpty())
+                    .filter { it.isNotBlank() }.distinct().take(16).joinToString("، ")
+                db.updateAi(messageId, fallback.optString("classification", "note"), fallbackTags, fallback.optString("summary", content.take(220)), fallback.toString())
+                db.insertText(spaceId, "assistant", fallback.optString("reply", "فهمت المحتوى وسأبقيه قابلاً للبحث."))
             } finally {
                 busyCount = (busyCount - 1).coerceAtLeast(0)
                 runOnUiThread {
