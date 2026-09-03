@@ -411,7 +411,7 @@ class MainActivity : ComponentActivity() {
                     put("recent", arr)
                 }
                 val remote = runCatching { postAgent(body) }.getOrNull()
-                val result = if (remote?.optBoolean("ok", false) == true) {
+                val result = if (remote?.optBoolean("ok", false) == true && remote.optString("engine") == "remote-ai") {
                     remote
                 } else {
                     LocalAssistantFallback.analyze(content, spaceTitle, recent)
