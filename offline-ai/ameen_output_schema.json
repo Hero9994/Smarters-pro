@@ -1,0 +1,30 @@
+{
+  "version": "0.1",
+  "intent": "note|task|reminder|search|document|command|conversation",
+  "reply": "string",
+  "document": {
+    "type": "identity|passport|residence_permit|appointment|health_insurance|government_letter|wohngeld|kindergeld|kinderzuschlag|but|employment_contract|rental_contract|insurance_contract|invoice|school_letter|medical_letter|bank_letter|vehicle_document|other|null",
+    "issuer": "string|null",
+    "subject": "string|null",
+    "valid_from": "YYYY-MM-DD|null",
+    "valid_until": "YYYY-MM-DD|null",
+    "appointment_at": "ISO-8601|null",
+    "payment_due": "YYYY-MM-DD|null",
+    "notice_period": "string|null",
+    "cancellation_deadline": "YYYY-MM-DD|null",
+    "renewal_date": "YYYY-MM-DD|null",
+    "amount": "string|null"
+  },
+  "summary": "string",
+  "keywords": ["string"],
+  "confidence": 0.0,
+  "needs_user_question": false,
+  "question": "string|null",
+  "suggested_actions": [
+    {
+      "type": "create_reminder|search|archive_space|pin_space|rename_space|move_item|create_space|none",
+      "args": {},
+      "requires_confirmation": true
+    }
+  ]
+}
