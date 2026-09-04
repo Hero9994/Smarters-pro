@@ -608,7 +608,7 @@ class MainActivity : ComponentActivity() {
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
-                val execution = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
+                val execution = executeAgentActions(spaceId, messageId, result.optJSONArray("actions"), content)
                 var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 var actionText = execution.notes
 
@@ -644,7 +644,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun executeAgentActions(spaceId: Long, actions: JSONArray?, sourceText: String): ActionExecution {
+    private fun executeAgentActions(spaceId: Long, sourceMessageId: Long, actions: JSONArray?, sourceText: String): ActionExecution {
         if (actions == null) return ActionExecution("", "", JSONArray(), false)
         val notes = mutableListOf<String>()
         val nonSearchNotes = mutableListOf<String>()
@@ -711,7 +711,10 @@ class MainActivity : ComponentActivity() {
                     hasSearch = true
                     val q = args.optString("query").trim()
                     if (q.isNotBlank()) {
-                        val found = db.search(q, 8)
+                        // Do not let the search command itself rank as its own best result.
+                        val found = db.search(q, 12)
+                            .filter { it.id != sourceMessageId }
+                            .take(8)
                         val resultArray = JSONArray()
                         found.take(5).forEach { m ->
                             val s = db.getSpace(m.spaceId)
@@ -790,7 +793,9 @@ class MainActivity : ComponentActivity() {
                 "move_last_item" -> {
                     val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
                     val target = db.findSpaceByTitle(targetName)
-                    val last = db.lastUserMessage(spaceId)
+                    // The current command is already stored as a user message; move the item before it.
+                    val last = db.listMessages(spaceId).asReversed()
+                        .firstOrNull { it.id != sourceMessageId && it.role == "user" }
                     if (target != null && last != null) {
                         if (needsConfirm) {
                             recordNote("النقل جاهز وينتظر التأكيد.")
