@@ -28,8 +28,21 @@ object LocalAssistantFallback {
             ?: Regex("(?:[01]?\\d|2[0-3])\\s*(?:ص|م)").find(context)?.value
         val days = listOf("الاثنين", "الإثنين", "اثنين", "الثلاثاء", "ثلاثاء", "الأربعاء", "الاربعاء", "أربعاء", "اربعاء", "الخميس", "خميس", "الجمعة", "جمعة", "السبت", "سبت", "الأحد", "الاحد", "أحد", "احد")
         val day = days.firstOrNull { lower.contains(it) } ?: days.firstOrNull { context.contains(it) }
+        val relativeMinutes = Regex("بعد\\s+(\\d{1,5})\\s*(?:دقيقة|دقائق|دقايق|دقيقه)", RegexOption.IGNORE_CASE)
+            .find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: Regex("بعد\\s+(\\d{1,3})\\s*(?:ساعة|ساعات|ساعه)", RegexOption.IGNORE_CASE)
+                .find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()?.times(60)
+        val tomorrow = has("بكرا", "غداً", "غدا", "morgen", "tomorrow")
+        val medicalTransportSignal =
+            Regex("(نقل|توصيل|مواصلات).{0,50}(طبيب|دكتور|مشفى|مستشفى|عيادة)", RegexOption.IGNORE_CASE).containsMatchIn(raw) ||
+            Regex("(طبيب|دكتور|مشفى|مستشفى|عيادة).{0,50}(نقل|توصيل|مواصلات)", RegexOption.IGNORE_CASE).containsMatchIn(raw) ||
+            Regex("(krankenbeförderung|krankenbefoerderung|krankentransport|transportschein|arztfahrt|fahrtkosten|wohnort.{0,40}arzt)", RegexOption.IGNORE_CASE).containsMatchIn(raw + " " + documentContext)
+        val looksLikeDocumentPayload =
+            has("مستند ممسوح", "النص المستخرج", "scan-", ".pdf", "ocr") ||
+            Regex("(krankenbeförderung|krankenbefoerderung|transportschein|rechnung|vertrag|bescheid|genehmigung)", RegexOption.IGNORE_CASE).containsMatchIn(raw)
         if (time != null) addKeyword(time)
         if (day != null) addKeyword(day)
+        if (tomorrow) addKeyword("غداً")
 
         val classification: String
         val reply: String
@@ -71,6 +84,37 @@ object LocalAssistantFallback {
                     docOcr.isNotBlank() -> "المكتوب الظاهر في المستند: " + docOcr.replace("\n", " ").take(420)
                     else -> "المستند السابق محفوظ، لكن النص المقروء منه غير كافٍ للإجابة."
                 }
+            }
+            medicalTransportSignal && (recentDocument != null || looksLikeDocumentPayload) -> {
+                classification = "document"
+                val docLabels = listOf("مستند", "نقل طبي", "مواصلات مرضى")
+                docLabels.forEach(::addLabel)
+                val semantic = listOf("نقل طبي", "طبيب", "من المنزل", "Krankenbeförderung", "Transport")
+                semantic.forEach(::addKeyword)
+                val summaryText = when {
+                    raw.contains("النص المستخرج", ignoreCase = true) ->
+                        "مستند يخص النقل الطبي من المنزل إلى الطبيب."
+                    else -> raw.take(500)
+                }
+                actions.put(
+                    JSONObject()
+                        .put("type", "enrich_previous_document")
+                        .put(
+                            "args",
+                            JSONObject()
+                                .put("summary", summaryText)
+                                .put("labels", JSONArray(docLabels))
+                                .put("keywords", JSONArray(semantic))
+                        )
+                        .put("requires_confirmation", false)
+                )
+                actions.put(
+                    JSONObject()
+                        .put("type", "rename_previous_document")
+                        .put("args", JSONObject().put("display_name", "نقل طبي إلى الطبيب.pdf"))
+                        .put("requires_confirmation", false)
+                )
+                reply = "فهمت أن المستند يخص النقل الطبي من المنزل إلى الطبيب، وصنفته بهذا المعنى حتى يسهل العثور عليه."
             }
             recentDocument != null && has("هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "نفس الورقة") -> {
                 classification = "document"
@@ -125,23 +169,34 @@ object LocalAssistantFallback {
                 classification = "reminder"
                 addLabel("تذكير")
                 if (day != null) addLabel(day)
+                val isDaily = has("كل يوم", "يومياً", "يوميا", "daily", "täglich", "taeglich")
                 val reminderArgs = JSONObject().apply {
+                    put("title", "تذكير مساحاتي")
+                    put("body", raw.take(500))
+                    if (relativeMinutes != null) put("delay_minutes", relativeMinutes)
                     if (day != null) {
                         put("day_of_week", day)
                         put("repeat", "weekly")
                     }
                     if (time != null) put("time", time)
-                    if (has("كل يوم", "يومياً", "يوميا", "daily")) put("repeat", "daily")
-                    put("title", "تذكير مساحاتي")
-                    put("body", raw.take(500))
+                    if (isDaily) put("repeat", "daily")
                 }
-                actions.put(JSONObject().put("type", "create_reminder").put("args", reminderArgs).put("requires_confirmation", false))
+                val resolved = relativeMinutes != null || (time != null && (day != null || isDaily))
+                if (resolved) {
+                    actions.put(
+                        JSONObject()
+                            .put("type", "create_reminder")
+                            .put("args", reminderArgs)
+                            .put("requires_confirmation", false)
+                    )
+                }
                 reply = when {
+                    relativeMinutes != null -> "فهمت التذكير: بعد $relativeMinutes دقيقة، وسأنشئ تنبيه أندرويد فعلياً."
                     day != null && time != null -> "فهمت التذكير: $day الساعة $time، وسأنشئ تنبيه أندرويد فعلياً."
-                    Regex("بعد\\s+\\d+").containsMatchIn(raw) -> "فهمت التذكير النسبي وسأنشئ له تنبيه أندرويد فعلياً."
-                    day != null -> "فهمت أن التذكير مرتبط بـ$day، لكن لا يوجد وقت واضح بعد."
-                    time != null -> "فهمت وقت التذكير $time، لكن اليوم أو التاريخ غير واضح بعد."
-                    else -> "فهمت أنك تريد تذكيراً، لكن أحتاج اليوم أو الوقت حتى يكون محدداً."
+                    isDaily && time != null -> "فهمت التذكير اليومي الساعة $time، وسأنشئ تنبيه أندرويد فعلياً."
+                    day != null -> "فهمت اليوم ($day)، ما الساعة التي تريد التنبيه فيها؟"
+                    time != null -> "فهمت الوقت ($time)، بأي يوم تريد التذكير؟"
+                    else -> "فهمت أنك تريد تذكيراً. بأي يوم وساعة؟"
                 }
             }
             has("دوام", "شفت", "مناوبة", "arbeit", "schicht") -> {
@@ -163,6 +218,23 @@ object LocalAssistantFallback {
                 classification = "idea"
                 addLabel("فكرة")
                 reply = "حفظت الفكرة وسأبقيها مصنفة لتظهر بسهولة في البحث لاحقاً."
+            }
+            has("مباراة", "مبارة", "ماتش", "spiel") -> {
+                classification = if (has("لازم", "ضروري", "نطلع", "نروح")) "task" else "note"
+                addLabel("مباراة")
+                if (tomorrow) addLabel("غداً")
+                if (time != null) addLabel(time)
+                val opponent = Regex("(?:ضد|gegen|vs\\.?)[\\s:]+([^،,.\\n]+)", RegexOption.IGNORE_CASE)
+                    .find(raw)?.groupValues?.getOrNull(1)?.trim()?.take(60)
+                if (!opponent.isNullOrBlank()) addKeyword(opponent)
+                reply = buildString {
+                    append("فهمت أنها مباراة")
+                    if (tomorrow) append(" غداً")
+                    if (time != null) append(" الساعة $time")
+                    if (!opponent.isNullOrBlank()) append(" ضد $opponent")
+                    append(". حفظت التفاصيل للبحث والمتابعة.")
+                    if (has("قبل بساعة", "قبل ساعة")) append(" وسجلت أيضاً أنك تريد الخروج قبلها بساعة.")
+                }
             }
             has("لازم", "مهمة", "اعمل", "أعمل", "task", "todo") -> {
                 classification = "task"
