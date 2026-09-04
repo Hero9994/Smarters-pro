@@ -1072,12 +1072,20 @@ class MainActivity : ComponentActivity() {
                 localAi?.close()
                 localAi = null
                 runOnUiThread {
-                    status.text = "جاهز ✓\n${spec.displayName}\nسيستخدمه المساعد تلقائياً من الآن."
+                    status.text = String.format(
+                        Locale.ROOT,
+                        "جاهز ✓\n%s\nسيستخدمه المساعد تلقائياً من الآن.",
+                        spec.displayName
+                    )
                     Toast.makeText(this, "تم تفعيل الذكاء المحلي", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    status.text = "تعذر إكمال التنزيل.\n${e.message ?: "خطأ غير معروف"}\nيمكن إعادة المحاولة وسيكمل من الملف الجزئي إن أمكن."
+                    status.text = String.format(
+                        Locale.ROOT,
+                        "تعذر إكمال التنزيل.\n%s\nيمكن إعادة المحاولة وسيكمل من الملف الجزئي إن أمكن.",
+                        e.message ?: "خطأ غير معروف"
+                    )
                 }
             } finally {
                 modelDownloadRunning = false
