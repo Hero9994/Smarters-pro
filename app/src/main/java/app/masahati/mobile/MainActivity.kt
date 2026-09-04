@@ -789,6 +789,15 @@ class MainActivity : ComponentActivity() {
     private fun maybeRequestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        if (!ReminderScheduler.notificationsAllowed(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("تفعيل إشعارات التذكير")
+                .setMessage("إشعارات تذكيرات مساحاتي مطفأة من إعدادات أندرويد. فعّلها حتى يصلك التذكير خارج التطبيق.")
+                .setPositiveButton("فتح الإعدادات") { _, _ -> ReminderScheduler.openReminderNotificationSettings(this) }
+                .setNegativeButton("لاحقاً", null)
+                .show()
         }
     }
 
