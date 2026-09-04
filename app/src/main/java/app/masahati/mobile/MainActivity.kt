@@ -1063,9 +1063,9 @@ class MainActivity : ComponentActivity() {
                     val mb = downloaded / (1024L * 1024L)
                     runOnUiThread {
                         status.text = if (percent >= 0) {
-                            "جارِ التنزيل… $percent%  (${mb} MB)"
+                            String.format(Locale.ROOT, "جارِ التنزيل… %d%%  (%d MB)", percent, mb)
                         } else {
-                            "جارِ التنزيل… ${mb} MB"
+                            String.format(Locale.ROOT, "جارِ التنزيل… %d MB", mb)
                         }
                     }
                 }
