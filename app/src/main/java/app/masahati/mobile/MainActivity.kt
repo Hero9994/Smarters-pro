@@ -467,11 +467,43 @@ class MainActivity : ComponentActivity() {
                     put("recent", arr)
                 }
 
-                val remote = runCatching { postAgent(body) }.getOrNull()
-                val result = if (remote?.optBoolean("ok", false) == true) remote
+                val reminderResolution = NaturalReminderParser.parse(content, ZonedDateTime.now())
+                val localReminderResult = reminderResolution?.let { resolution ->
+                    JSONObject()
+                        .put("ok", true)
+                        .put("engine", "local-reminder-parser")
+                        .put("classification", "reminder")
+                        .put("labels", JSONArray(listOf("تذكير")))
+                        .put("keywords", JSONArray())
+                        .put("summary", content.take(320))
+                        .put("confidence", if (resolution.ready) 0.99 else 0.95)
+                        .put(
+                            "reply",
+                            if (resolution.ready) "فهمت موعد التذكير."
+                            else resolution.clarification ?: "أحتاج موعداً أوضح لإنشاء التذكير."
+                        )
+                        .put(
+                            "actions",
+                            if (resolution.ready) {
+                                JSONArray().put(
+                                    JSONObject()
+                                        .put("type", "create_reminder")
+                                        .put(
+                                            "args",
+                                            JSONObject()
+                                                .put("title", "تذكير مساحاتي")
+                                                .put("body", content.take(500))
+                                        )
+                                        .put("requires_confirmation", false)
+                                )
+                            } else JSONArray()
+                        )
+                }
+
+                val remote = if (localReminderResult == null) runCatching { postAgent(body) }.getOrNull() else null
+                val result = localReminderResult ?: if (remote?.optBoolean("ok", false) == true) remote
                 else LocalAssistantFallback.analyze(content, spaceTitle, recent)
 
-                val reminderResolution = NaturalReminderParser.parse(content, ZonedDateTime.now())
                 if (reminderResolution != null) {
                     val sourceActions = result.optJSONArray("actions") ?: JSONArray()
                     val safeActions = JSONArray()
