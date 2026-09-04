@@ -567,9 +567,21 @@ class MainActivity : ComponentActivity() {
                         )
                 }
 
-                val remote = if (localReminderResult == null) runCatching { postAgent(body) }.getOrNull() else null
-                val result = localReminderResult ?: if (remote?.optBoolean("ok", false) == true) remote
-                else LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                // Explicit local tool commands are deterministic and should not depend on model latency
+                // or on the model remembering to mark a directly requested action as executable.
+                val localToolCandidate = if (localReminderResult == null) {
+                    LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                } else null
+                val hasLocalToolAction = localToolCandidate
+                    ?.optJSONArray("actions")
+                    ?.let { it.length() > 0 } == true
+                val remote = if (localReminderResult == null && !hasLocalToolAction) {
+                    runCatching { postAgent(body) }.getOrNull()
+                } else null
+                val result = localReminderResult
+                    ?: localToolCandidate?.takeIf { hasLocalToolAction }
+                    ?: if (remote?.optBoolean("ok", false) == true) remote
+                    else localToolCandidate ?: LocalAssistantFallback.analyze(content, spaceTitle, recent)
 
                 if (reminderResolution != null) {
                     val sourceActions = result.optJSONArray("actions") ?: JSONArray()
