@@ -74,13 +74,23 @@ object LocalAssistantFallback {
             }
             recentDocument != null && has("هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "نفس الورقة") -> {
                 classification = "document"
-                addLabel("مستند")
+                val combinedDoc = "$raw $documentContext".lowercase()
+                val medicalTransport =
+                    Regex("(نقل|توصيل|مواصلات).{0,40}(طبيب|دكتور|مشفى|مستشفى|عيادة)", RegexOption.IGNORE_CASE).containsMatchIn(raw) ||
+                    Regex("(طبيب|دكتور|مشفى|مستشفى|عيادة).{0,40}(نقل|توصيل|مواصلات)", RegexOption.IGNORE_CASE).containsMatchIn(raw) ||
+                    Regex("(krankenbeförderung|krankentransport|transportschein|arztfahrt|fahrtkosten|transport.{0,30}arzt)", RegexOption.IGNORE_CASE).containsMatchIn(combinedDoc)
+                val docLabels = if (medicalTransport) listOf("مستند", "نقل طبي", "مواصلات مرضى") else listOf("مستند")
+                docLabels.forEach(::addLabel)
+                val semantic = if (medicalTransport) listOf("نقل طبي", "طبيب", "من المنزل", "Krankenbeförderung", "Transport") else emptyList()
                 val useful = raw.split(Regex("[^\\p{L}\\p{N}]+"))
                     .map { it.trim() }
-                    .filter { it.length >= 3 }
+                    .filter {
+                        it.length >= 3 &&
+                            it !in setOf("هذه", "هذا", "هاي", "هاد", "ورقة", "المستند", "الورقة", "إلى", "الى", "من")
+                    }
                     .distinct()
-                    .take(10)
-                useful.forEach(::addKeyword)
+                    .take(8)
+                (semantic + useful).distinct().take(12).forEach(::addKeyword)
                 actions.put(
                     JSONObject()
                         .put("type", "enrich_previous_document")
@@ -88,12 +98,16 @@ object LocalAssistantFallback {
                             "args",
                             JSONObject()
                                 .put("summary", raw.take(500))
-                                .put("labels", JSONArray(listOf("مستند")))
-                                .put("keywords", JSONArray(useful))
+                                .put("labels", JSONArray(docLabels))
+                                .put("keywords", JSONArray((semantic + useful).distinct().take(12)))
                         )
                         .put("requires_confirmation", false)
                 )
-                reply = "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
+                reply = if (medicalTransport) {
+                    "فهمت أن المستند السابق يخص النقل الطبي من المنزل إلى الطبيب، وربطت الوصف به حتى يظهر بالبحث الصحيح."
+                } else {
+                    "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
+                }
             }
             has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
                 classification = "command"
