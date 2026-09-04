@@ -15,6 +15,12 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.Worker
+import androidx.work.WorkerParameters
 import org.json.JSONObject
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -25,6 +31,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 object ReminderTime {
     fun nextDaily(now: ZonedDateTime, hour: Int, minute: Int): Long {
@@ -119,13 +126,32 @@ object ReminderScheduler {
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
         }
         db.updateReminderNextFire(reminder.id, triggerAt)
+        enqueueBackup(context, reminder.id, triggerAt)
         return exact
     }
 
     fun cancel(context: Context, reminderId: Long) {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         alarmManager.cancel(fireIntent(context, reminderId))
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(workName(reminderId))
     }
+
+    private fun enqueueBackup(context: Context, reminderId: Long, triggerAt: Long) {
+        val delay = (triggerAt - System.currentTimeMillis()).coerceAtLeast(0L)
+        val data = Data.Builder().putLong("reminder_id", reminderId).build()
+        val request = OneTimeWorkRequestBuilder<ReminderBackupWorker>()
+            .setInputData(data)
+            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+            .addTag("masahati-reminder")
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            workName(reminderId),
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
+    private fun workName(reminderId: Long): String = "masahati-reminder-$reminderId"
 
     fun rescheduleAll(context: Context) {
         val db = MasahatiDatabase(context.applicationContext)
@@ -244,7 +270,13 @@ object ReminderScheduler {
                 val m = reminder.minute ?: return null
                 ReminderTime.nextWeekly(now, d, h, m)
             }
-            else -> reminder.nextFireAt?.takeIf { it > fromMillis + 500L }
+            else -> reminder.nextFireAt?.let { scheduled ->
+                when {
+                    scheduled > fromMillis + 500L -> scheduled
+                    scheduled >= fromMillis - 6L * 60L * 60L * 1000L -> fromMillis + 1_000L
+                    else -> null
+                }
+            }
         }
     }
 
@@ -360,17 +392,26 @@ object ReminderDeliveryText {
     }
 }
 
-class ReminderReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        val id = intent.getLongExtra("reminder_id", -1L)
-        if (id <= 0L) return
+object ReminderDelivery {
+    fun deliver(context: Context, reminderId: Long) {
+        if (reminderId <= 0L) return
         val appContext = context.applicationContext
         val db = MasahatiDatabase(appContext)
         try {
-            val reminder = db.getReminder(id) ?: return
+            val reminder = db.getReminder(reminderId) ?: return
             if (!reminder.enabled) return
 
-            val deliveredText = ReminderDeliveryText.build(reminder)
+            val now = System.currentTimeMillis()
+            val scheduledAt = reminder.nextFireAt ?: now
+            val alreadyDeliveredForThisFire = reminder.deliveredAt?.let { delivered ->
+                delivered >= scheduledAt - 60_000L
+            } == true
+            if (alreadyDeliveredForThisFire) return
+
+            // Mark first so AlarmManager and WorkManager cannot both create duplicate messages.
+            db.markReminderDelivered(reminderId, now)
+
+            val deliveredText = ReminderDeliveryText.build(reminder, nowMillis = now)
             db.insertText(reminder.spaceId, "assistant", deliveredText)
 
             ReminderScheduler.ensureChannel(appContext)
@@ -381,7 +422,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 }
                 val contentIntent = PendingIntent.getActivity(
                     appContext,
-                    (id and 0x7fffffff).toInt(),
+                    (reminderId and 0x7fffffff).toInt(),
                     openIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
@@ -394,26 +435,42 @@ class ReminderReceiver : BroadcastReceiver() {
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setAutoCancel(true)
                     .setShowWhen(true)
-                    .setWhen(reminder.nextFireAt ?: System.currentTimeMillis())
+                    .setWhen(scheduledAt)
                     .setContentIntent(contentIntent)
                     .build()
                 if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
                     try {
-                        NotificationManagerCompat.from(appContext).notify((id and 0x7fffffff).toInt(), notification)
+                        NotificationManagerCompat.from(appContext).notify((reminderId and 0x7fffffff).toInt(), notification)
                     } catch (_: SecurityException) {
-                        // Permission can be revoked between the check and notify call.
+                        // Permission can be revoked between check and notify.
                     }
                 }
             }
 
             if (reminder.repeatRule == "none") {
-                db.disableReminder(id)
+                db.disableReminder(reminderId)
             } else {
-                ReminderScheduler.schedule(appContext, db, reminder, System.currentTimeMillis() + 60_000L)
+                ReminderScheduler.schedule(appContext, db, reminder, now + 60_000L)
             }
         } finally {
             db.close()
         }
+    }
+}
+
+class ReminderReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        ReminderDelivery.deliver(context, intent.getLongExtra("reminder_id", -1L))
+    }
+}
+
+class ReminderBackupWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : Worker(appContext, params) {
+    override fun doWork(): Result {
+        ReminderDelivery.deliver(applicationContext, inputData.getLong("reminder_id", -1L))
+        return Result.success()
     }
 }
 
@@ -422,7 +479,9 @@ class ReminderBootReceiver : BroadcastReceiver() {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED -> ReminderScheduler.rescheduleAll(context.applicationContext)
+            Intent.ACTION_TIMEZONE_CHANGED,
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED ->
+                ReminderScheduler.rescheduleAll(context.applicationContext)
         }
     }
 }
