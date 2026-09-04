@@ -18,10 +18,6 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context.applicationC
         db.execSQL("""CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,space_id INTEGER NOT NULL,type TEXT NOT NULL CHECK(type IN ('text','file')),text TEXT,file_name TEXT,file_path TEXT,mime_type TEXT,created_at INTEGER NOT NULL,FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE)""")
         db.execSQL("CREATE INDEX idx_spaces_updated ON spaces(archived, pinned, updated_at DESC)")
         db.execSQL("CREATE INDEX idx_messages_space_created ON messages(space_id, created_at, id)")
-        val now=System.currentTimeMillis()
-        listOf("ملاحظات","يومي","أوراقي","أفكار المشروع").forEachIndexed { index,title ->
-            db.insertOrThrow("spaces",null,ContentValues().apply { put("title",title);put("pinned",if(index==0)1 else 0);put("archived",0);put("created_at",now+index);put("updated_at",now+index) })
-        }
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
