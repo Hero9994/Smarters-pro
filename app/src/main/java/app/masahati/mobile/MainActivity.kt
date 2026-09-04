@@ -455,6 +455,21 @@ class MainActivity : ComponentActivity() {
                                 })
                             }
                         put("spaces", spaces)
+                        val reminders = JSONArray()
+                        db.listActiveReminders().take(20).forEach { reminder ->
+                            reminders.put(JSONObject().apply {
+                                put("id", reminder.id)
+                                put("spaceId", reminder.spaceId)
+                                put("title", reminder.title)
+                                put("body", reminder.body.take(300))
+                                put("repeatRule", reminder.repeatRule)
+                                reminder.dayOfWeek?.let { put("dayOfWeek", it) }
+                                reminder.hour?.let { put("hour", it) }
+                                reminder.minute?.let { put("minute", it) }
+                                reminder.nextFireAt?.let { put("nextFireAt", it) }
+                            })
+                        }
+                        put("reminders", reminders)
                         db.lastFileMessage(spaceId)?.let { doc ->
                             put("currentDocument", JSONObject().apply {
                                 put("id", doc.id)
@@ -692,6 +707,24 @@ class MainActivity : ComponentActivity() {
             val args = action.optJSONObject("args") ?: JSONObject()
             val needsConfirm = action.optBoolean("requires_confirmation", true)
             when (type) {
+                "list_reminders" -> {
+                    val reminders = db.listActiveReminders().take(12)
+                    if (reminders.isEmpty()) {
+                        recordNote("ما عندك أي تذكير فعّال حالياً.")
+                        recordTool(type, "completed", JSONObject().put("count", 0))
+                    } else {
+                        val rows = reminders.map { reminder ->
+                            val space = db.getSpace(reminder.spaceId)?.title ?: "مساحة"
+                            val task = ReminderDeliveryText.cleanTask(reminder.body).ifBlank { reminder.title }
+                            val whenText = reminder.nextFireAt?.let { epoch ->
+                                SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(epoch))
+                            } ?: "بدون موعد فعّال"
+                            "• $space — $task — $whenText"
+                        }
+                        recordNote("تذكيراتك الفعّالة:\n${rows.joinToString("\n")}")
+                        recordTool(type, "completed", JSONObject().put("count", reminders.size))
+                    }
+                }
                 "create_reminder" -> {
                     val created = ReminderScheduler.createFromAgent(this, db, spaceId, args, sourceText)
                     if (created == null) {
@@ -1182,10 +1215,12 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
+            menu.add("التذكيرات")
             menu.add("إعداد دقة التنبيهات")
             setOnMenuItemClickListener {
                 when {
                     it.title.toString().contains("بحث") -> promptGlobalSearch()
+                    it.title.toString() == "التذكيرات" -> showActiveReminders()
                     it.title.toString().contains("دقة التنبيهات") -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
                     else -> { showArchived = !showArchived; showHome() }
                 }
@@ -1193,6 +1228,57 @@ class MainActivity : ComponentActivity() {
             }
             show()
         }
+    }
+
+    private fun showActiveReminders() {
+        val reminders = db.listActiveReminders()
+        if (reminders.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("التذكيرات")
+                .setMessage("لا يوجد أي تذكير فعّال حالياً.")
+                .setPositiveButton("حسناً", null)
+                .show()
+            return
+        }
+        val labels = reminders.map { reminder ->
+            val space = db.getSpace(reminder.spaceId)?.title ?: "مساحة"
+            val task = ReminderDeliveryText.cleanTask(reminder.body).ifBlank { reminder.title }
+            val whenText = reminder.nextFireAt?.let { epoch ->
+                SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(epoch))
+            } ?: "غير مجدول"
+            "$task\n$space · $whenText"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("التذكيرات الفعّالة")
+            .setItems(labels) { _, which -> showReminderActions(reminders[which]) }
+            .setNegativeButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showReminderActions(reminder: ReminderRow) {
+        val space = db.getSpace(reminder.spaceId)?.title ?: "مساحة"
+        val task = ReminderDeliveryText.cleanTask(reminder.body).ifBlank { reminder.title }
+        val whenText = reminder.nextFireAt?.let { epoch ->
+            SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(epoch))
+        } ?: "غير مجدول"
+        AlertDialog.Builder(this)
+            .setTitle(task)
+            .setMessage("$space\n$whenText")
+            .setPositiveButton("فتح المساحة") { _, _ -> openSpace(reminder.spaceId) }
+            .setNeutralButton("إيقاف التذكير") { _, _ ->
+                AlertDialog.Builder(this)
+                    .setTitle("إيقاف التذكير؟")
+                    .setMessage(task)
+                    .setPositiveButton("إيقاف") { _, _ ->
+                        ReminderScheduler.cancel(this, reminder.id)
+                        db.disableReminder(reminder.id)
+                        Toast.makeText(this, "تم إيقاف التذكير", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("رجوع", null)
+                    .show()
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
     }
 
     private fun showSpaceMenu(anchor: View, space: SpaceRow) {
