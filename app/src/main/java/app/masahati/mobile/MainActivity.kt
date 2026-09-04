@@ -2,6 +2,8 @@ package app.masahati.mobile
 
 import android.Manifest
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Build
 import android.content.ActivityNotFoundException
@@ -291,6 +293,12 @@ class MainActivity : ComponentActivity() {
             minLines = 1
             setPadding(dp(17), dp(9), dp(17), dp(9))
             background = rounded(Color.rgb(244, 244, 240), 28f)
+            setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) chatScroll?.postDelayed({ chatScroll?.fullScroll(View.FOCUS_DOWN) }, 180L)
+            }
+            setOnClickListener {
+                chatScroll?.postDelayed({ chatScroll?.fullScroll(View.FOCUS_DOWN) }, 120L)
+            }
         }
         val send = Button(this).apply {
             text = "إرسال"
@@ -322,7 +330,7 @@ class MainActivity : ComponentActivity() {
             messages.forEach { host.addView(messageBubble(it)) }
         }
         if (busyCount > 0) {
-            val waiting = MessageRow(-1, spaceId, "assistant", "text", "جاري الفهم والترتيب…", null, null, null, null, null, null, null, System.currentTimeMillis())
+            val waiting = MessageRow(-1, spaceId, "assistant", "text", "جاري الفهم والترتيب…", null, null, null, null, null, null, null, false, System.currentTimeMillis())
             host.addView(messageBubble(waiting, temporary = true))
         }
         chatScroll?.post { chatScroll?.fullScroll(View.FOCUS_DOWN) }
@@ -337,7 +345,12 @@ class MainActivity : ComponentActivity() {
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(9))
-            background = rounded(if (m.role == "assistant") assistantBg else paleTeal, 25f, if (m.role == "assistant") Color.rgb(210, 214, 211) else Color.TRANSPARENT, if (m.role == "assistant") 1 else 0)
+            background = rounded(
+                if (m.role == "assistant") assistantBg else paleTeal,
+                25f,
+                if (m.role == "assistant") Color.rgb(210, 214, 211) else Color.TRANSPARENT,
+                if (m.role == "assistant") 1 else 0
+            )
             alpha = if (temporary) 0.8f else 1f
         }
         if (m.role == "assistant") {
@@ -349,15 +362,22 @@ class MainActivity : ComponentActivity() {
             bubble.addView(text(if (m.ocrText.isNullOrBlank()) "اضغط لفتح الملف" else "تمت قراءته وتصنيفه للبحث", 14f, Color.DKGRAY, false))
             if (!temporary && m.filePath != null) {
                 bubble.setOnClickListener { openSavedFile(m) }
-                bubble.setOnLongClickListener { confirmDeleteMessage(m); true }
             }
         } else {
             bubble.addView(text(m.text, 18f, Color.rgb(30, 35, 35), false))
-            if (!temporary && m.id > 0) bubble.setOnLongClickListener { confirmDeleteMessage(m); true }
+        }
+        if (!temporary && m.id > 0) {
+            bubble.setOnLongClickListener {
+                showMessageMenu(bubble, m)
+                true
+            }
         }
         if (m.id > 0 && !temporary && m.role != "assistant") {
             val meta = listOfNotNull(m.classification, m.tags).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) bubble.addView(text(meta.take(120), 12f, teal, false))
+        }
+        if (!temporary && m.starred) {
+            bubble.addView(text("★ مميز", 12f, teal, true))
         }
         if (!temporary) bubble.addView(text(formatTime(m.createdAt), 11f, Color.GRAY, false))
         val bubbleWidth = (resources.displayMetrics.widthPixels * 0.78).toInt()
@@ -450,6 +470,40 @@ class MainActivity : ComponentActivity() {
                 val remote = runCatching { postAgent(body) }.getOrNull()
                 val result = if (remote?.optBoolean("ok", false) == true) remote
                 else LocalAssistantFallback.analyze(content, spaceTitle, recent)
+
+                val reminderResolution = NaturalReminderParser.parse(content, ZonedDateTime.now())
+                if (reminderResolution != null) {
+                    val sourceActions = result.optJSONArray("actions") ?: JSONArray()
+                    val safeActions = JSONArray()
+                    var hasReminderAction = false
+                    for (i in 0 until sourceActions.length()) {
+                        val item = sourceActions.optJSONObject(i) ?: continue
+                        if (item.optString("type") == "create_reminder") {
+                            hasReminderAction = true
+                            if (reminderResolution.ready) safeActions.put(item)
+                        } else {
+                            safeActions.put(item)
+                        }
+                    }
+                    if (reminderResolution.ready && !hasReminderAction) {
+                        safeActions.put(
+                            JSONObject()
+                                .put("type", "create_reminder")
+                                .put(
+                                    "args",
+                                    JSONObject()
+                                        .put("title", "تذكير مساحاتي")
+                                        .put("body", content.take(500))
+                                )
+                                .put("requires_confirmation", false)
+                        )
+                    }
+                    result.put("actions", safeActions)
+                    result.put("classification", "reminder")
+                    if (!reminderResolution.ready) {
+                        result.put("reply", reminderResolution.clarification ?: "أحتاج موعداً أوضح لإنشاء التذكير.")
+                    }
+                }
 
                 val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
                 val classification = result.optString("classification", "other")
@@ -766,6 +820,7 @@ class MainActivity : ComponentActivity() {
             menu.add(if (space.pinned) "إلغاء التثبيت" else "تثبيت")
             menu.add("إعادة تسمية")
             menu.add("بحث شامل")
+            menu.add("المميزة ★")
             menu.add("أرشفة")
             setOnMenuItemClickListener {
                 when (it.title.toString()) {
@@ -773,6 +828,7 @@ class MainActivity : ComponentActivity() {
                     "إلغاء التثبيت" -> { db.setPinned(space.id, false); Toast.makeText(this@MainActivity, "تم إلغاء التثبيت", Toast.LENGTH_SHORT).show() }
                     "إعادة تسمية" -> promptRename(space)
                     "بحث شامل" -> promptGlobalSearch()
+                    "المميزة ★" -> showStarredMessages(space.id)
                     "أرشفة" -> confirmArchive(space)
                 }
                 true
@@ -873,6 +929,122 @@ class MainActivity : ComponentActivity() {
             .setMessage("سيتم حذف محتوى هذه المساحة من النسخة التجريبية.")
             .setPositiveButton("حذف") { _, _ -> db.deleteSpace(space.id); renderSpaceList() }
             .setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun showMessageMenu(anchor: View, m: MessageRow) {
+        PopupMenu(this, anchor).apply {
+            if (m.kind == "file") {
+                if (m.filePath != null) menu.add("فتح")
+                if (!m.ocrText.isNullOrBlank()) menu.add("نسخ النص")
+            } else {
+                menu.add("نسخ")
+            }
+            menu.add(if (m.starred) "إلغاء النجمة" else "تمييز بنجمة ★")
+            menu.add("نقل إلى مساحة أخرى")
+            menu.add("مشاركة")
+            menu.add("حذف")
+            setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "فتح" -> openSavedFile(m)
+                    "نسخ", "نسخ النص" -> copyMessage(m)
+                    "تمييز بنجمة ★" -> {
+                        db.setMessageStarred(m.id, true)
+                        currentSpaceId?.let(::renderMessages)
+                    }
+                    "إلغاء النجمة" -> {
+                        db.setMessageStarred(m.id, false)
+                        currentSpaceId?.let(::renderMessages)
+                    }
+                    "نقل إلى مساحة أخرى" -> showMoveMessageDialog(m)
+                    "مشاركة" -> shareMessage(m)
+                    "حذف" -> confirmDeleteMessage(m)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun copyMessage(m: MessageRow) {
+        val value = when {
+            m.kind == "file" && !m.ocrText.isNullOrBlank() -> m.ocrText
+            m.kind == "file" -> m.displayName.orEmpty()
+            else -> m.text
+        }.orEmpty()
+        if (value.isBlank()) {
+            Toast.makeText(this, "لا يوجد نص لنسخه", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(ClipData.newPlainText("Masahati", value))
+        Toast.makeText(this, "تم النسخ", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun shareMessage(m: MessageRow) {
+        if (m.kind == "file" && m.filePath != null) {
+            val file = File(m.filePath)
+            if (!file.exists()) {
+                Toast.makeText(this, "الملف غير موجود", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = m.mimeType ?: "application/octet-stream"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "مشاركة الملف"))
+            return
+        }
+
+        val value = if (m.kind == "file") m.ocrText.orEmpty() else m.text
+        if (value.isBlank()) return
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, value)
+        }
+        startActivity(Intent.createChooser(intent, "مشاركة"))
+    }
+
+    private fun showMoveMessageDialog(m: MessageRow) {
+        val targets = (db.listSpaces(false) + db.listSpaces(true))
+            .distinctBy { it.id }
+            .filter { it.id != m.spaceId }
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "أنشئ مساحة أخرى أولاً", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val names = targets.map { it.title }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("نقل إلى")
+            .setItems(names) { _, which ->
+                val target = targets[which]
+                db.moveMessage(m.id, target.id)
+                currentSpaceId?.let(::renderMessages)
+                Toast.makeText(this, "تم النقل إلى «${target.title}»", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun showStarredMessages(spaceId: Long) {
+        val starred = db.listStarred(spaceId)
+        if (starred.isEmpty()) {
+            Toast.makeText(this, "لا توجد عناصر مميزة في هذه المساحة", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = starred.map { item ->
+            when {
+                item.kind == "file" -> "★ " + (item.displayName ?: "ملف")
+                item.text.isNotBlank() -> "★ " + item.text.replace("\n", " ").take(90)
+                else -> "★ عنصر مميز"
+            }
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("العناصر المميزة ★")
+            .setItems(labels) { _, which -> copyMessage(starred[which]) }
+            .setPositiveButton("إغلاق", null)
+            .show()
     }
 
     private fun confirmDeleteMessage(m: MessageRow) {
