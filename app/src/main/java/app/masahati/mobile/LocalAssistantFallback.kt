@@ -22,6 +22,26 @@ object LocalAssistantFallback {
         fun addLabel(value: String) { if (value.isNotBlank()) labels += value }
         fun addKeyword(value: String) { if (value.isNotBlank()) keywords += value }
 
+        fun capture(pattern: String): String? = Regex(pattern, RegexOption.IGNORE_CASE)
+            .find(raw)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.trim('«', '»', '"')
+            ?.takeIf { it.isNotBlank() }
+
+        val createSpaceName = capture("""(?:أنشئ|انشئ|اعمل|سوي|سوّي)\s+(?:لي\s+)?مساحة(?:\s+جديدة)?(?:\s+باسم|\s+اسمها)?\s+(.+)$""")
+            ?: capture("""create\s+(?:a\s+)?space(?:\s+called|\s+named)?\s+(.+)$""")
+            ?: capture("""erstelle\s+(?:einen\s+)?bereich(?:\s+namens)?\s+(.+)$""")
+        val renameSpaceName = capture("""(?:غير|غيّر|بدل|بدّل)\s+اسم\s+(?:هالمساحة|المساحة)(?:\s+إلى|\s+الى|\s+لـ?)\s+(.+)$""")
+            ?: capture("""rename\s+(?:this\s+)?space\s+(?:to\s+)?(.+)$""")
+        val renameDocumentName = capture("""(?:غير|غيّر|بدل|بدّل)\s+اسم\s+(?:الملف|المستند|الورقة)(?:\s+إلى|\s+الى|\s+لـ?)\s+(.+)$""")
+            ?: capture("""rename\s+(?:the\s+)?(?:file|document)\s+(?:to\s+)?(.+)$""")
+        val moveDocumentTarget = capture("""(?:انقل|نقل|حرّك|حرك)\s+(?:هالورقة|الورقة|الملف|المستند)(?:\s+إلى|\s+الى|\s+على)\s+(.+)$""")
+            ?: capture("""move\s+(?:the\s+)?(?:file|document)\s+to\s+(.+)$""")
+        val moveLastTarget = capture("""(?:انقل|نقل|حرّك|حرك)\s+(?:آخر|اخر)\s+(?:شي|شيء|عنصر)(?:\s+إلى|\s+الى|\s+على)\s+(.+)$""")
+            ?: capture("""move\s+(?:the\s+)?last\s+(?:item|message)\s+to\s+(.+)$""")
+
         val time = Regex("(?:[01]?\\d|2[0-3])[:.]\\d{2}").find(raw)?.value?.replace('.', ':')
             ?: Regex("(?:[01]?\\d|2[0-3])\\s*(?:ص|م)").find(raw)?.value
             ?: Regex("(?:[01]?\\d|2[0-3])[:.]\\d{2}").find(context)?.value?.replace('.', ':')
@@ -94,6 +114,61 @@ object LocalAssistantFallback {
                         .put("requires_confirmation", false)
                 )
                 reply = "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
+            }
+            createSpaceName != null -> {
+                classification = "command"
+                addLabel("مساحة")
+                actions.put(
+                    JSONObject()
+                        .put("type", "create_space")
+                        .put("args", JSONObject().put("name", createSpaceName))
+                        .put("requires_confirmation", false)
+                )
+                reply = "فهمت أنك تريد إنشاء مساحة «$createSpaceName»."
+            }
+            renameSpaceName != null -> {
+                classification = "command"
+                addLabel("إعادة تسمية")
+                actions.put(
+                    JSONObject()
+                        .put("type", "rename_space")
+                        .put("args", JSONObject().put("new_name", renameSpaceName))
+                        .put("requires_confirmation", false)
+                )
+                reply = "فهمت أنك تريد تغيير اسم هذه المساحة إلى «$renameSpaceName»."
+            }
+            renameDocumentName != null -> {
+                classification = "command"
+                addLabel("مستند")
+                actions.put(
+                    JSONObject()
+                        .put("type", "rename_last_document")
+                        .put("args", JSONObject().put("new_name", renameDocumentName))
+                        .put("requires_confirmation", false)
+                )
+                reply = "فهمت أنك تريد تغيير اسم آخر مستند إلى «$renameDocumentName»."
+            }
+            moveDocumentTarget != null -> {
+                classification = "command"
+                addLabel("نقل مستند")
+                actions.put(
+                    JSONObject()
+                        .put("type", "move_last_document")
+                        .put("args", JSONObject().put("target_space", moveDocumentTarget))
+                        .put("requires_confirmation", false)
+                )
+                reply = "فهمت أنك تريد نقل آخر مستند إلى مساحة «$moveDocumentTarget»."
+            }
+            moveLastTarget != null -> {
+                classification = "command"
+                addLabel("نقل")
+                actions.put(
+                    JSONObject()
+                        .put("type", "move_last_item")
+                        .put("args", JSONObject().put("target_space", moveLastTarget))
+                        .put("requires_confirmation", false)
+                )
+                reply = "فهمت أنك تريد نقل آخر عنصر إلى مساحة «$moveLastTarget»."
             }
             has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
                 classification = "command"
