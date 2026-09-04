@@ -42,10 +42,11 @@ data class ReminderRow(
     val minute: Int?,
     val nextFireAt: Long?,
     val enabled: Boolean,
+    val deliveredAt: Long?,
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 5) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 6) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -98,6 +99,9 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         if (oldVersion < 5) {
             db.execSQL("ALTER TABLE spaces ADD COLUMN focus_message_id INTEGER")
         }
+        if (oldVersion < 6) {
+            db.execSQL("ALTER TABLE reminders ADD COLUMN delivered_at INTEGER")
+        }
     }
 
     private fun createReminderTable(db: SQLiteDatabase) {
@@ -114,6 +118,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               minute INTEGER,
               next_fire_at INTEGER,
               enabled INTEGER NOT NULL DEFAULT 1,
+              delivered_at INTEGER,
               created_at INTEGER NOT NULL,
               FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
             )
@@ -451,6 +456,15 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         }, "id=?", arrayOf(id.toString()))
     }
 
+    fun markReminderDelivered(id: Long, deliveredAt: Long) {
+        writableDatabase.update(
+            "reminders",
+            ContentValues().apply { put("delivered_at", deliveredAt) },
+            "id=?",
+            arrayOf(id.toString())
+        )
+    }
+
     private fun reminderFrom(c: Cursor) = ReminderRow(
         id = c.getLong(c.getColumnIndexOrThrow("id")),
         spaceId = c.getLong(c.getColumnIndexOrThrow("space_id")),
@@ -462,6 +476,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         minute = c.intOrNull("minute"),
         nextFireAt = c.longOrNull("next_fire_at"),
         enabled = c.getInt(c.getColumnIndexOrThrow("enabled")) == 1,
+        deliveredAt = c.longOrNull("delivered_at"),
         createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
     )
 
