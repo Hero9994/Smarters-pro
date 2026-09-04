@@ -156,6 +156,83 @@ object NaturalReminderParser {
         )
     }
 
+    fun parseWithContext(text: String, recentUserTexts: List<String>, now: ZonedDateTime): NaturalReminderResolution? {
+        val direct = parse(text, now) ?: return null
+        if (direct.ready) return direct
+        val normalized = normalizeDigits(text).lowercase(Locale.ROOT)
+        val offset = readBeforeOffsetMinutes(normalized) ?: return direct
+        val hasReference = listOf(
+            "قبلها", "قبله", "قبل الموعد", "قبل التدريب", "قبلها ب", "before it", "before the", "before",
+            "vorher", "davor", "vor dem", "vor der"
+        ).any(normalized::contains)
+        if (!hasReference) return direct
+
+        val anchor = recentUserTexts.asReversed()
+            .asSequence()
+            .mapNotNull { resolveAnchorTime(it, now) }
+            .firstOrNull() ?: return NaturalReminderResolution(false, "أي موعد تقصد؟ اكتب اليوم والساعة أو اذكر الموعد مرة ثانية.")
+
+        val trigger = anchor.minusMinutes(offset.toLong())
+        if (!trigger.isAfter(now)) {
+            return NaturalReminderResolution(false, "وقت التذكير قبل الموعد أصبح في الماضي. متى تريد أن أذكرك؟")
+        }
+        return NaturalReminderResolution(
+            ready = true,
+            triggerAt = trigger.toInstant().toEpochMilli(),
+            description = "قبل الموعد بـ" + humanOffset(offset) + " — " + format(trigger)
+        )
+    }
+
+    private fun resolveAnchorTime(text: String, now: ZonedDateTime): ZonedDateTime? {
+        val normalized = normalizeDigits(text).lowercase(Locale.ROOT).replace("غداً", "غدا")
+        val clock = parseNaturalClock(normalized) ?: return null
+        if (clock.ambiguous) return null
+        val hour = clock.hour
+        val minute = clock.minute
+        val explicitDate = parseDate(normalized, now.toLocalDate())
+        if (explicitDate != null) {
+            var candidate = explicitDate.atTime(hour, minute).atZone(now.zone)
+            if (!candidate.isAfter(now) && !listOf("اليوم", "today", "heute").any(normalized::contains)) {
+                candidate = candidate.plusYears(1)
+            }
+            return candidate.takeIf { it.isAfter(now) }
+        }
+        if (listOf("بكرا", "غدا", "tomorrow", "morgen").any(normalized::contains)) {
+            return now.toLocalDate().plusDays(1).atTime(hour, minute).atZone(now.zone)
+        }
+        if (listOf("اليوم", "today", "heute").any(normalized::contains)) {
+            return now.toLocalDate().atTime(hour, minute).atZone(now.zone).takeIf { it.isAfter(now) }
+        }
+        val weekday = findWeekday(normalized) ?: return null
+        val epoch = ReminderTime.nextWeekly(now, weekday, hour, minute)
+        return ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(epoch), now.zone)
+    }
+
+    private fun readBeforeOffsetMinutes(text: String): Int? {
+        if (Regex("(?:قبل(?:ها|ه| الموعد| التدريب)?|before|vorher|davor).*?(?:نص|نصف)\\s+ساعة", RegexOption.IGNORE_CASE).containsMatchIn(text)) return 30
+        if (Regex("(?:قبل(?:ها|ه| الموعد| التدريب)?|before|vorher|davor).*?ربع\\s+ساعة", RegexOption.IGNORE_CASE).containsMatchIn(text)) return 15
+        if (Regex("(?:قبل(?:ها|ه| الموعد| التدريب)?).*?ساعتين", RegexOption.IGNORE_CASE).containsMatchIn(text)) return 120
+        if (Regex("(?:قبل(?:ها|ه| الموعد| التدريب)?).*?(?:ب)?ساعة(?:\\s|$)", RegexOption.IGNORE_CASE).containsMatchIn(text)) return 60
+        Regex("(?:قبل(?:ها|ه| الموعد| التدريب)?).*?(\\d{1,4})\\s*(?:دقيقة|دقائق|دقايق|دقيقه)", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it.coerceIn(1, 60 * 24 * 30) }
+        Regex("(?:قبل(?:ها|ه| الموعد| التدريب)?).*?(\\d{1,3})\\s*(?:ساعة|ساعات|ساعه)", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return (it * 60).coerceIn(1, 60 * 24 * 30) }
+        Regex("(\\d{1,4})\\s*(?:minutes?|minuten?)\\s*(?:before|vorher|davor)", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it.coerceIn(1, 60 * 24 * 30) }
+        Regex("(\\d{1,3})\\s*(?:hours?|stunden?)\\s*(?:before|vorher|davor)", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return (it * 60).coerceIn(1, 60 * 24 * 30) }
+        if (Regex("(?:an?\\s+hour\\s+before|eine\\s+stunde\\s+(?:vorher|davor))", RegexOption.IGNORE_CASE).containsMatchIn(text)) return 60
+        return null
+    }
+
+    private fun humanOffset(minutes: Int): String = when (minutes) {
+        15 -> "ربع ساعة"
+        30 -> "نصف ساعة"
+        60 -> "ساعة"
+        120 -> "ساعتين"
+        else -> if (minutes % 60 == 0) (minutes / 60).toString() + " ساعات" else minutes.toString() + " دقيقة"
+    }
+
     private data class NaturalClock(val hour: Int, val minute: Int, val ambiguous: Boolean, val rawHour: Int)
 
     private fun parseNaturalClock(text: String): NaturalClock? {
