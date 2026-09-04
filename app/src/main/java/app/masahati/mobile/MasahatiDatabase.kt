@@ -27,6 +27,7 @@ data class MessageRow(
     val classification: String?,
     val tags: String?,
     val summary: String?,
+    val starred: Boolean,
     val createdAt: Long
 )
 
@@ -44,7 +45,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 3) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -73,6 +74,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               classification TEXT,
               tags TEXT,
               summary TEXT,
+              starred INTEGER NOT NULL DEFAULT 0,
               ai_json TEXT,
               created_at INTEGER NOT NULL,
               FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
@@ -89,6 +91,9 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             db.execSQL("DELETE FROM spaces WHERE title IN ('ملاحظات','يومي','أوراقي','أفكار المشروع') AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.space_id = spaces.id)")
         }
         if (oldVersion < 3) createReminderTable(db)
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
+        }
     }
 
     private fun createReminderTable(db: SQLiteDatabase) {
@@ -282,6 +287,28 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         writableDatabase.update("spaces", ContentValues().apply { put("updated_at", System.currentTimeMillis()) }, "id=?", arrayOf(targetSpaceId.toString()))
     }
 
+    fun setMessageStarred(messageId: Long, starred: Boolean) {
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("starred", if (starred) 1 else 0) },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
+    fun listStarred(spaceId: Long): List<MessageRow> {
+        val c = readableDatabase.query(
+            "messages",
+            null,
+            "space_id=? AND starred=1",
+            arrayOf(spaceId.toString()),
+            null,
+            null,
+            "created_at DESC, id DESC"
+        )
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
+    }
+
     fun deleteMessage(messageId: Long) {
         writableDatabase.delete("messages", "id=?", arrayOf(messageId.toString()))
     }
@@ -410,6 +437,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         classification = c.stringOrNull("classification"),
         tags = c.stringOrNull("tags"),
         summary = c.stringOrNull("summary"),
+        starred = c.getInt(c.getColumnIndexOrThrow("starred")) == 1,
         createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
     )
 
