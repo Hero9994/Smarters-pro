@@ -460,6 +460,28 @@ class MainActivity : ComponentActivity() {
                                 })
                             }
                         put("spaces", spaces)
+
+                        // Global semantic memory: surface the best matching items from every space.
+                        val memoryMatches = JSONArray()
+                        db.search(content, 8)
+                            .filter { it.id != messageId && it.role != "assistant" }
+                            .forEach { match ->
+                                memoryMatches.put(JSONObject().apply {
+                                    put("messageId", match.id)
+                                    put("spaceId", match.spaceId)
+                                    put("spaceTitle", db.getSpace(match.spaceId)?.title ?: "")
+                                    put("kind", match.kind)
+                                    put("displayName", match.displayName ?: "")
+                                    put("classification", match.classification ?: "")
+                                    put("tags", match.tags ?: "")
+                                    put("summary", match.summary ?: "")
+                                    put("text", match.text.take(700))
+                                    put("ocrText", match.ocrText.orEmpty().take(1200))
+                                    put("createdAt", match.createdAt)
+                                })
+                            }
+                        put("memoryMatches", memoryMatches)
+
                         focusedDocument?.let { doc ->
                             put("currentDocument", JSONObject().apply {
                                 put("id", doc.id)
@@ -734,6 +756,45 @@ class MainActivity : ComponentActivity() {
                                 "• $s — $preview"
                             }
                             notes += "وجدت محلياً:\n${lines.joinToString("\n")}"
+                        }
+                    }
+                }
+                "create_space" -> {
+                    val name = args.optString("name").ifBlank { args.optString("title") }.trim()
+                    if (name.isNotBlank()) {
+                        val existing = db.findSpaceByTitle(name)
+                        if (existing != null) {
+                            notes += "مساحة «${existing.title}» موجودة أصلاً."
+                        } else if (needsConfirm) {
+                            notes += "إنشاء مساحة «$name» جاهز وينتظر التأكيد."
+                        } else {
+                            val newId = db.createSpace(name)
+                            if (newId > 0L) notes += "تم إنشاء مساحة «$name»."
+                        }
+                    }
+                }
+                "rename_last_document" -> {
+                    val document = db.lastFileMessage(spaceId)
+                    val newName = args.optString("new_name").ifBlank { args.optString("name") }.trim()
+                    if (document != null && newName.isNotBlank()) {
+                        if (needsConfirm) {
+                            notes += "إعادة تسمية المستند جاهزة وينتظر التأكيد."
+                        } else {
+                            db.renameDocument(document.id, newName)
+                            notes += "تم تغيير اسم المستند إلى «$newName»."
+                        }
+                    }
+                }
+                "move_last_document" -> {
+                    val document = db.lastFileMessage(spaceId)
+                    val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
+                    val target = db.findSpaceByTitle(targetName)
+                    if (document != null && target != null) {
+                        if (needsConfirm) {
+                            notes += "نقل المستند جاهز وينتظر التأكيد."
+                        } else {
+                            db.moveMessage(document.id, target.id)
+                            notes += "تم نقل المستند إلى «${target.title}»."
                         }
                     }
                 }
@@ -1029,7 +1090,7 @@ class MainActivity : ComponentActivity() {
             AlertDialog.Builder(this)
                 .setTitle("الذكاء المحلي")
                 .setMessage(
-                    "جاهز ✓\n\n${spec.displayName}\nيعمل على الجهاز بدون إنترنت، ويُستخدم قبل الذكاء السحابي."
+                    "جاهز ✓\n\n${spec.displayName}\nيعمل على الجهاز بدون إنترنت، ويُستخدم تلقائياً إذا تعذر الذكاء السحابي."
                 )
                 .setPositiveButton("إغلاق", null)
                 .setNegativeButton("حذف النموذج") { _, _ ->
@@ -1392,7 +1453,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val SPACE_LIST_ID = 4001
         private const val MESSAGE_LIST_ID = 4002
-        private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-dev"
+        private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-v08"
         private const val SUPABASE_PUBLISHABLE_KEY = "sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3"
     }
 }
