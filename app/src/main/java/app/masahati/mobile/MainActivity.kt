@@ -467,7 +467,13 @@ class MainActivity : ComponentActivity() {
                     fallback.optString("summary", content.take(220)),
                     fallback.toString()
                 )
-                db.insertText(spaceId, "assistant", fallback.optString("reply", "حفظت المحتوى محلياً، لكن التحليل السحابي لم يكتمل."))
+                val actionText = executeAgentActions(spaceId, fallback.optJSONArray("actions"), content)
+                val reply = fallback.optString("reply", "حفظت المحتوى محلياً، لكن التحليل السحابي لم يكتمل.")
+                db.insertText(
+                    spaceId,
+                    "assistant",
+                    listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n")
+                )
             } finally {
                 busyCount = (busyCount - 1).coerceAtLeast(0)
                 runOnUiThread {
