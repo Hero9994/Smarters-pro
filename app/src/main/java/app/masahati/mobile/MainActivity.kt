@@ -514,8 +514,12 @@ class MainActivity : ComponentActivity() {
                     } else null
                 } else null
                 val reminderSourceText = directReminderText ?: reminderFollowUpText
-                val reminderResolution = reminderSourceText?.let {
-                    NaturalReminderParser.parse(it, ZonedDateTime.now())
+                val reminderResolution = reminderSourceText?.let { reminderText ->
+                    NaturalReminderParser.parseWithContext(
+                        reminderText,
+                        recent.filter { it.role == "user" }.map { it.text }.filter { it.isNotBlank() },
+                        ZonedDateTime.now()
+                    )
                 }
                 val resolvedReminderText = reminderSourceText ?: content
                 val localReminderResult = reminderResolution?.let { resolution ->
