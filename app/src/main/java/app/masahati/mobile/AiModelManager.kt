@@ -105,7 +105,7 @@ class AiModelManager(context: Context) {
 
             if (partialFile.length() != MODEL_SIZE_BYTES) {
                 throw IllegalStateException(
-                    "Incomplete model: \${partialFile.length()} / $MODEL_SIZE_BYTES bytes"
+                    "Incomplete model: ${partialFile.length()} / $MODEL_SIZE_BYTES bytes"
                 )
             }
             val digest = sha256(partialFile)
