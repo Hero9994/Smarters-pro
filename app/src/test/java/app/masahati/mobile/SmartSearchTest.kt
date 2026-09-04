@@ -23,4 +23,32 @@ class SmartSearchTest {
     @Test fun findsGermanWordInsideCompound() {
         assertTrue(SmartSearch.score("vertrag", null, null, null, null, null, "Mietvertragsnummer 91827") > 0)
     }
+    @Test fun findsMedicalTransportAcrossArabicAndGerman() {
+        assertTrue(
+            SmartSearch.score(
+                "نقل من المنزل إلى الطبيب",
+                "Scan.pdf",
+                null,
+                "document",
+                null,
+                null,
+                "Verordnung einer Krankenbeförderung zum Arzt"
+            ) > 0
+        )
+    }
+
+    @Test fun findsPassportAcrossLanguages() {
+        assertTrue(
+            SmartSearch.score(
+                "جواز السفر",
+                "Reisepass.pdf",
+                null,
+                "document",
+                null,
+                null,
+                null
+            ) > 0
+        )
+    }
+
 }
