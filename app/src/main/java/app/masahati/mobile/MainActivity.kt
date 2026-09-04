@@ -35,6 +35,8 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -115,6 +117,18 @@ class MainActivity : ComponentActivity() {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
         setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            view.setPadding(
+                view.paddingLeft,
+                view.paddingTop,
+                view.paddingRight,
+                maxOf(ime, systemBars)
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (currentSpaceId != null) showHome() else finish()
