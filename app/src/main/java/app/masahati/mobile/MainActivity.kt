@@ -620,6 +620,7 @@ class MainActivity : ComponentActivity() {
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
+                maybeApplySmartDocumentName(spaceId, messageId, classification, result.optJSONArray("labels"))
                 val execution = executeAgentActions(spaceId, messageId, result.optJSONArray("actions"), content)
                 var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 var actionText = execution.notes
@@ -873,6 +874,37 @@ class MainActivity : ComponentActivity() {
             toolResults = toolResults,
             hasSearch = hasSearch
         )
+    }
+
+    private fun maybeApplySmartDocumentName(spaceId: Long, messageId: Long, classification: String, labels: JSONArray?) {
+        val file = db.lastFileMessage(spaceId) ?: return
+        if (file.id != messageId) return
+        val currentName = file.displayName.orEmpty()
+        if (!currentName.startsWith("Scan-", ignoreCase = true) || !currentName.endsWith(".pdf", ignoreCase = true)) return
+
+        val rawLabels = labels?.toStringList().orEmpty()
+            .map { it.trim().replace(Regex("[\\/:*?\"<>|]+"), " ") }
+            .map { it.replace(Regex("\\s+"), " ").trim() }
+            .filter { it.length in 2..45 }
+            .filterNot {
+                it.lowercase() in setOf(
+                    "مستند", "وثيقة", "document", "pdf", "ملف", "ملاحظة", "note", "بحث", "search",
+                    "تذكير", "reminder", "other"
+                )
+            }
+            .distinctBy { it.lowercase() }
+            .take(3)
+
+        val titleParts = when {
+            rawLabels.isNotEmpty() -> rawLabels
+            classification == "work_schedule" -> listOf("جدول دوام")
+            else -> emptyList()
+        }
+        if (titleParts.isEmpty()) return
+
+        val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(file.createdAt))
+        val smartName = (titleParts.joinToString(" - ") + " - " + date + ".pdf").take(170)
+        if (smartName != currentName) db.renameMessageDisplayName(messageId, smartName)
     }
 
     private fun buildToolAwareReply(sourceText: String, toolResults: JSONArray): String {
