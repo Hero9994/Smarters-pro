@@ -9,32 +9,31 @@ import java.net.URL
 import java.security.MessageDigest
 
 class LocalModelPackManager(private val context: Context) {
-    private val validated = mutableSetOf<String>()
-
     private val modelDir: File
         get() = File(context.filesDir, "ai-models").apply { mkdirs() }
 
     fun modelFile(spec: LocalModelSpec = LocalModelCatalog.default): File =
         File(modelDir, spec.fileName)
 
+    private fun markerFile(spec: LocalModelSpec): File =
+        File(modelDir, spec.fileName + ".verified")
+
     fun isInstalled(spec: LocalModelSpec = LocalModelCatalog.default): Boolean {
         val file = modelFile(spec)
         if (!file.isFile || file.length() < spec.expectedBytes / 2) return false
-        synchronized(validated) {
-            if (spec.id in validated) return true
-        }
-        val valid = runCatching { sha256(file).equals(spec.sha256, ignoreCase = true) }.getOrDefault(false)
-        if (valid) synchronized(validated) { validated += spec.id }
-        return valid
+        val marker = markerFile(spec)
+        if (!marker.isFile) return false
+        return runCatching { marker.readText().trim().equals(spec.sha256, ignoreCase = true) }.getOrDefault(false)
     }
 
     fun delete(spec: LocalModelSpec = LocalModelCatalog.default): Boolean {
         val file = modelFile(spec)
         val partial = File(file.absolutePath + ".part")
+        val marker = markerFile(spec)
         val a = !file.exists() || file.delete()
         val b = !partial.exists() || partial.delete()
-        synchronized(validated) { validated -= spec.id }
-        return a && b
+        val d = !marker.exists() || marker.delete()
+        return a && b && d
     }
 
     fun download(
@@ -92,7 +91,7 @@ class LocalModelPackManager(private val context: Context) {
                 partial.copyTo(finalFile, overwrite = true)
                 partial.delete()
             }
-            synchronized(validated) { validated += spec.id }
+            markerFile(spec).writeText(spec.sha256)
             return finalFile
         } finally {
             connection.disconnect()
