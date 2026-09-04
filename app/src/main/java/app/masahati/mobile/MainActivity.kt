@@ -74,6 +74,13 @@ class MainActivity : ComponentActivity() {
     private var composer: EditText? = null
     private var busyCount = 0
 
+    private data class ActionExecution(
+        val notes: String,
+        val nonSearchNotes: String,
+        val toolResults: JSONArray,
+        val hasSearch: Boolean
+    )
+
     private val scannerOptions by lazy {
         GmsDocumentScannerOptions.Builder()
             .setGalleryImportAllowed(true)
@@ -601,8 +608,22 @@ class MainActivity : ComponentActivity() {
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
-                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
-                val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                val execution = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
+                var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                var actionText = execution.notes
+
+                // A real agent needs to see the result of its search tool before answering.
+                // We send only compact metadata/summary snippets, never full OCR text, in this second pass.
+                if (execution.hasSearch && execution.toolResults.length() > 0) {
+                    val followBody = JSONObject(body.toString())
+                        .put("phase", "after_tools")
+                        .put("toolResults", execution.toolResults)
+                    val follow = runCatching { postAgent(followBody) }.getOrNull()
+                    if (follow?.optBoolean("ok", false) == true) {
+                        reply = follow.optString("reply", reply).ifBlank { reply }
+                        actionText = execution.nonSearchNotes
+                    }
+                }
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
                 val fallback = LocalAssistantFallback.analyze(content, spaceTitle, recent)
@@ -626,9 +647,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun executeAgentActions(spaceId: Long, actions: JSONArray?, sourceText: String): String {
-        if (actions == null) return ""
+    private fun executeAgentActions(spaceId: Long, actions: JSONArray?, sourceText: String): ActionExecution {
+        if (actions == null) return ActionExecution("", "", JSONArray(), false)
         val notes = mutableListOf<String>()
+        val nonSearchNotes = mutableListOf<String>()
+        val toolResults = JSONArray()
+        var hasSearch = false
+
+        fun recordNote(note: String, searchNote: Boolean = false) {
+            if (note.isBlank()) return
+            notes += note
+            if (!searchNote) nonSearchNotes += note
+        }
+
+        fun recordTool(type: String, status: String, payload: JSONObject = JSONObject()) {
+            toolResults.put(
+                JSONObject()
+                    .put("type", type)
+                    .put("status", status)
+                    .put("result", payload)
+            )
+        }
+
         for (i in 0 until actions.length()) {
             val action = actions.optJSONObject(i) ?: continue
             val type = action.optString("type")
@@ -638,11 +678,15 @@ class MainActivity : ComponentActivity() {
                 "create_reminder" -> {
                     val created = ReminderScheduler.createFromAgent(this, db, spaceId, args, sourceText)
                     if (created == null) {
-                        notes += "فهمت أنك تريد تنبيهاً، لكن الموعد غير واضح بما يكفي لإنشائه."
+                        val note = "فهمت أنك تريد تنبيهاً، لكن الموعد غير واضح بما يكفي لإنشائه."
+                        recordNote(note)
+                        recordTool(type, "failed", JSONObject().put("reason", "insufficient_time_details"))
                     } else {
                         val precision = if (created.exact) "" else " قد يتأخر بضع دقائق ما لم تفعّل دقة التنبيهات من إعدادات أندرويد."
                         val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
-                        notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
+                        val note = "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
+                        recordNote(note)
+                        recordTool(type, "completed", JSONObject().put("description", created.description).put("exact", created.exact))
                         runOnUiThread { maybeRequestNotificationPermission() }
                     }
                 }
@@ -661,16 +705,37 @@ class MainActivity : ComponentActivity() {
                             newSummary,
                             JSONObject().put("source", "user_clarification").put("summary", newSummary).put("tags", mergedTags).toString()
                         )
-                        notes += "ربطت هذه المعلومة بالمستند السابق وحدّثت وصفه وكلمات البحث."
-                    }
+                        val note = "ربطت هذه المعلومة بالمستند السابق وحدّثت وصفه وكلمات البحث."
+                        recordNote(note)
+                        recordTool(type, "completed", JSONObject().put("document_id", target.id).put("summary", newSummary).put("tags", mergedTags))
+                    } else recordTool(type, "failed", JSONObject().put("reason", "no_previous_document"))
                 }
                 "search" -> {
+                    hasSearch = true
                     val q = args.optString("query").trim()
                     if (q.isNotBlank()) {
                         val found = db.search(q, 8)
-                        if (found.isEmpty()) notes += "لم أجد نتيجة محلية مطابقة لـ «$q»."
-                        else {
-                            val lines = found.mapNotNull { m ->
+                        val resultArray = JSONArray()
+                        found.take(5).forEach { m ->
+                            val s = db.getSpace(m.spaceId)
+                            resultArray.put(
+                                JSONObject()
+                                    .put("spaceId", m.spaceId)
+                                    .put("spaceTitle", s?.title.orEmpty())
+                                    .put("messageId", m.id)
+                                    .put("kind", m.kind)
+                                    .put("displayName", m.displayName.orEmpty())
+                                    .put("classification", m.classification.orEmpty())
+                                    .put("tags", m.tags.orEmpty().take(260))
+                                    .put("summary", m.summary.orEmpty().take(420))
+                                    .put("text", if (m.kind == "text") m.text.take(320) else "")
+                                    .put("createdAt", m.createdAt)
+                            )
+                        }
+                        if (found.isEmpty()) {
+                            recordNote("لم أجد نتيجة محلية مطابقة لـ «$q».", searchNote = true)
+                        } else {
+                            val lines = found.take(5).mapNotNull { m ->
                                 val s = db.getSpace(m.spaceId)?.title ?: return@mapNotNull null
                                 val preview = when {
                                     !m.displayName.isNullOrBlank() -> m.displayName
@@ -679,18 +744,22 @@ class MainActivity : ComponentActivity() {
                                 }
                                 "• $s — $preview"
                             }
-                            notes += "وجدت محلياً:\n${lines.joinToString("\n")}"
+                            recordNote("وجدت محلياً:\n${lines.joinToString("\n")}", searchNote = true)
                         }
-                    }
+                        recordTool(type, "completed", JSONObject().put("query", q).put("results", resultArray))
+                    } else recordTool(type, "failed", JSONObject().put("reason", "empty_query"))
                 }
                 "archive_space" -> {
                     val target = args.optString("space_name").ifBlank { db.getSpace(spaceId)?.title.orEmpty() }
                     val space = db.findSpaceByTitle(target) ?: db.getSpace(spaceId)
                     if (space != null) {
-                        if (needsConfirm) notes += "الأرشفة جاهزة، لكني لم أنفذها لأن الإجراء يحتاج تأكيداً."
-                        else {
+                        if (needsConfirm) {
+                            recordNote("الأرشفة جاهزة، لكني لم أنفذها لأن الإجراء يحتاج تأكيداً.")
+                            recordTool(type, "waiting_confirmation", JSONObject().put("space", space.title))
+                        } else {
                             db.setArchived(space.id, true)
-                            notes += "تمت أرشفة مساحة «${space.title}»."
+                            recordNote("تمت أرشفة مساحة «${space.title}».")
+                            recordTool(type, "completed", JSONObject().put("space", space.title))
                         }
                     }
                 }
@@ -698,20 +767,26 @@ class MainActivity : ComponentActivity() {
                     val target = args.optString("space_name").ifBlank { db.getSpace(spaceId)?.title.orEmpty() }
                     val space = db.findSpaceByTitle(target) ?: db.getSpace(spaceId)
                     if (space != null) {
-                        if (needsConfirm) notes += "التثبيت جاهز وينتظر التأكيد."
-                        else {
+                        if (needsConfirm) {
+                            recordNote("التثبيت جاهز وينتظر التأكيد.")
+                            recordTool(type, "waiting_confirmation", JSONObject().put("space", space.title))
+                        } else {
                             db.setPinned(space.id, true)
-                            notes += "تم تثبيت مساحة «${space.title}»."
+                            recordNote("تم تثبيت مساحة «${space.title}».")
+                            recordTool(type, "completed", JSONObject().put("space", space.title))
                         }
                     }
                 }
                 "rename_space" -> {
                     val newName = args.optString("new_name").ifBlank { args.optString("title") }.trim()
                     if (newName.isNotBlank()) {
-                        if (needsConfirm) notes += "إعادة التسمية جاهزة وينتظر التأكيد."
-                        else {
+                        if (needsConfirm) {
+                            recordNote("إعادة التسمية جاهزة وينتظر التأكيد.")
+                            recordTool(type, "waiting_confirmation", JSONObject().put("new_name", newName))
+                        } else {
                             db.renameSpace(spaceId, newName)
-                            notes += "تم تغيير اسم المساحة إلى «$newName»."
+                            recordNote("تم تغيير اسم المساحة إلى «$newName».")
+                            recordTool(type, "completed", JSONObject().put("new_name", newName))
                         }
                     }
                 }
@@ -720,16 +795,70 @@ class MainActivity : ComponentActivity() {
                     val target = db.findSpaceByTitle(targetName)
                     val last = db.lastUserMessage(spaceId)
                     if (target != null && last != null) {
-                        if (needsConfirm) notes += "النقل جاهز وينتظر التأكيد."
-                        else {
+                        if (needsConfirm) {
+                            recordNote("النقل جاهز وينتظر التأكيد.")
+                            recordTool(type, "waiting_confirmation", JSONObject().put("target_space", target.title))
+                        } else {
                             db.moveMessage(last.id, target.id)
-                            notes += "تم نقل آخر عنصر إلى «${target.title}»."
+                            recordNote("تم نقل آخر عنصر إلى «${target.title}».")
+                            recordTool(type, "completed", JSONObject().put("target_space", target.title).put("message_id", last.id))
+                        }
+                    } else recordTool(type, "failed", JSONObject().put("reason", "target_or_item_missing"))
+                }
+                "create_space" -> {
+                    val name = args.optString("name").ifBlank { args.optString("title") }.trim()
+                    if (name.isNotBlank()) {
+                        val existing = db.findSpaceByTitle(name)
+                        if (existing != null) {
+                            recordNote("مساحة «${existing.title}» موجودة أصلاً.")
+                            recordTool(type, "completed", JSONObject().put("space_id", existing.id).put("space", existing.title).put("already_existed", true))
+                        } else if (needsConfirm) {
+                            recordNote("إنشاء مساحة «$name» جاهز وينتظر التأكيد.")
+                            recordTool(type, "waiting_confirmation", JSONObject().put("space", name))
+                        } else {
+                            val id = db.createSpace(name)
+                            recordNote("تم إنشاء مساحة «$name».")
+                            recordTool(type, "completed", JSONObject().put("space_id", id).put("space", name))
                         }
                     }
                 }
+                "rename_last_document" -> {
+                    val target = db.lastFileMessage(spaceId)
+                    val newName = args.optString("new_name").ifBlank { args.optString("name") }.trim()
+                    if (target != null && newName.isNotBlank()) {
+                        if (needsConfirm) {
+                            recordNote("تغيير اسم المستند إلى «$newName» جاهز وينتظر التأكيد.")
+                            recordTool(type, "waiting_confirmation", JSONObject().put("document_id", target.id).put("new_name", newName))
+                        } else {
+                            db.renameMessageDisplayName(target.id, newName)
+                            recordNote("تم تغيير اسم المستند إلى «$newName».")
+                            recordTool(type, "completed", JSONObject().put("document_id", target.id).put("new_name", newName))
+                        }
+                    } else recordTool(type, "failed", JSONObject().put("reason", "document_or_name_missing"))
+                }
+                "move_last_document" -> {
+                    val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
+                    val targetSpace = db.findSpaceByTitle(targetName)
+                    val document = db.lastFileMessage(spaceId)
+                    if (targetSpace != null && document != null) {
+                        if (needsConfirm) {
+                            recordNote("نقل المستند إلى «${targetSpace.title}» جاهز وينتظر التأكيد.")
+                            recordTool(type, "waiting_confirmation", JSONObject().put("target_space", targetSpace.title).put("document_id", document.id))
+                        } else {
+                            db.moveMessage(document.id, targetSpace.id)
+                            recordNote("تم نقل المستند إلى «${targetSpace.title}».")
+                            recordTool(type, "completed", JSONObject().put("target_space", targetSpace.title).put("document_id", document.id))
+                        }
+                    } else recordTool(type, "failed", JSONObject().put("reason", "target_or_document_missing"))
+                }
             }
         }
-        return notes.joinToString("\n")
+        return ActionExecution(
+            notes = notes.joinToString("\n"),
+            nonSearchNotes = nonSearchNotes.joinToString("\n"),
+            toolResults = toolResults,
+            hasSearch = hasSearch
+        )
     }
 
     private fun maybeRequestNotificationPermission() {
