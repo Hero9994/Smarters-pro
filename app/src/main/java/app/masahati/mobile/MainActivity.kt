@@ -380,39 +380,77 @@ class MainActivity : ComponentActivity() {
         busyCount++
         renderMessages(spaceId)
         worker.execute {
+            val recent = db.recentForAi(spaceId, 20).filter { it.id != messageId }
             try {
-                val recent = db.recentForAi(spaceId, 8).filter { it.id != messageId }
                 val body = JSONObject().apply {
-                    put("text", content.take(5000))
+                    put("text", content.take(6000))
                     put("spaceTitle", spaceTitle)
                     put("now", ZonedDateTime.now().toString())
                     put("timezone", java.time.ZoneId.systemDefault().id)
-                    val arr = JSONArray()
-                    recent.forEach { msg ->
-                        val contextText = if (msg.kind == "file") {
-                            buildString {
-                                append("مستند سابق")
-                                msg.displayName?.takeIf { it.isNotBlank() }?.let { append("؛ الاسم: ").append(it) }
-                                msg.summary?.takeIf { it.isNotBlank() }?.let { append("؛ الملخص السابق: ").append(it) }
-                                msg.tags?.takeIf { it.isNotBlank() }?.let { append("؛ الوسوم: ").append(it) }
-                                msg.ocrText?.takeIf { it.isNotBlank() }?.let { append("؛ النص المقروء: ").append(it) }
+
+                    val appState = JSONObject().apply {
+                        put("currentSpaceId", spaceId)
+                        put("currentSpaceTitle", spaceTitle)
+                        val spaces = JSONArray()
+                        (db.listSpaces(false).take(24) + db.listSpaces(true).take(8))
+                            .distinctBy { it.id }
+                            .forEach { space ->
+                                spaces.put(JSONObject().apply {
+                                    put("id", space.id)
+                                    put("title", space.title)
+                                    put("pinned", space.pinned)
+                                    put("archived", space.archived)
+                                })
                             }
-                        } else {
-                            msg.text
+                        put("spaces", spaces)
+                        db.lastFileMessage(spaceId)?.let { doc ->
+                            put("currentDocument", JSONObject().apply {
+                                put("id", doc.id)
+                                put("displayName", doc.displayName ?: "")
+                                put("classification", doc.classification ?: "")
+                                put("tags", doc.tags ?: "")
+                                put("summary", doc.summary ?: "")
+                                put("ocrText", doc.ocrText.orEmpty().take(3200))
+                                put("createdAt", doc.createdAt)
+                            })
                         }
-                        arr.put(JSONObject().apply {
-                            put("role", if (msg.role == "assistant") "assistant" else "user")
-                            put("text", contextText.take(2200))
-                        })
                     }
+                    put("appState", appState)
+
+                    var remaining = 16000
+                    val contextRows = mutableListOf<JSONObject>()
+                    fun takeBudget(value: String?, cap: Int): String {
+                        if (remaining <= 0 || value.isNullOrBlank()) return ""
+                        val clean = value.trim()
+                        val count = minOf(cap, remaining, clean.length)
+                        remaining -= count
+                        return clean.take(count)
+                    }
+
+                    recent.asReversed().forEach { msg ->
+                        if (remaining <= 160) return@forEach
+                        val item = JSONObject().apply {
+                            put("role", if (msg.role == "assistant") "assistant" else "user")
+                            put("kind", msg.kind)
+                            put("displayName", takeBudget(msg.displayName, 180))
+                            put("classification", takeBudget(msg.classification, 80))
+                            put("tags", takeBudget(msg.tags, 320))
+                            put("summary", takeBudget(msg.summary, 700))
+                            put("text", takeBudget(msg.text, 1300))
+                            put("ocrText", takeBudget(msg.ocrText, 3400))
+                            put("createdAt", msg.createdAt)
+                        }
+                        contextRows.add(0, item)
+                    }
+                    val arr = JSONArray()
+                    contextRows.forEach { arr.put(it) }
                     put("recent", arr)
                 }
+
                 val remote = runCatching { postAgent(body) }.getOrNull()
-                val result = if (remote?.optBoolean("ok", false) == true) {
-                    remote
-                } else {
-                    LocalAssistantFallback.analyze(content, spaceTitle, recent)
-                }
+                val result = if (remote?.optBoolean("ok", false) == true) remote
+                else LocalAssistantFallback.analyze(content, spaceTitle, recent)
+
                 val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
@@ -421,9 +459,15 @@ class MainActivity : ComponentActivity() {
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
-                val fallback = LocalAssistantFallback.analyze(content, spaceTitle)
-                db.updateAi(messageId, fallback.optString("classification", "note"), fallback.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty(), fallback.optString("summary", content.take(220)), fallback.toString())
-                db.insertText(spaceId, "assistant", fallback.optString("reply", "فهمت المحتوى وحفظته كملاحظة قابلة للبحث."))
+                val fallback = LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                db.updateAi(
+                    messageId,
+                    fallback.optString("classification", "note"),
+                    fallback.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty(),
+                    fallback.optString("summary", content.take(220)),
+                    fallback.toString()
+                )
+                db.insertText(spaceId, "assistant", fallback.optString("reply", "حفظت المحتوى محلياً، لكن التحليل السحابي لم يكتمل."))
             } finally {
                 busyCount = (busyCount - 1).coerceAtLeast(0)
                 runOnUiThread {
