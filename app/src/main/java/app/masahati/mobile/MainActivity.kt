@@ -63,8 +63,10 @@ class MainActivity : ComponentActivity() {
     private val surfaceBg = Color.rgb(247, 246, 242)
     private val controlBg = Color.rgb(230, 232, 228)
     private val worker = Executors.newSingleThreadExecutor()
+    private val modelWorker = Executors.newSingleThreadExecutor()
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private lateinit var db: MasahatiDatabase
+    private lateinit var assistantRouter: AssistantRouter
     private lateinit var root: LinearLayout
     private var currentSpaceId: Long? = null
     private var currentSpaceTitle: String = ""
@@ -110,6 +112,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         db = MasahatiDatabase(this)
+        assistantRouter = AssistantRouter(this)
         ReminderScheduler.ensureChannel(this)
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -136,6 +139,7 @@ class MainActivity : ComponentActivity() {
         })
         showHome()
         intent.getLongExtra("open_space_id", -1L).takeIf { it > 0L }?.let { openSpace(it) }
+        maybeOfferLocalAiModel()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -147,8 +151,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        assistantRouter.close()
         recognizer.close()
         worker.shutdown()
+        modelWorker.shutdown()
         db.close()
         super.onDestroy()
     }
@@ -560,9 +566,12 @@ class MainActivity : ComponentActivity() {
                         )
                 }
 
-                val remote = if (localReminderResult == null) runCatching { postAgent(body) }.getOrNull() else null
-                val result = localReminderResult ?: if (remote?.optBoolean("ok", false) == true) remote
-                else LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                val result = localReminderResult ?: assistantRouter.analyze(
+                    body = body,
+                    spaceTitle = spaceTitle,
+                    recent = recent,
+                    cloud = { payload -> runCatching { postAgent(payload) }.getOrNull() }
+                )
 
                 if (reminderResolution != null) {
                     val sourceActions = result.optJSONArray("actions") ?: JSONArray()
@@ -933,16 +942,108 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
+            menu.add(if (assistantRouter.hasLocalModel()) "الذكاء المحلي: جاهز" else "تفعيل الذكاء المحلي")
             menu.add("إعداد دقة التنبيهات")
             setOnMenuItemClickListener {
                 when {
                     it.title.toString().contains("بحث") -> promptGlobalSearch()
+                    it.title.toString().contains("الذكاء المحلي") -> {
+                        if (assistantRouter.hasLocalModel()) {
+                            Toast.makeText(this@MainActivity, "الذكاء المحلي جاهز ويعمل داخل الجهاز", Toast.LENGTH_SHORT).show()
+                        } else {
+                            showLocalAiModelDialog()
+                        }
+                    }
                     it.title.toString().contains("دقة التنبيهات") -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
                     else -> { showArchived = !showArchived; showHome() }
                 }
                 true
             }
             show()
+        }
+    }
+
+
+    private fun maybeOfferLocalAiModel() {
+        if (assistantRouter.hasLocalModel()) {
+            modelWorker.execute { assistantRouter.prewarm() }
+            return
+        }
+        val prefs = getSharedPreferences("masahati_local_ai", MODE_PRIVATE)
+        if (prefs.getBoolean("offer_seen_v08", false)) return
+        prefs.edit().putBoolean("offer_seen_v08", true).apply()
+        root.post { if (!isFinishing && !isDestroyed) showLocalAiModelDialog() }
+    }
+
+    private fun showLocalAiModelDialog() {
+        if (assistantRouter.hasLocalModel()) {
+            Toast.makeText(this, "الذكاء المحلي جاهز ويعمل داخل الجهاز", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("تفعيل الذكاء المحلي")
+            .setMessage(
+                "لتقوية مساعد مساحاتي حتى يفهم السياق والمستندات بدون الاعتماد دائماً على الإنترنت، " +
+                    "يمكن تنزيل نموذج ذكاء يعمل داخل هاتفك. الحجم حوالي 330 MB. يفضّل Wi‑Fi."
+            )
+            .setPositiveButton("تنزيل") { _, _ -> startLocalAiDownload() }
+            .setNegativeButton("لاحقاً", null)
+            .show()
+    }
+
+    private fun startLocalAiDownload() {
+        if (assistantRouter.isModelDownloading()) {
+            Toast.makeText(this, "تنزيل نموذج الذكاء جارٍ بالفعل", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val progressDialog = AlertDialog.Builder(this)
+            .setTitle("تنزيل الذكاء المحلي")
+            .setMessage("بدء التنزيل… 0%")
+            .setPositiveButton("إخفاء", null)
+            .create()
+        progressDialog.show()
+
+        modelWorker.execute {
+            var lastPercent = -1
+            val result = assistantRouter.downloadLocalModel { downloaded, total ->
+                val percent = if (total <= 0L) 0 else ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
+                if (percent == lastPercent || percent % 2 != 0) return@downloadLocalModel
+                lastPercent = percent
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed && progressDialog.isShowing) {
+                        val mb = downloaded / (1024L * 1024L)
+                        val totalMb = total / (1024L * 1024L)
+                        progressDialog.setMessage("جاري التنزيل… $percent%  ($mb / $totalMb MB)")
+                    }
+                }
+            }
+
+            if (result.isSuccess) {
+                val ready = assistantRouter.prewarm()
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        if (progressDialog.isShowing) progressDialog.dismiss()
+                        Toast.makeText(
+                            this,
+                            if (ready) "الذكاء المحلي أصبح جاهزاً" else "تم تنزيل النموذج وسيتم تشغيله عند أول استخدام",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            } else {
+                val error = result.exceptionOrNull()?.localizedMessage ?: "فشل التنزيل"
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        if (progressDialog.isShowing) progressDialog.dismiss()
+                        AlertDialog.Builder(this)
+                            .setTitle("لم يكتمل التنزيل")
+                            .setMessage("$error\n\nيمكن إعادة المحاولة من قائمة ⋮ ثم «تفعيل الذكاء المحلي».")
+                            .setPositiveButton("حسناً", null)
+                            .show()
+                    }
+                }
+            }
         }
     }
 
