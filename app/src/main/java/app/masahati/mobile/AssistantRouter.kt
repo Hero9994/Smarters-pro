@@ -45,6 +45,12 @@ class AssistantRouter(context: Context) : Closeable {
         cloud: (JSONObject) -> JSONObject?
     ): JSONObject {
         val text = body.optString("text").trim()
+        val deterministicFallback = LocalAssistantFallback.analyze(text, spaceTitle, recent)
+        val deterministicActions = deterministicFallback.optJSONArray("actions")
+        if (deterministicActions != null && deterministicActions.length() > 0) {
+            return deterministicFallback
+        }
+
         val deterministicFirst = looksLikeDeterministicAppCommand(text)
         val localReady = hasLocalModel() && !localInCooldown()
 
@@ -66,7 +72,7 @@ class AssistantRouter(context: Context) : Closeable {
             local(body)?.let { if (isUseful(it)) return it }
         }
 
-        return LocalAssistantFallback.analyze(text, spaceTitle, recent)
+        return deterministicFallback
     }
 
     private fun local(body: JSONObject): JSONObject? {
