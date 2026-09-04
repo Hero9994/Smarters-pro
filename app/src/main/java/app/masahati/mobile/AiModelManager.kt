@@ -56,7 +56,7 @@ class AiModelManager(context: Context) {
             }
 
             val bytesNeeded = (MODEL_SIZE_BYTES - existing).coerceAtLeast(0L)
-            val reserve = 256L * 1024L * 1024L
+            val reserve = 512L * 1024L * 1024L
             if (modelDir.usableSpace < bytesNeeded + reserve) {
                 throw IllegalStateException("لا توجد مساحة تخزين كافية لتنزيل نموذج الذكاء المحلي")
             }
@@ -138,11 +138,11 @@ class AiModelManager(context: Context) {
     }
 
     companion object {
-        const val MODEL_FILE_NAME = "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
-        const val MODEL_SIZE_BYTES = 344_437_808L
-        const val MODEL_SHA256 = "e3e290109da4388d65a17510a0c66af91c8039f52d2c465868dbc43c09a776cf"
+        const val MODEL_FILE_NAME = "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
+        const val MODEL_SIZE_BYTES = 977_184_032L
+        const val MODEL_SHA256 = "2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
         const val MODEL_URL =
-            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm?download=true"
+            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/main/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm?download=true"
 
         private const val PREFS = "masahati_local_ai"
         private const val KEY_VERIFIED = "model_verified"
