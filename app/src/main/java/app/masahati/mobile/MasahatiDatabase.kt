@@ -113,19 +113,6 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_reminders_active_next ON reminders(enabled, next_fire_at)")
     }
 
-    private fun seedDefaults(db: SQLiteDatabase) {
-        if (DatabaseUtilsCompat.longForQuery(db, "SELECT COUNT(*) FROM spaces", emptyArray()) > 0) return
-        listOf("ملاحظات", "يومي", "أوراقي", "أفكار المشروع").forEach { title ->
-            val now = System.currentTimeMillis()
-            val v = ContentValues().apply {
-                put("title", title)
-                put("created_at", now)
-                put("updated_at", now)
-            }
-            db.insert("spaces", null, v)
-        }
-    }
-
     fun listSpaces(archived: Boolean = false, query: String = ""): List<SpaceRow> {
         val args = mutableListOf(if (archived) "1" else "0")
         val where = StringBuilder("archived = ?")
@@ -260,10 +247,16 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
     }
 
-    fun recentForAi(spaceId: Long, limit: Int = 8): List<MessageRow> {
+    fun recentForAi(spaceId: Long, limit: Int = 20): List<MessageRow> {
         val c = readableDatabase.query(
-            "messages", null, "space_id=? AND (text<>'' OR (ocr_text IS NOT NULL AND ocr_text<>''))", arrayOf(spaceId.toString()), null, null,
-            "created_at DESC, id DESC", limit.toString()
+            "messages",
+            null,
+            "space_id=? AND (text<>'' OR (ocr_text IS NOT NULL AND ocr_text<>'') OR (summary IS NOT NULL AND summary<>'') OR (display_name IS NOT NULL AND display_name<>''))",
+            arrayOf(spaceId.toString()),
+            null,
+            null,
+            "created_at DESC, id DESC",
+            limit.coerceIn(1, 30).toString()
         )
         return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }.reversed()
     }
@@ -294,44 +287,34 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun search(query: String, limit: Int = 12): List<MessageRow> {
-        val cleaned = query.trim()
-        if (cleaned.isBlank()) return emptyList()
-        val fields = listOf("text", "display_name", "ocr_text", "summary", "tags", "classification")
-        fun runLike(terms: List<String>): List<MessageRow> {
-            if (terms.isEmpty()) return emptyList()
-            val clauses = mutableListOf<String>()
-            val args = mutableListOf<String>()
-            terms.forEach { term ->
-                fields.forEach { field ->
-                    clauses += "$field LIKE ?"
-                    args += "%$term%"
-                }
+        val clean = query.trim()
+        if (SmartSearch.normalize(clean).isBlank()) return emptyList()
+
+        val scored = mutableListOf<Pair<Int, MessageRow>>()
+        val c = readableDatabase.query("messages", null, null, null, null, null, "created_at DESC, id DESC")
+        c.use { cursor ->
+            while (cursor.moveToNext()) {
+                val row = messageFrom(cursor)
+                val score = SmartSearch.score(
+                    query = clean,
+                    displayName = row.displayName,
+                    tags = row.tags,
+                    classification = row.classification,
+                    summary = row.summary,
+                    text = row.text,
+                    ocrText = row.ocrText
+                )
+                if (score > 0) scored += score to row
             }
-            val c = readableDatabase.query(
-                "messages", null, clauses.joinToString(" OR "), args.toTypedArray(), null, null,
-                "created_at DESC", limit.toString()
-            )
-            return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
         }
-
-        val exact = runLike(listOf(cleaned))
-        if (exact.size >= limit) return exact
-
-        val tokens = cleaned
-            .split(Regex("[^\\p{L}\\p{N}]+"))
-            .map { it.trim() }
-            .filter { it.length >= 2 }
-            .flatMap { token ->
-                if (token.startsWith("ال") && token.length > 4) listOf(token, token.drop(2)) else listOf(token)
-            }
-            .distinct()
-            .take(6)
-        if (tokens.isEmpty()) return exact
-
-        val seen = exact.mapTo(linkedSetOf()) { it.id }
-        val merged = exact.toMutableList()
-        runLike(tokens).forEach { row -> if (seen.add(row.id) && merged.size < limit) merged += row }
-        return merged
+        return scored
+            .sortedWith(
+                compareByDescending<Pair<Int, MessageRow>> { it.first }
+                    .thenByDescending { it.second.createdAt }
+                    .thenByDescending { it.second.id }
+            )
+            .take(limit.coerceIn(1, 50))
+            .map { it.second }
     }
 
     fun createReminder(
