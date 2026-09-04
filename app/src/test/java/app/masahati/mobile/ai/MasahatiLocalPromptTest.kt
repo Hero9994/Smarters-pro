@@ -49,4 +49,14 @@ class MasahatiLocalPromptTest {
             assertTrue(spec.expectedBytes > 500_000_000L)
         }
     }
+
+    @Test
+    fun compactKeepsBeginningAndEndOfLongDocument() {
+        val source = "BEGIN-" + "x".repeat(5000) + "-END"
+        val compact = MasahatiLocalPrompt.compact(source, 1000)
+        assertTrue(compact.startsWith("BEGIN-"))
+        assertTrue(compact.endsWith("-END"))
+        assertTrue(compact.length < 1100)
+    }
+
 }
