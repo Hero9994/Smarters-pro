@@ -240,6 +240,17 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         }, "id=?", arrayOf(messageId.toString()))
     }
 
+    fun renameMessageDisplayName(messageId: Long, displayName: String) {
+        val clean = displayName.trim().replace(Regex("[\\r\\n\\t]+"), " ").take(160)
+        if (clean.isBlank()) return
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("display_name", clean) },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
     fun listMessages(spaceId: Long): List<MessageRow> {
         val c = readableDatabase.query(
             "messages", null, "space_id=?", arrayOf(spaceId.toString()), null, null, "created_at ASC, id ASC"
