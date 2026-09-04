@@ -9,11 +9,14 @@ import android.os.Build
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextWatcher
@@ -1042,6 +1045,8 @@ class MainActivity : ComponentActivity() {
                         val image = InputImage.fromFilePath(this@MainActivity, uri)
                         ocr = Tasks.await(recognizer.process(image)).text.trim()
                     } catch (_: Exception) { }
+                } else if (mime == "application/pdf" || displayName.endsWith(".pdf", ignoreCase = true)) {
+                    ocr = extractPdfOcr(target)
                 }
                 val id = db.insertFile(spaceId, "user", displayName, target.absolutePath, mime, ocr)
                 val aiText = when {
@@ -1063,6 +1068,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+    private fun extractPdfOcr(file: File): String {
+        val out = StringBuilder()
+        try {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                PdfRenderer(descriptor).use { renderer ->
+                    val pageLimit = minOf(renderer.pageCount, 20)
+                    for (index in 0 until pageLimit) {
+                        if (out.length >= 24000) break
+                        renderer.openPage(index).use { page ->
+                            val maxSide = 1500f
+                            val scale = (maxSide / maxOf(page.width, page.height).toFloat()).coerceAtLeast(1f)
+                            val width = (page.width * scale).toInt().coerceAtLeast(1)
+                            val height = (page.height * scale).toInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            try {
+                                bitmap.eraseColor(Color.WHITE)
+                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                val recognized = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0))).text.trim()
+                                if (recognized.isNotBlank()) {
+                                    if (out.isNotEmpty()) out.append("\n\n")
+                                    out.append("صفحة ").append(index + 1).append(":\n")
+                                    out.append(recognized)
+                                }
+                            } finally {
+                                bitmap.recycle()
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            return out.toString()
+        }
+        return out.toString()
+    }
 
     private fun confirmCloudDocumentAnalysis(messageId: Long, aiText: String, spaceTitle: String) {
         val spaceId = currentSpaceId ?: return
