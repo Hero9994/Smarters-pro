@@ -150,8 +150,7 @@ object ReminderScheduler {
         val body = args.optString("body").trim().ifBlank { sourceText.trim() }.take(500)
 
         val natural = NaturalReminderParser.parse(sourceText, now)
-        if (natural != null) {
-            if (!natural.ready) return null
+        if (natural?.ready == true) {
             val next = natural.triggerAt ?: return null
             val id = db.createReminder(
                 spaceId = spaceId,
@@ -171,6 +170,9 @@ object ReminderScheduler {
                 exact
             )
         }
+        // A higher-level contextual parser may have resolved an otherwise ambiguous phrase
+        // (for example: "ذكرني قبلها بساعة") and placed the concrete trigger in args.
+        // Do not discard that resolved tool argument just because the isolated source text is ambiguous.
 
         val relativeMinutes = readRelativeMinutes(args, sourceText)
         if (relativeMinutes != null && relativeMinutes > 0) {
