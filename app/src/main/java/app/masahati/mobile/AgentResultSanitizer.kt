@@ -38,7 +38,7 @@ object AgentResultSanitizer {
         return JSONObject()
             .put("ok", true)
             .put("engine", "local-litertlm")
-            .put("model", "Qwen3-0.6B")
+            .put("model", "Qwen3-1.7B")
             .put("reply", reply)
             .put("classification", classification)
             .put("labels", cleanArray(parsed.optJSONArray("labels"), 10, 70))
