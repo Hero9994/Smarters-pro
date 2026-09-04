@@ -333,6 +333,17 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return if (focused?.kind == "file") focused else null
     }
 
+    fun renameDocument(messageId: Long, displayName: String) {
+        val clean = displayName.trim().take(180)
+        if (clean.isBlank()) return
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("display_name", clean) },
+            "id=? AND kind='file'",
+            arrayOf(messageId.toString())
+        )
+    }
+
     fun moveMessage(messageId: Long, targetSpaceId: Long) {
         val row = getMessage(messageId)
         if (row != null) {
