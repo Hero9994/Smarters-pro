@@ -4,6 +4,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object DocumentIntelligence {
+    private val DATE_REGEX = Regex("""\b(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:19|20)\d{2}\b""")
+
     fun isDocumentQuestion(text: String): Boolean {
         val q = text.trim().lowercase()
         return listOf(
@@ -21,7 +23,11 @@ object DocumentIntelligence {
         val asksName = listOf(
             "شو سميتها", "شو اسمها", "شو اسمه", "اسم الورقة", "اسم الملف", "dateiname", "filename"
         ).any(q::contains)
-        if (asksName) {
+        val asksContent = listOf(
+            "شو فيها", "شو فيه", "شو مكتوب", "محتوى", "شو محتواها", "شو محتواه",
+            "شو هاد", "شو هاي", "هاد شو", "هاي شو", "was ist", "worum"
+        ).any(q::contains)
+        if (asksName && !asksContent) {
             val name = doc.displayName.orEmpty().ifBlank { "الملف غير مُسمّى" }
             return result(
                 reply = "اسم الملف: $name",
@@ -42,14 +48,18 @@ object DocumentIntelligence {
         val asksEnd = listOf("ينتهي", "تنتهي", "انتهاء", "نهاية", "ende", "ablauf", "gültig bis", "vertragsende").any(q::contains)
         val asksStart = listOf("يبدأ", "يبدا", "بداية", "beginn", "startdatum", "vertragsbeginn").any(q::contains)
         if ((asksEnd || asksStart) && ocr.isNotBlank()) {
-            val dates = Regex("""\\b(?:0?[1-9]|[12]\\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:19|20)\\d{2}\\b""")
-                .findAll(ocr).map { it.value }.distinct().toList()
-            if (dates.isNotEmpty()) {
-                val chosen = if (asksStart) dates.first() else dates.last()
+            val dates = DATE_REGEX.findAll(ocr).map { it.value }.distinct().toList()
+            val keywords = if (asksStart) {
+                listOf("vertragsbeginn", "beginn", "startdatum", "gültig ab", "gueltig ab", "بداية", "يبدأ", "يبدا")
+            } else {
+                listOf("vertragsende", "gültig bis", "gueltig bis", "ablauf", "ende", "endet", "انتهاء", "ينتهي", "تنتهي")
+            }
+            val chosen = findDateNear(ocr, keywords) ?: dates.singleOrNull()
+            if (chosen != null) {
                 return result(
                     reply = if (asksStart) "تاريخ البداية الظاهر في الورقة: $chosen" else "تاريخ الانتهاء الظاهر في الورقة: $chosen",
                     summary = doc.summary.orEmpty().ifBlank { ocr.take(300) },
-                    confidence = if (dates.size == 1) 0.88 else 0.72
+                    confidence = 0.9
                 )
             }
         }
@@ -76,6 +86,22 @@ object DocumentIntelligence {
             summary = excerpt.take(420),
             confidence = 0.58
         )
+    }
+
+    private fun findDateNear(text: String, keywords: List<String>): String? {
+        val lower = text.lowercase()
+        for (keyword in keywords) {
+            var from = 0
+            while (true) {
+                val index = lower.indexOf(keyword.lowercase(), from)
+                if (index < 0) break
+                val start = (index - 40).coerceAtLeast(0)
+                val end = (index + keyword.length + 100).coerceAtMost(text.length)
+                DATE_REGEX.find(text.substring(start, end))?.value?.let { return it }
+                from = index + keyword.length
+            }
+        }
+        return null
     }
 
     private fun compactMeaningful(ocr: String): String {
