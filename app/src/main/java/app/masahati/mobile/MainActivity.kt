@@ -424,7 +424,7 @@ class MainActivity : ComponentActivity() {
         analyzeWithAgent(id, value, currentSpaceTitle)
     }
 
-    private fun analyzeWithAgent(messageId: Long, content: String, spaceTitle: String) {
+    private fun analyzeWithAgent(messageId: Long, content: String, spaceTitle: String, allowCloud: Boolean = true) {
         val spaceId = currentSpaceId ?: return
         busyCount++
         renderMessages(spaceId)
@@ -571,7 +571,9 @@ class MainActivity : ComponentActivity() {
                     body = body,
                     spaceTitle = spaceTitle,
                     recent = recent,
-                    cloud = { payload -> runCatching { postAgent(payload) }.getOrNull() }
+                    cloud = { payload ->
+                        if (!allowCloud) null else runCatching { postAgent(payload) }.getOrNull()
+                    }
                 )
 
                 if (reminderResolution != null) {
@@ -873,12 +875,22 @@ class MainActivity : ComponentActivity() {
 
     private fun confirmCloudDocumentAnalysis(messageId: Long, aiText: String, spaceTitle: String) {
         val spaceId = currentSpaceId ?: return
+
+        if (assistantRouter.hasLocalModel()) {
+            Toast.makeText(this, "تحليل المستند محلياً داخل الهاتف…", Toast.LENGTH_SHORT).show()
+            analyzeWithAgent(messageId, aiText, spaceTitle, allowCloud = false)
+            return
+        }
+
         AlertDialog.Builder(this)
             .setTitle("تحليل المستند بالذكاء؟")
-            .setMessage("تم حفظ المستند محلياً. للتحليل والتصنيف سأرسل النص المستخرج أو بيانات الملف فقط إلى خدمة الذكاء، وليس صورة المستند أو ملف PDF نفسه.")
-            .setPositiveButton("تحليل ذكي") { _, _ -> analyzeWithAgent(messageId, aiText, spaceTitle) }
-            .setNegativeButton("محلي فقط") { _, _ ->
-                db.insertText(spaceId, "assistant", "تم حفظ المستند محلياً بدون إرساله للتحليل السحابي.")
+            .setMessage(
+                "تم حفظ المستند محلياً. لا يوجد نموذج ذكاء محلي مثبت حالياً. " +
+                    "إذا اخترت «تحليل سحابي» سأرسل النص المستخرج أو بيانات الملف فقط، وليس صورة المستند أو ملف PDF نفسه."
+            )
+            .setPositiveButton("تحليل سحابي") { _, _ -> analyzeWithAgent(messageId, aiText, spaceTitle, allowCloud = true) }
+            .setNegativeButton("عدم الإرسال") { _, _ ->
+                db.insertText(spaceId, "assistant", "تم حفظ المستند محلياً بدون إرسال محتواه إلى خدمة خارجية.")
                 renderMessages(spaceId)
             }
             .show()
