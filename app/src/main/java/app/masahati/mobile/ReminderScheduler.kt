@@ -306,6 +306,60 @@ object ReminderScheduler {
     }
 }
 
+object ReminderDeliveryText {
+    fun build(reminder: ReminderRow, zone: ZoneId = ZoneId.systemDefault(), nowMillis: Long = System.currentTimeMillis()): String {
+        val fireAt = reminder.nextFireAt ?: nowMillis
+        val fireTime = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(fireAt), zone)
+        val today = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(nowMillis), zone).toLocalDate()
+        val dayLabel = when (fireTime.toLocalDate()) {
+            today -> "اليوم"
+            today.plusDays(1) -> "غداً"
+            else -> fireTime.format(DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.GERMANY))
+        }
+        val timeLabel = fireTime.format(DateTimeFormatter.ofPattern("HH.mm", Locale.GERMANY))
+        val task = cleanTask(reminder.body)
+        return if (task.isBlank()) {
+            "تذكير: $dayLabel الساعة $timeLabel"
+        } else {
+            "تذكير: $dayLabel الساعة $timeLabel $task"
+        }
+    }
+
+    fun cleanTask(source: String): String {
+        var value = source.trim()
+        value = value.replace(
+            Regex("^(?:لو سمحت\\s*)?(?:ذكرني|ذكّرني|اعمل(?:ي)?\\s+تذكير|سوي(?:لي)?\\s+تذكير|تذكير|remind me|erinnere mich)\\s*", RegexOption.IGNORE_CASE),
+            ""
+        )
+        value = value.replace(
+            Regex("(?:الساعة|الساعه|um|at)\\s*[0-2]?\\d(?:[:.]\\d{2})?\\s*(?:صباحاً|صباحا|صباح|مساءً|مساء|مسا|pm|am)?", RegexOption.IGNORE_CASE),
+            " "
+        )
+        value = value.replace(
+            Regex("\\b(?:[01]?\\d|2[0-3])[:.]\\d{2}\\b"),
+            " "
+        )
+        value = value.replace(
+            Regex("(?:اليوم|بكرا|غداً|غدا|tomorrow|today|heute|morgen)", RegexOption.IGNORE_CASE),
+            " "
+        )
+        value = value.replace(
+            Regex("(?:كل\\s+)?(?:يوم\\s+)?(?:الاثنين|الإثنين|اثنين|الثلاثاء|ثلاثاء|الأربعاء|الاربعاء|أربعاء|اربعاء|الخميس|خميس|الجمعة|جمعة|السبت|سبت|الأحد|الاحد|أحد|احد|monday|tuesday|wednesday|thursday|friday|saturday|sunday|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)", RegexOption.IGNORE_CASE),
+            " "
+        )
+        value = value.replace(
+            Regex("(?:كل\\s+يوم|يومياً|يوميا|كل\\s+أسبوع|كل\\s+اسبوع|أسبوعياً|اسبوعيا|daily|weekly|every day|every week|jeden tag|wöchentlich|woechentlich)", RegexOption.IGNORE_CASE),
+            " "
+        )
+        value = value.replace(
+            Regex("(?:^|\\s)\\d{1,2}[./-]\\d{1,2}(?:[./-]\\d{2,4})?(?:\\s|$)"),
+            " "
+        )
+        value = value.replace(Regex("\\s+"), " ").trim(' ', '-', '،', ',')
+        return value
+    }
+}
+
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getLongExtra("reminder_id", -1L)
@@ -315,6 +369,10 @@ class ReminderReceiver : BroadcastReceiver() {
         try {
             val reminder = db.getReminder(id) ?: return
             if (!reminder.enabled) return
+
+            val deliveredText = ReminderDeliveryText.build(reminder)
+            db.insertText(reminder.spaceId, "assistant", deliveredText)
+
             ReminderScheduler.ensureChannel(appContext)
             if (ReminderScheduler.notificationsAllowed(appContext)) {
                 val openIntent = Intent(appContext, MainActivity::class.java).apply {
@@ -329,12 +387,14 @@ class ReminderReceiver : BroadcastReceiver() {
                 )
                 val notification = NotificationCompat.Builder(appContext, ReminderScheduler.CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                    .setContentTitle(reminder.title)
-                    .setContentText(reminder.body)
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(reminder.body))
+                    .setContentTitle("تذكير مساحاتي")
+                    .setContentText(deliveredText)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(deliveredText))
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setAutoCancel(true)
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                    .setAutoCancel(true)
+                    .setShowWhen(true)
+                    .setWhen(reminder.nextFireAt ?: System.currentTimeMillis())
                     .setContentIntent(contentIntent)
                     .build()
                 if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -345,6 +405,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     }
                 }
             }
+
             if (reminder.repeatRule == "none") {
                 db.disableReminder(id)
             } else {
