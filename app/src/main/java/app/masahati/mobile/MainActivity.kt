@@ -37,6 +37,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.createBitmap
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -1087,7 +1088,7 @@ class MainActivity : ComponentActivity() {
                             val scale = (maxSide / maxOf(page.width, page.height).toFloat()).coerceAtMost(2.0f)
                             val width = (page.width * scale).toInt().coerceIn(1, maxSide.toInt())
                             val height = (page.height * scale).toInt().coerceIn(1, maxSide.toInt())
-                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            val bitmap = createBitmap(width, height)
                             try {
                                 bitmap.eraseColor(Color.WHITE)
                                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
