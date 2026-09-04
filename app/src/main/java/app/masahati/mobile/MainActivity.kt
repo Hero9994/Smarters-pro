@@ -18,6 +18,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.storage.StorageManager
 import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextWatcher
@@ -1050,7 +1051,9 @@ class MainActivity : ComponentActivity() {
             var lastPercent = -1
             try {
                 val required = (spec.expectedBytes * 12L) / 10L
-                if (filesDir.usableSpace < required) {
+                val storageManager = getSystemService(StorageManager::class.java)
+                val allocatable = storageManager.getAllocatableBytes(StorageManager.UUID_DEFAULT)
+                if (allocatable < required) {
                     throw IllegalStateException("لا توجد مساحة تخزين كافية. نحتاج تقريباً 1.2 GB فارغة.")
                 }
                 packs.download(spec) { downloaded, total ->
