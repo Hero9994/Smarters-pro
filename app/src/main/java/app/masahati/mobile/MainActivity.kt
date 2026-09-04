@@ -725,8 +725,8 @@ class MainActivity : ComponentActivity() {
                     val q = args.optString("query").trim()
                     if (q.isNotBlank()) {
                         // Do not let the search command itself rank as its own best result.
-                        val found = db.search(q, 12)
-                            .filter { it.id != sourceMessageId }
+                        val found = db.search(q, 16)
+                            .filter { it.id != sourceMessageId && it.role == "user" }
                             .take(8)
                         val resultArray = JSONArray()
                         found.take(5).forEach { m ->
