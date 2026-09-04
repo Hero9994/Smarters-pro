@@ -739,6 +739,43 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                "create_space" -> {
+                    val title = args.optString("title").ifBlank { args.optString("name") }.trim()
+                    if (title.isNotBlank()) {
+                        if (needsConfirm) notes += "إنشاء مساحة «$title» جاهز وينتظر التأكيد."
+                        else {
+                            val existing = db.findSpaceByTitle(title)
+                            if (existing != null) notes += "مساحة «${existing.title}» موجودة مسبقاً."
+                            else {
+                                db.createSpace(title)
+                                notes += "تم إنشاء مساحة «$title»."
+                            }
+                        }
+                    }
+                }
+                "rename_last_document" -> {
+                    val newName = args.optString("new_name").ifBlank { args.optString("name") }.trim()
+                    val lastFile = db.lastFileMessage(spaceId)
+                    if (newName.isNotBlank() && lastFile != null) {
+                        if (needsConfirm) notes += "إعادة تسمية المستند جاهزة وينتظر التأكيد."
+                        else {
+                            db.renameFileMessage(lastFile.id, newName)
+                            notes += "تم تغيير اسم المستند إلى «$newName»."
+                        }
+                    }
+                }
+                "move_last_document" -> {
+                    val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
+                    val target = db.findSpaceByTitle(targetName)
+                    val lastFile = db.lastFileMessage(spaceId)
+                    if (target != null && lastFile != null) {
+                        if (needsConfirm) notes += "نقل المستند جاهز وينتظر التأكيد."
+                        else {
+                            db.moveMessage(lastFile.id, target.id)
+                            notes += "تم نقل المستند إلى «${target.title}»."
+                        }
+                    }
+                }
             }
         }
         return notes.joinToString("\n")
