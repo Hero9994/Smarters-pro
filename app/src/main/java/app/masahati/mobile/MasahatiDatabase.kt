@@ -45,7 +45,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 4) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 5) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -54,6 +54,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               title TEXT NOT NULL,
               pinned INTEGER NOT NULL DEFAULT 0,
               archived INTEGER NOT NULL DEFAULT 0,
+              focus_message_id INTEGER,
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             )
@@ -93,6 +94,9 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         if (oldVersion < 3) createReminderTable(db)
         if (oldVersion < 4) {
             db.execSQL("ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
+        }
+        if (oldVersion < 5) {
+            db.execSQL("ALTER TABLE spaces ADD COLUMN focus_message_id INTEGER")
         }
     }
 
@@ -195,16 +199,20 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         mimeType: String,
         ocrText: String? = null,
         text: String = ""
-    ): Long = insertMessage(
-        spaceId = spaceId,
-        role = role,
-        kind = "file",
-        text = text,
-        filePath = filePath,
-        mimeType = mimeType,
-        displayName = displayName,
-        ocrText = ocrText
-    )
+    ): Long {
+        val id = insertMessage(
+            spaceId = spaceId,
+            role = role,
+            kind = "file",
+            text = text,
+            filePath = filePath,
+            mimeType = mimeType,
+            displayName = displayName,
+            ocrText = ocrText
+        )
+        if (id > 0L) setFocusedMessage(spaceId, id)
+        return id
+    }
 
     private fun insertMessage(
         spaceId: Long,
@@ -282,9 +290,56 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }
     }
 
+    fun getMessage(messageId: Long): MessageRow? {
+        val c = readableDatabase.query(
+            "messages", null, "id=?", arrayOf(messageId.toString()), null, null, null, "1"
+        )
+        return c.use { if (it.moveToFirst()) messageFrom(it) else null }
+    }
+
+    fun setFocusedMessage(spaceId: Long, messageId: Long?) {
+        writableDatabase.update(
+            "spaces",
+            ContentValues().apply {
+                if (messageId == null) putNull("focus_message_id") else put("focus_message_id", messageId)
+                put("updated_at", System.currentTimeMillis())
+            },
+            "id=?",
+            arrayOf(spaceId.toString())
+        )
+    }
+
+    fun focusedMessage(spaceId: Long): MessageRow? {
+        val c = readableDatabase.rawQuery(
+            """
+            SELECT m.*
+            FROM spaces s
+            JOIN messages m ON m.id = s.focus_message_id
+            WHERE s.id=? AND m.space_id=s.id
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf(spaceId.toString())
+        )
+        return c.use { if (it.moveToFirst()) messageFrom(it) else null }
+    }
+
+    fun focusedDocument(spaceId: Long): MessageRow? {
+        val focused = focusedMessage(spaceId)
+        return if (focused?.kind == "file") focused else null
+    }
+
     fun moveMessage(messageId: Long, targetSpaceId: Long) {
-        writableDatabase.update("messages", ContentValues().apply { put("space_id", targetSpaceId) }, "id=?", arrayOf(messageId.toString()))
-        writableDatabase.update("spaces", ContentValues().apply { put("updated_at", System.currentTimeMillis()) }, "id=?", arrayOf(targetSpaceId.toString()))
+        val row = getMessage(messageId)
+        if (row != null) {
+            val oldSpaceId = row.spaceId
+            writableDatabase.update("messages", ContentValues().apply { put("space_id", targetSpaceId) }, "id=?", arrayOf(messageId.toString()))
+            writableDatabase.execSQL(
+                "UPDATE spaces SET focus_message_id=NULL WHERE id=? AND focus_message_id=?",
+                arrayOf(oldSpaceId, messageId)
+            )
+            writableDatabase.update("spaces", ContentValues().apply { put("updated_at", System.currentTimeMillis()) }, "id=?", arrayOf(targetSpaceId.toString()))
+            if (row.kind == "file") setFocusedMessage(targetSpaceId, messageId)
+        }
     }
 
     fun setMessageStarred(messageId: Long, starred: Boolean) {
@@ -310,6 +365,10 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun deleteMessage(messageId: Long) {
+        writableDatabase.execSQL(
+            "UPDATE spaces SET focus_message_id=NULL WHERE focus_message_id=?",
+            arrayOf(messageId)
+        )
         writableDatabase.delete("messages", "id=?", arrayOf(messageId.toString()))
     }
 
