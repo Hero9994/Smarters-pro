@@ -485,10 +485,11 @@ class MainActivity : ComponentActivity() {
                 val reminderResolution = reminderSourceText?.let {
                     NaturalReminderParser.parse(it, ZonedDateTime.now())
                 }
+                val resolvedReminderText = reminderSourceText ?: content
                 val localReminderResult = reminderResolution?.let { resolution ->
                     val actionArgs = JSONObject()
                         .put("title", "تذكير مساحاتي")
-                        .put("body", reminderSourceText.take(500))
+                        .put("body", resolvedReminderText.take(500))
                     resolution.delayMinutes?.let { actionArgs.put("delay_minutes", it) }
                     if (resolution.repeatRule == "daily") {
                         actionArgs.put("repeat", "daily")
@@ -517,7 +518,7 @@ class MainActivity : ComponentActivity() {
                         .put("classification", "reminder")
                         .put("labels", JSONArray(listOf("تذكير")))
                         .put("keywords", JSONArray())
-                        .put("summary", reminderSourceText.take(320))
+                        .put("summary", resolvedReminderText.take(320))
                         .put("confidence", if (resolution.ready) 0.99 else 0.95)
                         .put(
                             "reply",
@@ -562,7 +563,7 @@ class MainActivity : ComponentActivity() {
                                     "args",
                                     JSONObject()
                                         .put("title", "تذكير مساحاتي")
-                                        .put("body", (reminderSourceText ?: content).take(500))
+                                        .put("body", resolvedReminderText.take(500))
                                 )
                                 .put("requires_confirmation", false)
                         )
