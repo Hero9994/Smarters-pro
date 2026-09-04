@@ -123,6 +123,48 @@ class ReminderTimeTest {
         assertEquals("أي ساعة تريد التذكير؟", parsed.clarification)
     }
     @Test
+    fun contextualBeforeEventReminderUsesPreviousTrainingTime() {
+        val now = ZonedDateTime.of(2026, 9, 4, 16, 47, 0, 0, zone)
+        val parsed = NaturalReminderParser.parseWithContext(
+            "ذكرني قبلها بساعة",
+            listOf("رضوان عنده تدريب الأحد الساعة 17:30 بملعب هومبورغ"),
+            now
+        )!!
+        assertTrue(parsed.ready)
+        val actual = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(parsed.triggerAt!!), zone)
+        assertEquals(DayOfWeek.SUNDAY, actual.dayOfWeek)
+        assertEquals(16, actual.hour)
+        assertEquals(30, actual.minute)
+    }
+
+    @Test
+    fun contextualGermanReminderUnderstandsMinutesBeforeAppointment() {
+        val now = ZonedDateTime.of(2026, 9, 4, 16, 47, 0, 0, zone)
+        val parsed = NaturalReminderParser.parseWithContext(
+            "Erinnere mich 30 Minuten vorher",
+            listOf("Termin am Montag um 14:00"),
+            now
+        )!!
+        assertTrue(parsed.ready)
+        val actual = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(parsed.triggerAt!!), zone)
+        assertEquals(DayOfWeek.MONDAY, actual.dayOfWeek)
+        assertEquals(13, actual.hour)
+        assertEquals(30, actual.minute)
+    }
+
+    @Test
+    fun contextualBeforeReminderDoesNotInventMissingAnchor() {
+        val now = ZonedDateTime.of(2026, 9, 4, 16, 47, 0, 0, zone)
+        val parsed = NaturalReminderParser.parseWithContext(
+            "ذكرني قبلها بساعة",
+            listOf("اشتري خبز"),
+            now
+        )!!
+        assertFalse(parsed.ready)
+        assertTrue(parsed.clarification!!.contains("أي موعد"))
+    }
+
+    @Test
     fun deliveredReminderLooksLikeAChatMessage() {
         val fire = ZonedDateTime.of(2026, 9, 4, 20, 30, 0, 0, zone)
         val now = ZonedDateTime.of(2026, 9, 4, 20, 30, 0, 0, zone)
