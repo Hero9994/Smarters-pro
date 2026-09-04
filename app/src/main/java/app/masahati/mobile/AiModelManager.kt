@@ -1,6 +1,7 @@
 package app.masahati.mobile
 
 import android.content.Context
+import androidx.core.content.edit
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -26,11 +27,11 @@ class AiModelManager(context: Context) {
 
     fun verifyInstalled(): Boolean {
         if (!finalFile.isFile || finalFile.length() != MODEL_SIZE_BYTES) {
-            prefs.edit().putBoolean(KEY_VERIFIED, false).apply()
+            prefs.edit { putBoolean(KEY_VERIFIED, false) }
             return false
         }
         val ok = sha256(finalFile).equals(MODEL_SHA256, ignoreCase = true)
-        prefs.edit().putBoolean(KEY_VERIFIED, ok).apply()
+        prefs.edit { putBoolean(KEY_VERIFIED, ok) }
         return ok
     }
 
@@ -45,7 +46,7 @@ class AiModelManager(context: Context) {
             return Result.failure(IllegalStateException("Model download already running"))
         }
         return try {
-            prefs.edit().putBoolean(KEY_VERIFIED, false).apply()
+            prefs.edit { putBoolean(KEY_VERIFIED, false) }
             modelDir.mkdirs()
 
             var existing = partialFile.takeIf { it.isFile }?.length() ?: 0L
@@ -114,10 +115,10 @@ class AiModelManager(context: Context) {
                 partialFile.copyTo(finalFile, overwrite = true)
                 partialFile.delete()
             }
-            prefs.edit().putBoolean(KEY_VERIFIED, true).apply()
+            prefs.edit { putBoolean(KEY_VERIFIED, true) }
             Result.success(finalFile)
         } catch (t: Throwable) {
-            prefs.edit().putBoolean(KEY_VERIFIED, false).apply()
+            prefs.edit { putBoolean(KEY_VERIFIED, false) }
             Result.failure(t)
         } finally {
             downloading.set(false)
@@ -125,7 +126,7 @@ class AiModelManager(context: Context) {
     }
 
     fun clearModel() {
-        prefs.edit().putBoolean(KEY_VERIFIED, false).apply()
+        prefs.edit { putBoolean(KEY_VERIFIED, false) }
         partialFile.delete()
         finalFile.delete()
     }
