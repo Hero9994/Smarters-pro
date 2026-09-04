@@ -159,19 +159,20 @@ object NaturalReminderParser {
     private data class NaturalClock(val hour: Int, val minute: Int, val ambiguous: Boolean, val rawHour: Int)
 
     private fun parseNaturalClock(text: String): NaturalClock? {
-        val colon = Regex("(?:^|\\D)([01]?\\d|2[0-3])[:.]([0-5]\\d)(?:$|\\D)").find(text)
+        val colon = Regex("(?:^|\\D)([01]?\\d|2[0-3]):([0-5]\\d)(?:$|\\D)").find(text)
         if (colon != null) {
             val h = colon.groupValues[1].toInt()
             return NaturalClock(h, colon.groupValues[2].toInt(), false, h)
         }
 
-        val match = Regex("(?:الساعة|الساعه|um|at)\\s*(\\d{1,2})(?:\\s*uhr)?", RegexOption.IGNORE_CASE).find(text)
-            ?: Regex("(\\d{1,2})\\s*uhr", RegexOption.IGNORE_CASE).find(text)
+        val match = Regex("(?:الساعة|الساعه|um|at)\\s*(\\d{1,2})(?:[:.]([0-5]\\d))?(?:\\s*uhr)?", RegexOption.IGNORE_CASE).find(text)
+            ?: Regex("(\\d{1,2})(?::([0-5]\\d))?\\s*uhr", RegexOption.IGNORE_CASE).find(text)
             ?: return null
 
         val raw = match.groupValues[1].toIntOrNull() ?: return null
+        val minute = match.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
         if (raw !in 0..23) return null
-        if (raw > 12) return NaturalClock(raw, 0, false, raw)
+        if (raw > 12) return NaturalClock(raw, minute, false, raw)
 
         val pm = listOf("مساء", "المساء", "مسا", "بالليل", "ليل", "pm", "abends", "nachmittags").any(text::contains)
         val am = listOf("صباح", "الصبح", "صباحا", "صباحاً", "am", "morgens", "vormittags").any(text::contains)
@@ -180,7 +181,7 @@ object NaturalReminderParser {
             am && raw == 12 -> 0
             else -> raw
         }
-        return NaturalClock(hour, 0, !pm && !am && raw in 1..12, raw)
+        return NaturalClock(hour, minute, !pm && !am && raw in 1..12 && match.groupValues.getOrNull(2).isNullOrBlank(), raw)
     }
 
     private fun readDelayMinutes(text: String): Int? {
