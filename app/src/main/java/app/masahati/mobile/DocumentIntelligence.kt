@@ -115,9 +115,13 @@ object DocumentIntelligence {
             while (true) {
                 val index = lower.indexOf(keyword.lowercase(), from)
                 if (index < 0) break
-                val start = (index - 40).coerceAtLeast(0)
-                val end = (index + keyword.length + 100).coerceAtMost(text.length)
-                DATE_REGEX.find(text.substring(start, end))?.value?.let { return it }
+                val afterStart = (index + keyword.length).coerceAtMost(text.length)
+                val afterEnd = (afterStart + 100).coerceAtMost(text.length)
+                DATE_REGEX.find(text.substring(afterStart, afterEnd))?.value?.let { return it }
+
+                val beforeStart = (index - 60).coerceAtLeast(0)
+                val beforeDates = DATE_REGEX.findAll(text.substring(beforeStart, index)).map { it.value }.toList()
+                beforeDates.lastOrNull()?.let { return it }
                 from = index + keyword.length
             }
         }
