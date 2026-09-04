@@ -50,23 +50,17 @@ object DocumentIntelligence {
             )
         }
 
-        val asksEnd = listOf("ينتهي", "تنتهي", "انتهاء", "نهاية", "ende", "ablauf", "gültig bis", "vertragsende").any(q::contains)
-        val asksStart = listOf("يبدأ", "يبدا", "بداية", "beginn", "startdatum", "vertragsbeginn").any(q::contains)
-        if ((asksEnd || asksStart) && ocr.isNotBlank()) {
-            val dates = DATE_REGEX.findAll(ocr).map { it.value }.distinct().toList()
-            val keywords = if (asksStart) {
-                listOf("vertragsbeginn", "beginn", "startdatum", "gültig ab", "gueltig ab", "بداية", "يبدأ", "يبدا")
-            } else {
-                listOf("vertragsende", "gültig bis", "gueltig bis", "ablauf", "ende", "endet", "انتهاء", "ينتهي", "تنتهي")
-            }
-            val chosen = findDateNear(ocr, keywords) ?: dates.singleOrNull()
-            if (chosen != null) {
-                return result(
-                    reply = if (asksStart) "تاريخ البداية الظاهر في الورقة: $chosen" else "تاريخ الانتهاء الظاهر في الورقة: $chosen",
-                    summary = doc.summary.orEmpty().ifBlank { ocr.take(300) },
-                    confidence = 0.9
-                )
-            }
+        val groundedDate = resolveGroundedDate(question, ocr)
+        if (groundedDate != null) {
+            return result(
+                reply = if (groundedDate.first == "start") {
+                    "تاريخ البداية الظاهر في الورقة: ${groundedDate.second}"
+                } else {
+                    "تاريخ الانتهاء الظاهر في الورقة: ${groundedDate.second}"
+                },
+                summary = doc.summary.orEmpty().ifBlank { ocr.take(300) },
+                confidence = 0.9
+            )
         }
         return null
     }
@@ -93,6 +87,27 @@ object DocumentIntelligence {
         )
     }
 
+    internal fun resolveGroundedDate(question: String, ocr: String): Pair<String, String>? {
+        if (ocr.isBlank()) return null
+        val q = question.trim().lowercase()
+        val asksEnd = listOf(
+            "ينتهي", "تنتهي", "انتهاء", "نهاية", "ende", "ablauf", "gültig bis", "gueltig bis", "vertragsende"
+        ).any(q::contains)
+        val asksStart = listOf(
+            "يبدأ", "يبدا", "بداية", "beginn", "startdatum", "vertragsbeginn", "gültig ab", "gueltig ab"
+        ).any(q::contains)
+        if (!asksEnd && !asksStart) return null
+
+        val dates = DATE_REGEX.findAll(ocr).map { it.value }.distinct().toList()
+        val keywords = if (asksStart) {
+            listOf("vertragsbeginn", "beginn", "startdatum", "gültig ab", "gueltig ab", "بداية", "يبدأ", "يبدا")
+        } else {
+            listOf("vertragsende", "gültig bis", "gueltig bis", "ablauf", "ende", "endet", "انتهاء", "ينتهي", "تنتهي")
+        }
+        val chosen = findDateNear(ocr, keywords) ?: dates.singleOrNull() ?: return null
+        return (if (asksStart) "start" else "end") to chosen
+    }
+
     private fun findDateNear(text: String, keywords: List<String>): String? {
         val lower = text.lowercase()
         for (keyword in keywords) {
@@ -112,8 +127,8 @@ object DocumentIntelligence {
     private fun compactMeaningful(ocr: String): String {
         val lines = ocr.lines()
             .map { it.trim() }
-            .filter { it.length >= 3 && !it.matches(Regex("""صفحة\\s+\\d+:""")) }
-        return lines.take(8).joinToString("\\n").take(900).ifBlank { ocr.take(900) }
+            .filter { it.length >= 3 && !it.matches(Regex("""صفحة\s+\d+:""")) }
+        return lines.take(8).joinToString("\n").take(900).ifBlank { ocr.take(900) }
     }
 
     private fun result(reply: String, summary: String, confidence: Double): JSONObject =
