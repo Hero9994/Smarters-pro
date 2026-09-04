@@ -63,7 +63,7 @@ object DocumentImageEnhancer {
     internal fun flattenDocumentShadows(source: Bitmap): Bitmap {
         val width = source.width
         val height = source.height
-        if (width < 120 || height < 120) return source.copy(Bitmap.Config.ARGB_8888, false)
+        if (width < 120 || height < 120) return source
 
         val pixels = IntArray(width * height)
         source.getPixels(pixels, 0, width, 0, 0, width, height)
@@ -86,8 +86,7 @@ object DocumentImageEnhancer {
                 while (y < yEnd) {
                     var x = xStart
                     while (x < xEnd) {
-                        val c = pixels[y * width + x]
-                        val lum = luminance(c)
+                        val lum = luminance(pixels[y * width + x])
                         histogram[(lum * 31 / 255).coerceIn(0, 31)]++
                         count++
                         x += sampleStep
@@ -104,12 +103,35 @@ object DocumentImageEnhancer {
                         break
                     }
                 }
-                backgrounds[ty * cols + tx] = ((bin + 0.5f) * 255f / 32f).coerceAtLeast(90f)
+                backgrounds[ty * cols + tx] = ((bin + 0.5f) * 255f / 32f).coerceAtLeast(70f)
             }
         }
 
+        val sorted = backgrounds.copyOf().apply { sort() }
+        fun percentile(p: Float): Float {
+            if (sorted.isEmpty()) return 255f
+            val index = (sorted.lastIndex * p).toInt().coerceIn(0, sorted.lastIndex)
+            return sorted[index]
+        }
+
+        val p10 = percentile(0.10f)
+        val p50 = percentile(0.50f)
+        val p90 = percentile(0.90f)
+        val variation = p90 - p10
+        val shadowTiles = backgrounds.count { it < p90 - 28f }
+        val minShadowTiles = max(2, backgrounds.size / 18)
+        val needsCorrection = variation >= max(22f, p50 * 0.11f) && shadowTiles >= minShadowTiles
+
+        if (!needsCorrection) return source
+
+        val targetPaper = (p90 + 8f).coerceIn(225f, 247f)
         val out = IntArray(pixels.size)
-        val targetPaper = 244f
+
+        fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {
+            val t = ((value - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
+            return t * t * (3f - 2f * t)
+        }
+
         for (y in 0 until height) {
             val gy = (y.toFloat() / tile - 0.5f).coerceIn(0f, (rows - 1).toFloat())
             val y0 = gy.toInt().coerceIn(0, rows - 1)
@@ -126,29 +148,32 @@ object DocumentImageEnhancer {
                 val b11 = backgrounds[y1 * cols + x1]
                 val top = b00 + (b10 - b00) * wx
                 val bottom = b01 + (b11 - b01) * wx
-                val background = (top + (bottom - top) * wy).coerceAtLeast(80f)
+                val background = (top + (bottom - top) * wy).coerceAtLeast(65f)
 
-                val c = pixels[y * width + x]
-                val a = Color.alpha(c)
-                val r = Color.red(c)
-                val g = Color.green(c)
-                val b = Color.blue(c)
-                val lum = luminance(c).toFloat()
-                val paperFactor = (targetPaper / background).coerceIn(0.88f, 1.85f)
-                val protectInk = ((lum - 35f) / 170f).coerceIn(0.08f, 1f)
-                val scale = 1f + (paperFactor - 1f) * protectInk
+                val pixel = pixels[y * width + x]
+                val alpha = Color.alpha(pixel)
+                val red = Color.red(pixel)
+                val green = Color.green(pixel)
+                val blue = Color.blue(pixel)
+                val lum = luminance(pixel).toFloat().coerceAtLeast(1f)
 
-                var nr = (r * scale).toInt().coerceIn(0, 255)
-                var ng = (g * scale).toInt().coerceIn(0, 255)
-                var nb = (b * scale).toInt().coerceIn(0, 255)
-                val newLum = (0.299f * nr + 0.587f * ng + 0.114f * nb)
-                if (newLum > 178f) {
-                    val whitePush = ((newLum - 178f) / 77f).coerceIn(0f, 1f) * 0.34f
-                    nr = (nr + (255 - nr) * whitePush).toInt().coerceIn(0, 255)
-                    ng = (ng + (255 - ng) * whitePush).toInt().coerceIn(0, 255)
-                    nb = (nb + (255 - nb) * whitePush).toInt().coerceIn(0, 255)
+                val localFactor = (targetPaper / background).coerceIn(1f, 1.72f)
+                val inkProtection = smoothStep(58f, 178f, lum)
+                val localShadowStrength = ((p90 - background) / max(1f, variation)).coerceIn(0f, 1f)
+                val correctionWeight = inkProtection * (0.72f + 0.28f * localShadowStrength)
+                var correctedLum = lum + (lum * localFactor - lum) * correctionWeight
+
+                if (correctedLum > 205f && localShadowStrength > 0.15f) {
+                    val whitePush = smoothStep(205f, 248f, correctedLum) * 0.22f * localShadowStrength
+                    correctedLum += (252f - correctedLum) * whitePush
                 }
-                out[y * width + x] = Color.argb(a, nr, ng, nb)
+                correctedLum = correctedLum.coerceIn(0f, 252f)
+
+                val scale = (correctedLum / lum).coerceIn(0.92f, 1.78f)
+                val nr = (red * scale).toInt().coerceIn(0, 255)
+                val ng = (green * scale).toInt().coerceIn(0, 255)
+                val nb = (blue * scale).toInt().coerceIn(0, 255)
+                out[y * width + x] = Color.argb(alpha, nr, ng, nb)
             }
         }
         return Bitmap.createBitmap(out, width, height, Bitmap.Config.ARGB_8888)
