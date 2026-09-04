@@ -119,15 +119,22 @@ object ReminderScheduler {
         val triggerAt = computeNext(reminder, fromMillis) ?: return false
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val pending = fireIntent(context, reminder.id)
-        val exact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) alarmManager.canScheduleExactAlarms() else true
-        if (exact) {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        val exactAllowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) alarmManager.canScheduleExactAlarms() else true
+        val exactScheduled = if (exactAllowed) {
+            try {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                true
+            } catch (_: SecurityException) {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                false
+            }
         } else {
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+            false
         }
         db.updateReminderNextFire(reminder.id, triggerAt)
         enqueueBackup(context, reminder.id, triggerAt)
-        return exact
+        return exactScheduled
     }
 
     fun cancel(context: Context, reminderId: Long) {
