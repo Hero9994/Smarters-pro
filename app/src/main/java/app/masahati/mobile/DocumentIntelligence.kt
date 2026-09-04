@@ -17,9 +17,8 @@ object DocumentIntelligence {
         ).any(q::contains)
     }
 
-    fun directAnswer(question: String, doc: MessageRow?): JSONObject? {
-        if (doc == null) return null
-        val q = question.trim().lowercase()
+    internal fun asksOnlyForName(text: String): Boolean {
+        val q = text.trim().lowercase()
         val asksName = listOf(
             "شو سميتها", "شو اسمها", "شو اسمه", "اسم الورقة", "اسم الملف", "dateiname", "filename"
         ).any(q::contains)
@@ -27,7 +26,13 @@ object DocumentIntelligence {
             "شو فيها", "شو فيه", "شو مكتوب", "محتوى", "شو محتواها", "شو محتواه",
             "شو هاد", "شو هاي", "هاد شو", "هاي شو", "was ist", "worum"
         ).any(q::contains)
-        if (asksName && !asksContent) {
+        return asksName && !asksContent
+    }
+
+    fun directAnswer(question: String, doc: MessageRow?): JSONObject? {
+        if (doc == null) return null
+        val q = question.trim().lowercase()
+        if (asksOnlyForName(question)) {
             val name = doc.displayName.orEmpty().ifBlank { "الملف غير مُسمّى" }
             return result(
                 reply = "اسم الملف: $name",
