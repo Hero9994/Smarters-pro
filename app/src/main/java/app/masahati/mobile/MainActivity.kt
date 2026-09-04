@@ -612,15 +612,12 @@ class MainActivity : ComponentActivity() {
                 var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 var actionText = execution.notes
 
-                // A real agent needs to see the result of its search tool before answering.
-                // We send only compact metadata/summary snippets, never full OCR text, in this second pass.
+                // Search is a real local tool: answer from the ranked tool result immediately.
+                // This avoids a second network round-trip and never uploads full OCR search hits.
                 if (execution.hasSearch && execution.toolResults.length() > 0) {
-                    val followBody = JSONObject(body.toString())
-                        .put("phase", "after_tools")
-                        .put("toolResults", execution.toolResults)
-                    val follow = runCatching { postAgent(followBody) }.getOrNull()
-                    if (follow?.optBoolean("ok", false) == true) {
-                        reply = follow.optString("reply", reply).ifBlank { reply }
+                    val toolReply = buildToolAwareReply(content, execution.toolResults)
+                    if (toolReply.isNotBlank()) {
+                        reply = toolReply
                         actionText = execution.nonSearchNotes
                     }
                 }
@@ -859,6 +856,34 @@ class MainActivity : ComponentActivity() {
             toolResults = toolResults,
             hasSearch = hasSearch
         )
+    }
+
+    private fun buildToolAwareReply(sourceText: String, toolResults: JSONArray): String {
+        for (i in 0 until toolResults.length()) {
+            val tool = toolResults.optJSONObject(i) ?: continue
+            if (tool.optString("type") != "search") continue
+            val result = tool.optJSONObject("result") ?: continue
+            val query = result.optString("query").ifBlank { sourceText.trim() }
+            val matches = result.optJSONArray("results") ?: JSONArray()
+            if (matches.length() == 0) {
+                return "ما لقيت نتيجة محفوظة تطابق «$query». جرّب كلمة من اسم الورقة أو الجهة الموجودة عليها."
+            }
+            val first = matches.optJSONObject(0) ?: continue
+            val space = first.optString("spaceTitle").ifBlank { "مساحة غير مسماة" }
+            val displayName = first.optString("displayName").trim()
+            val summary = first.optString("summary").trim()
+            val note = first.optString("text").trim()
+            val description = when {
+                displayName.isNotBlank() && summary.isNotBlank() -> "الملف «$displayName» — ${summary.take(220)}"
+                displayName.isNotBlank() -> "الملف «$displayName»"
+                summary.isNotBlank() -> summary.take(240)
+                note.isNotBlank() -> note.take(240)
+                else -> "عنصر محفوظ"
+            }
+            val extra = if (matches.length() > 1) " وفي ${matches.length() - 1} نتيجة قريبة كمان." else ""
+            return "أقرب نتيجة لطلبك موجودة في مساحة «$space»: $description.$extra"
+        }
+        return ""
     }
 
     private fun maybeRequestNotificationPermission() {
