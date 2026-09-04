@@ -1,6 +1,8 @@
 package app.masahati.mobile
 
 import android.Manifest
+import app.masahati.mobile.ai.HybridLocalAi
+import app.masahati.mobile.ai.MasahatiAiRequest
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -73,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var chatScroll: ScrollView? = null
     private var composer: EditText? = null
     private var busyCount = 0
+    private var localAi: HybridLocalAi? = null
 
     private val scannerOptions by lazy {
         GmsDocumentScannerOptions.Builder()
@@ -148,6 +151,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         recognizer.close()
+        localAi?.close()
+        localAi = null
         worker.shutdown()
         db.close()
         super.onDestroy()
@@ -423,6 +428,7 @@ class MainActivity : ComponentActivity() {
         renderMessages(spaceId)
         worker.execute {
             val recent = db.recentForAi(spaceId, 20).filter { it.id != messageId }
+            val focusedDocument = db.focusedDocument(spaceId) ?: db.lastFileMessage(spaceId)
             try {
                 val body = JSONObject().apply {
                     put("text", content.take(6000))
@@ -445,7 +451,7 @@ class MainActivity : ComponentActivity() {
                                 })
                             }
                         put("spaces", spaces)
-                        db.lastFileMessage(spaceId)?.let { doc ->
+                        focusedDocument?.let { doc ->
                             put("currentDocument", JSONObject().apply {
                                 put("id", doc.id)
                                 put("displayName", doc.displayName ?: "")
@@ -560,9 +566,30 @@ class MainActivity : ComponentActivity() {
                         )
                 }
 
-                val remote = if (localReminderResult == null) runCatching { postAgent(body) }.getOrNull() else null
-                val result = localReminderResult ?: if (remote?.optBoolean("ok", false) == true) remote
-                else LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                val localModelResult = if (localReminderResult == null) {
+                    runCatching {
+                        val engine = localAi ?: HybridLocalAi(this@MainActivity).also { localAi = it }
+                        engine.generate(
+                            MasahatiAiRequest(
+                                userText = content,
+                                spaceTitle = spaceTitle,
+                                recent = recent,
+                                focusedDocument = focusedDocument,
+                                nowIso = ZonedDateTime.now().toString(),
+                                timezone = java.time.ZoneId.systemDefault().id
+                            )
+                        )
+                    }.getOrNull()
+                } else null
+
+                val remote = if (localReminderResult == null && localModelResult == null) {
+                    runCatching { postAgent(body) }.getOrNull()
+                } else null
+
+                val result = localReminderResult
+                    ?: localModelResult
+                    ?: if (remote?.optBoolean("ok", false) == true) remote
+                    else LocalAssistantFallback.analyze(content, spaceTitle, recent)
 
                 if (reminderResolution != null) {
                     val sourceActions = result.optJSONArray("actions") ?: JSONArray()
@@ -875,6 +902,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openSavedFile(m: MessageRow) {
+        db.setFocusedMessage(m.spaceId, m.id)
         val path = m.filePath ?: return
         val file = File(path)
         if (!file.exists()) {
