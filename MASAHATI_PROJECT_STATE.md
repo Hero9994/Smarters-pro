@@ -128,3 +128,26 @@ When the user says "نكمل مشروع مساحاتي":
 6. Do not add default conversations.
 7. Build and test before handing over an APK.
 8. Update this file after meaningful changes.
+
+
+## 2026-09-04 chat/reminder usability fix
+Latest verified HEAD: b8233b4efc165603747dccb4431959665a6ed763
+CI run: 33886899538 — SUCCESS
+APK artifact id: 9942334877
+
+Implemented:
+- MainActivity uses adjustResize so the composer stays visible above the software keyboard.
+- Composer scrolls into view on focus/click.
+- Long press on text/file messages opens practical actions instead of delete-only:
+  copy/copy OCR text, star/unstar, move to another space, share, delete, and open file where applicable.
+- Message starred state is persisted in SQLite (DB v4 migration) and starred items are accessible from the chat menu.
+- NaturalReminderParser handles colloquial Arabic/German/English reminder times locally.
+- Time reminders bypass cloud AI and are resolved before any remote request.
+- Supported examples include relative delays, tomorrow/today, one-time weekdays, explicit weekly recurrence, Arabic digits, and multi-turn morning/evening clarification.
+- Do not treat a weekday mention as weekly unless recurrence is explicit.
+- Latest unit tests cover these reminder cases and CI passed build, lint, tests, APK identity/signature verification.
+
+Next device checks:
+1. Keyboard/composer behavior on the user's Samsung Android 16 device.
+2. Long-press menu actions.
+3. Real notifications: "ذكرني بعد دقيقتين"; "ذكرني بكرا الساعة 17:30"; ambiguous "بكرا الساعة 5" then follow-up "مساء".
