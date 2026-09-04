@@ -518,6 +518,35 @@ class MainActivity : ComponentActivity() {
                         notes += "ربطت هذه المعلومة بالمستند السابق وحدّثت وصفه وكلمات البحث."
                     }
                 }
+                "rename_previous_document" -> {
+                    val target = db.lastFileMessage(spaceId)
+                    val requested = args.optString("display_name").trim()
+                    if (target != null && requested.isNotBlank()) {
+                        val extension = target.displayName
+                            ?.substringAfterLast('.', "")
+                            ?.takeIf { it.length in 2..6 }
+                            ?.lowercase(Locale.ROOT)
+                        val cleanBase = requested
+                            .replace(Regex("[\\r\\n\\t]+"), " ")
+                            .replace(Regex("[\\\\/:*?\"<>|]+"), "-")
+                            .trim()
+                            .take(150)
+                        val finalName = when {
+                            cleanBase.isBlank() -> ""
+                            cleanBase.contains('.') -> cleanBase
+                            extension != null -> "$cleanBase.$extension"
+                            else -> cleanBase
+                        }
+                        if (finalName.isNotBlank()) {
+                            if (needsConfirm) {
+                                notes += "اقترحت اسم «$finalName» للمستند، وينتظر التأكيد."
+                            } else {
+                                db.renameMessageDisplayName(target.id, finalName)
+                                notes += "سميت المستند «$finalName» ليسهل العثور عليه."
+                            }
+                        }
+                    }
+                }
                 "search" -> {
                     val q = args.optString("query").trim()
                     if (q.isNotBlank()) {
