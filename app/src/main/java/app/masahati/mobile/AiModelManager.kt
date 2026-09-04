@@ -1,6 +1,7 @@
 package app.masahati.mobile
 
 import android.content.Context
+import android.os.storage.StorageManager
 import androidx.core.content.edit
 import java.io.File
 import java.io.FileOutputStream
@@ -57,7 +58,9 @@ class AiModelManager(context: Context) {
 
             val bytesNeeded = (MODEL_SIZE_BYTES - existing).coerceAtLeast(0L)
             val reserve = 512L * 1024L * 1024L
-            if (modelDir.usableSpace < bytesNeeded + reserve) {
+            val storageManager = appContext.getSystemService(StorageManager::class.java)
+            val allocatableBytes = storageManager.getAllocatableBytes(StorageManager.UUID_DEFAULT)
+            if (allocatableBytes < bytesNeeded + reserve) {
                 throw IllegalStateException("لا توجد مساحة تخزين كافية لتنزيل نموذج الذكاء المحلي")
             }
 
