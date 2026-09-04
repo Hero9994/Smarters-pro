@@ -3,6 +3,8 @@ package app.masahati.mobile
 import android.Manifest
 import app.masahati.mobile.ai.HybridLocalAi
 import app.masahati.mobile.ai.MasahatiAiRequest
+import app.masahati.mobile.ai.LocalModelCatalog
+import app.masahati.mobile.ai.LocalModelPackManager
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -65,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private val surfaceBg = Color.rgb(247, 246, 242)
     private val controlBg = Color.rgb(230, 232, 228)
     private val worker = Executors.newSingleThreadExecutor()
+    private val modelWorker = Executors.newSingleThreadExecutor()
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private lateinit var db: MasahatiDatabase
     private lateinit var root: LinearLayout
@@ -76,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private var composer: EditText? = null
     private var busyCount = 0
     private var localAi: HybridLocalAi? = null
+    @Volatile private var modelDownloadRunning = false
 
     private val scannerOptions by lazy {
         GmsDocumentScannerOptions.Builder()
@@ -154,6 +158,7 @@ class MainActivity : ComponentActivity() {
         localAi?.close()
         localAi = null
         worker.shutdown()
+        modelWorker.shutdownNow()
         db.close()
         super.onDestroy()
     }
@@ -961,16 +966,119 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
+            menu.add("الذكاء المحلي")
             menu.add("إعداد دقة التنبيهات")
             setOnMenuItemClickListener {
-                when {
-                    it.title.toString().contains("بحث") -> promptGlobalSearch()
-                    it.title.toString().contains("دقة التنبيهات") -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
+                when (it.title.toString()) {
+                    "بحث ذكي شامل" -> promptGlobalSearch()
+                    "الذكاء المحلي" -> showLocalAiManager()
+                    "إعداد دقة التنبيهات" -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
                     else -> { showArchived = !showArchived; showHome() }
                 }
                 true
             }
             show()
+        }
+    }
+
+    private fun showLocalAiManager() {
+        val packs = LocalModelPackManager(this)
+        val spec = LocalModelCatalog.default
+        if (packs.isInstalled(spec)) {
+            AlertDialog.Builder(this)
+                .setTitle("الذكاء المحلي")
+                .setMessage(
+                    "جاهز ✓\n\n${spec.displayName}\nيعمل على الجهاز بدون إنترنت، ويُستخدم قبل الذكاء السحابي."
+                )
+                .setPositiveButton("إغلاق", null)
+                .setNegativeButton("حذف النموذج") { _, _ ->
+                    AlertDialog.Builder(this)
+                        .setTitle("حذف النموذج المحلي؟")
+                        .setMessage("سيعود المساعد للاعتماد على السحابة حتى تنزله من جديد.")
+                        .setPositiveButton("حذف") { _, _ ->
+                            modelWorker.execute {
+                                localAi?.close()
+                                localAi = null
+                                val deleted = packs.delete(spec)
+                                runOnUiThread {
+                                    Toast.makeText(
+                                        this,
+                                        if (deleted) "تم حذف النموذج المحلي" else "تعذر حذف النموذج",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                        .setNegativeButton("إلغاء", null)
+                        .show()
+                }
+                .show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("الذكاء المحلي")
+            .setMessage(
+                "المرحلة الأولى تستخدم ${spec.displayName}.\n\nالحجم قرابة 1 GB، يُنزّل مرة واحدة ثم يعمل أوفلاين. الميزات الحالية لن تتغير."
+            )
+            .setPositiveButton("تنزيل") { _, _ -> startLocalModelDownload() }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun startLocalModelDownload() {
+        if (modelDownloadRunning) {
+            Toast.makeText(this, "تنزيل النموذج يعمل حالياً", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val spec = LocalModelCatalog.default
+        val packs = LocalModelPackManager(this)
+        val status = TextView(this).apply {
+            text = "بدء التنزيل…"
+            textSize = 17f
+            setPadding(dp(24), dp(16), dp(24), dp(16))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("تنزيل الذكاء المحلي")
+            .setView(status)
+            .setNegativeButton("إخفاء", null)
+            .create()
+        dialog.show()
+
+        modelDownloadRunning = true
+        modelWorker.execute {
+            var lastPercent = -1
+            try {
+                val required = (spec.expectedBytes * 12L) / 10L
+                if (filesDir.usableSpace < required) {
+                    throw IllegalStateException("لا توجد مساحة تخزين كافية. نحتاج تقريباً 1.2 GB فارغة.")
+                }
+                packs.download(spec) { downloaded, total ->
+                    val percent = if (total > 0L) ((downloaded * 100L) / total).toInt().coerceIn(0, 100) else -1
+                    if (percent == lastPercent) return@download
+                    lastPercent = percent
+                    val mb = downloaded / (1024L * 1024L)
+                    runOnUiThread {
+                        status.text = if (percent >= 0) {
+                            "جارِ التنزيل… $percent%  (${mb} MB)"
+                        } else {
+                            "جارِ التنزيل… ${mb} MB"
+                        }
+                    }
+                }
+                localAi?.close()
+                localAi = null
+                runOnUiThread {
+                    status.text = "جاهز ✓\n${spec.displayName}\nسيستخدمه المساعد تلقائياً من الآن."
+                    Toast.makeText(this, "تم تفعيل الذكاء المحلي", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "تعذر إكمال التنزيل.\n${e.message ?: "خطأ غير معروف"}\nيمكن إعادة المحاولة وسيكمل من الملف الجزئي إن أمكن."
+                }
+            } finally {
+                modelDownloadRunning = false
+            }
         }
     }
 
