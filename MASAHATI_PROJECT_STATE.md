@@ -151,3 +151,25 @@ Next device checks:
 1. Keyboard/composer behavior on the user's Samsung Android 16 device.
 2. Long-press menu actions.
 3. Real notifications: "ذكرني بعد دقيقتين"; "ذكرني بكرا الساعة 17:30"; ambiguous "بكرا الساعة 5" then follow-up "مساء".
+
+
+## 2026-09-04 keyboard + delivered reminder message fix
+Latest verified functional HEAD: dee8b72b8e44b8ba7a3cb23b47d489b4856b5ff5
+CI run: 33891063512 — SUCCESS
+APK artifact id: 9943963344
+
+Implemented:
+- Added View/IME WindowInsets handling in MainActivity. adjustResize remains enabled, and root bottom padding now follows max(IME, system bars), so the composer should move above the Android 16 keyboard instead of being covered.
+- ReminderReceiver now creates a real assistant message in the originating space when the alarm fires.
+- Notification text is the same delivered reminder message.
+- Tapping a reminder opens the originating conversation even when MainActivity is already running (onNewIntent handling).
+- ReminderDeliveryText cleans reminder command/time words from the task.
+- Verified exact example:
+  input: "ذكرني اعبي ديزل اليوم الساعة 20.30"
+  delivered message: "تذكير: اليوم الساعة 20.30 اعبي ديزل"
+- Added unit tests for delivered reminder message formatting and recurring-text cleanup.
+- CI passed lintDebug, testDebugUnitTest, assembleDebug and APK identity/signature verification.
+
+Device checks requested next:
+1. On Samsung Android 16, open keyboard and verify the composer remains fully visible above it.
+2. Create "ذكرني اعبي ديزل اليوم الساعة <2 minutes from now>", close/minimize app, verify notification text, tap it, and confirm the assistant reminder message appears in the same conversation.
