@@ -122,4 +122,35 @@ class ReminderTimeTest {
         assertFalse(parsed.ready)
         assertEquals("أي ساعة تريد التذكير؟", parsed.clarification)
     }
+    @Test
+    fun deliveredReminderLooksLikeAChatMessage() {
+        val fire = ZonedDateTime.of(2026, 9, 4, 20, 30, 0, 0, zone)
+        val now = ZonedDateTime.of(2026, 9, 4, 20, 30, 0, 0, zone)
+        val reminder = ReminderRow(
+            id = 1L,
+            spaceId = 7L,
+            title = "تذكير مساحاتي",
+            body = "ذكرني اعبي ديزل اليوم الساعة 20.30",
+            repeatRule = "none",
+            dayOfWeek = null,
+            hour = 20,
+            minute = 30,
+            nextFireAt = fire.toInstant().toEpochMilli(),
+            enabled = true,
+            createdAt = now.minusHours(2).toInstant().toEpochMilli()
+        )
+        assertEquals(
+            "تذكير: اليوم الساعة 20.30 اعبي ديزل",
+            ReminderDeliveryText.build(reminder, zone, now.toInstant().toEpochMilli())
+        )
+    }
+
+    @Test
+    fun deliveredReminderStripsRecurringTimeWordsFromTask() {
+        assertEquals(
+            "اخد الدواء",
+            ReminderDeliveryText.cleanTask("ذكرني كل اثنين الساعة 18:30 اخد الدواء")
+        )
+    }
+
 }
