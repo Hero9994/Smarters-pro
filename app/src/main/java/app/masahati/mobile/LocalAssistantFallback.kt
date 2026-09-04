@@ -34,7 +34,7 @@ object LocalAssistantFallback {
         val classification: String
         val reply: String
         when {
-            has("وين", "أين", "اين", "ابحث", "دور", "فتش", "find ", "suche", "wo ist") -> {
+            Regex("^(?:وين|أين|اين)(?:\\s+|$)|^(?:ابحث(?:لي)?(?:\\s+عن)?|دور(?:لي)?(?:\\s+على)?|فتش(?:لي)?(?:\\s+عن)?|find|search for|suche nach|wo ist)(?:\\s+|$)", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> {
                 classification = "search"
                 val q = raw
                     .replace(Regex("^(وين|أين|اين|ابحث عن|دور على|فتش عن)\\s*"), "")
@@ -93,7 +93,7 @@ object LocalAssistantFallback {
                         )
                         .put("requires_confirmation", false)
                 )
-                reply = "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
+                reply = "فهمت وصفك للمستند السابق: «${raw.removeSuffix(".").removeSuffix("،")}». سأربطه بالملف حتى أقدر أرجع له لاحقاً بالمعنى."
             }
             has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
                 classification = "command"
@@ -128,6 +128,22 @@ object LocalAssistantFallback {
                     day != null -> "فهمت أن التذكير مرتبط بـ$day، لكن لا يوجد وقت واضح بعد."
                     time != null -> "فهمت وقت التذكير $time، لكن اليوم أو التاريخ غير واضح بعد."
                     else -> "فهمت أنك تريد تذكيراً، لكن أحتاج اليوم أو الوقت حتى يكون محدداً."
+                }
+            }
+            has("مباراة", "مباريات", "يلعب", "game", "match", "spiel") -> {
+                classification = "event"
+                addLabel("مباراة")
+                if (day != null) addLabel(day)
+                val opponent = Regex("(?:ضد|مقابل|gegen|vs\\.?)[\\s:]+([^،,.\\n]+)", RegexOption.IGNORE_CASE)
+                    .find(raw)?.groupValues?.getOrNull(1)?.trim()
+                if (!opponent.isNullOrBlank()) addKeyword(opponent)
+                reply = listOfNotNull(
+                    day?.let { "يوم $it" },
+                    time?.let { "الساعة $it" },
+                    opponent?.let { "ضد $it" }
+                ).joinToString("، ").let { details ->
+                    if (details.isBlank()) "فهمت أنها معلومة عن مباراة وحفظتها بهذا التصنيف."
+                    else "فهمت أنها مباراة: $details، وحفظت التفاصيل لتظهر بالبحث لاحقاً."
                 }
             }
             has("دوام", "شفت", "مناوبة", "arbeit", "schicht") -> {
