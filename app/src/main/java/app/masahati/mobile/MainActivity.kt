@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         db = MasahatiDatabase(this)
         ReminderScheduler.ensureChannel(this)
+        ReminderScheduler.rescheduleAll(this)
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(pageBg)
