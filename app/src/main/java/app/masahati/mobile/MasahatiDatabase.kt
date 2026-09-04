@@ -287,6 +287,17 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         writableDatabase.update("spaces", ContentValues().apply { put("updated_at", System.currentTimeMillis()) }, "id=?", arrayOf(targetSpaceId.toString()))
     }
 
+    fun renameMessageDisplayName(messageId: Long, displayName: String) {
+        val clean = displayName.trim().take(180)
+        if (clean.isBlank()) return
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("display_name", clean) },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
     fun setMessageStarred(messageId: Long, starred: Boolean) {
         writableDatabase.update(
             "messages",
