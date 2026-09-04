@@ -9,6 +9,8 @@ import java.net.URL
 import java.security.MessageDigest
 
 class LocalModelPackManager(private val context: Context) {
+    private val validated = mutableSetOf<String>()
+
     private val modelDir: File
         get() = File(context.filesDir, "ai-models").apply { mkdirs() }
 
@@ -18,7 +20,12 @@ class LocalModelPackManager(private val context: Context) {
     fun isInstalled(spec: LocalModelSpec = LocalModelCatalog.default): Boolean {
         val file = modelFile(spec)
         if (!file.isFile || file.length() < spec.expectedBytes / 2) return false
-        return runCatching { sha256(file).equals(spec.sha256, ignoreCase = true) }.getOrDefault(false)
+        synchronized(validated) {
+            if (spec.id in validated) return true
+        }
+        val valid = runCatching { sha256(file).equals(spec.sha256, ignoreCase = true) }.getOrDefault(false)
+        if (valid) synchronized(validated) { validated += spec.id }
+        return valid
     }
 
     fun delete(spec: LocalModelSpec = LocalModelCatalog.default): Boolean {
@@ -26,6 +33,7 @@ class LocalModelPackManager(private val context: Context) {
         val partial = File(file.absolutePath + ".part")
         val a = !file.exists() || file.delete()
         val b = !partial.exists() || partial.delete()
+        synchronized(validated) { validated -= spec.id }
         return a && b
     }
 
@@ -84,6 +92,7 @@ class LocalModelPackManager(private val context: Context) {
                 partial.copyTo(finalFile, overwrite = true)
                 partial.delete()
             }
+            synchronized(validated) { validated += spec.id }
             return finalFile
         } finally {
             connection.disconnect()
