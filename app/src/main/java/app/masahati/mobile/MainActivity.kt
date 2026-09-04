@@ -1079,9 +1079,10 @@ class MainActivity : ComponentActivity() {
                         if (out.length >= 24000) break
                         renderer.openPage(index).use { page ->
                             val maxSide = 1500f
-                            val scale = (maxSide / maxOf(page.width, page.height).toFloat()).coerceAtLeast(1f)
-                            val width = (page.width * scale).toInt().coerceAtLeast(1)
-                            val height = (page.height * scale).toInt().coerceAtLeast(1)
+                            // Keep one rendered page bounded in memory, even for unusually large PDF page dimensions.
+                            val scale = (maxSide / maxOf(page.width, page.height).toFloat()).coerceAtMost(2.0f)
+                            val width = (page.width * scale).toInt().coerceIn(1, maxSide.toInt())
+                            val height = (page.height * scale).toInt().coerceIn(1, maxSide.toInt())
                             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                             try {
                                 bitmap.eraseColor(Color.WHITE)
