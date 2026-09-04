@@ -34,6 +34,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -971,7 +972,7 @@ class MainActivity : ComponentActivity() {
         }
         val prefs = getSharedPreferences("masahati_local_ai", MODE_PRIVATE)
         if (prefs.getBoolean("offer_seen_v08", false)) return
-        prefs.edit().putBoolean("offer_seen_v08", true).apply()
+        prefs.edit { putBoolean("offer_seen_v08", true) }
         root.post { if (!isFinishing && !isDestroyed) showLocalAiModelDialog() }
     }
 
