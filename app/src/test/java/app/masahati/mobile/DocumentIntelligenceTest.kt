@@ -50,4 +50,10 @@ class DocumentIntelligenceTest {
         assertNotNull(result)
         assertTrue(result!!.getString("reply").contains("30.09.2027"))
     }
+
+    @Test
+    fun compoundNameAndContentQuestionGoesToReasoningModel() {
+        assertNull(DocumentIntelligence.directAnswer("شو محتوى الورقة وشو سميتها؟", doc()))
+    }
+
 }
