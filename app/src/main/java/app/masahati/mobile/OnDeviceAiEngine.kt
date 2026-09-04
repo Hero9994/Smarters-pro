@@ -70,20 +70,35 @@ class OnDeviceAiEngine(
         return synchronized(lock) {
             engine?.let { if (it.isInitialized()) return@synchronized it }
 
-            val config = EngineConfig(
-                modelPath = modelManager.modelFile().absolutePath,
-                backend = Backend.CPU(
-                    threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
-                ),
-                maxNumTokens = 4096,
-                cacheDir = FilePaths.aiCache(appContext)
-            )
-            val created = Engine(config)
-            try {
-                created.initialize()
-            } catch (t: Throwable) {
-                runCatching { if (created.isInitialized()) created.close() }
-                throw t
+            val modelPath = modelManager.modelFile().absolutePath
+            val cacheDir = FilePaths.aiCache(appContext)
+
+            fun initializeWith(backend: Backend): Engine {
+                val created = Engine(
+                    EngineConfig(
+                        modelPath = modelPath,
+                        backend = backend,
+                        maxNumTokens = 4096,
+                        cacheDir = cacheDir
+                    )
+                )
+                try {
+                    created.initialize()
+                    return created
+                } catch (t: Throwable) {
+                    runCatching { if (created.isInitialized()) created.close() }
+                    throw t
+                }
+            }
+
+            val created = runCatching {
+                initializeWith(Backend.GPU())
+            }.getOrElse {
+                initializeWith(
+                    Backend.CPU(
+                        threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+                    )
+                )
             }
             engine = created
             created
