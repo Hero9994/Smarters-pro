@@ -182,6 +182,20 @@ object LocalAssistantFallback {
                 reply = "فهمت أنك تريد تثبيت هذه المساحة."
                 addLabel("تثبيت")
             }
+            has(
+                "شو عندي تذكيرات", "شو تذكيراتي", "تذكيراتي", "اعرض التذكيرات", "اعرضلي التذكيرات",
+                "ورجيني التذكيرات", "list reminders", "show reminders", "my reminders", "meine erinnerungen", "erinnerungen anzeigen"
+            ) -> {
+                classification = "command"
+                addLabel("تذكيرات")
+                actions.put(
+                    JSONObject()
+                        .put("type", "list_reminders")
+                        .put("args", JSONObject())
+                        .put("requires_confirmation", false)
+                )
+                reply = "سأعرض لك التذكيرات الفعالة الموجودة داخل التطبيق."
+            }
             has("ذكرني", "ذكّرني", "تذكير", "remind", "erinner") -> {
                 classification = "reminder"
                 addLabel("تذكير")
