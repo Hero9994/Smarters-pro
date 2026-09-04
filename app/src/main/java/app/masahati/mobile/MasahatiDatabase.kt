@@ -456,13 +456,15 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         }, "id=?", arrayOf(id.toString()))
     }
 
-    fun markReminderDelivered(id: Long, deliveredAt: Long) {
-        writableDatabase.update(
+    fun tryMarkReminderDelivered(id: Long, scheduledAt: Long, deliveredAt: Long): Boolean {
+        val cutoff = scheduledAt - 60_000L
+        val changed = writableDatabase.update(
             "reminders",
             ContentValues().apply { put("delivered_at", deliveredAt) },
-            "id=?",
-            arrayOf(id.toString())
+            "id=? AND enabled=1 AND (delivered_at IS NULL OR delivered_at < ?)",
+            arrayOf(id.toString(), cutoff.toString())
         )
+        return changed == 1
     }
 
     private fun reminderFrom(c: Cursor) = ReminderRow(
