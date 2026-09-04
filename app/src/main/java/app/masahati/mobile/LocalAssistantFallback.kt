@@ -7,10 +7,16 @@ object LocalAssistantFallback {
     fun analyze(text: String, spaceTitle: String, recent: List<MessageRow> = emptyList()): JSONObject {
         val raw = text.trim()
         val lower = raw.lowercase()
-        val context = recent.takeLast(6).joinToString(" ") { (it.text.ifBlank { it.ocrText.orEmpty() }) }.lowercase()
+        val context = recent.takeLast(12).joinToString(" ") {
+            listOf(it.text, it.summary.orEmpty(), it.tags.orEmpty(), it.ocrText.orEmpty(), it.displayName.orEmpty()).joinToString(" ")
+        }.lowercase()
         val labels = linkedSetOf<String>()
         val keywords = linkedSetOf<String>()
         val actions = JSONArray()
+        val recentDocument = recent.lastOrNull { it.kind == "file" && (!it.ocrText.isNullOrBlank() || !it.summary.isNullOrBlank()) }
+        val documentContext = recentDocument?.let {
+            listOfNotNull(it.summary, it.tags, it.ocrText, it.displayName).joinToString(" ")
+        }.orEmpty()
 
         fun has(vararg words: String) = words.any { lower.contains(it) }
         fun addLabel(value: String) { if (value.isNotBlank()) labels += value }
@@ -39,6 +45,55 @@ object LocalAssistantFallback {
                 reply = "سأبحث داخل مساحاتك عن «$q» وأعرض لك أقرب النتائج."
                 addLabel("بحث")
                 addKeyword(q.take(80))
+            }
+            recentDocument != null && has("متى", "تاريخ", "انتهاء", "ينتهي", "بينتهي", "تنتهي", "ende", "ablauf", "gültig bis") -> {
+                classification = "document"
+                addLabel("مستند")
+                val dates = Regex("(?:0?[1-9]|[12]\\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:19|20)\\d{2}")
+                    .findAll(documentContext)
+                    .map { it.value }
+                    .toList()
+                reply = if (dates.isNotEmpty()) {
+                    "التاريخ الظاهر في المستند هو " + dates.last() + "."
+                } else if (!recentDocument.summary.isNullOrBlank()) {
+                    "لا أرى تاريخاً واضحاً في النص المستخرج. ملخص المستند: " + recentDocument.summary!!.take(260)
+                } else {
+                    "لا أرى تاريخاً واضحاً في النص المستخرج من المستند السابق."
+                }
+            }
+            recentDocument != null && has("شو فيها", "شو فيه", "شو مكتوب", "هاد شو", "هاي شو", "ما هذا", "ما هذه", "was ist", "worum geht") -> {
+                classification = "document"
+                addLabel("مستند")
+                val docSummary = recentDocument.summary?.trim().orEmpty()
+                val docOcr = recentDocument.ocrText?.trim().orEmpty()
+                reply = when {
+                    docSummary.isNotBlank() -> docSummary.take(420)
+                    docOcr.isNotBlank() -> "المكتوب الظاهر في المستند: " + docOcr.replace("\n", " ").take(420)
+                    else -> "المستند السابق محفوظ، لكن النص المقروء منه غير كافٍ للإجابة."
+                }
+            }
+            recentDocument != null && has("هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "نفس الورقة") -> {
+                classification = "document"
+                addLabel("مستند")
+                val useful = raw.split(Regex("[^\\p{L}\\p{N}]+"))
+                    .map { it.trim() }
+                    .filter { it.length >= 3 }
+                    .distinct()
+                    .take(10)
+                useful.forEach(::addKeyword)
+                actions.put(
+                    JSONObject()
+                        .put("type", "enrich_previous_document")
+                        .put(
+                            "args",
+                            JSONObject()
+                                .put("summary", raw.take(500))
+                                .put("labels", JSONArray(listOf("مستند")))
+                                .put("keywords", JSONArray(useful))
+                        )
+                        .put("requires_confirmation", false)
+                )
+                reply = "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
             }
             has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
                 classification = "command"
