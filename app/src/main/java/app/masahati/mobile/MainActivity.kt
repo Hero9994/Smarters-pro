@@ -985,7 +985,7 @@ class MainActivity : ComponentActivity() {
             .setTitle("تفعيل الذكاء المحلي")
             .setMessage(
                 "لتقوية مساعد مساحاتي حتى يفهم السياق والمستندات بدون الاعتماد دائماً على الإنترنت، " +
-                    "يمكن تنزيل نموذج ذكاء يعمل داخل هاتفك. الحجم حوالي 330 MB. يفضّل Wi‑Fi."
+                    "يمكن تنزيل نموذج ذكاء يعمل داخل هاتفك. الحجم حوالي 930 MB. يفضّل Wi‑Fi ومساحة تخزين فارغة لا تقل عن 1.5 GB."
             )
             .setPositiveButton("تنزيل") { _, _ -> startLocalAiDownload() }
             .setNegativeButton("لاحقاً", null)
