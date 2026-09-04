@@ -410,13 +410,9 @@ object ReminderDelivery {
 
             val now = System.currentTimeMillis()
             val scheduledAt = reminder.nextFireAt ?: now
-            val alreadyDeliveredForThisFire = reminder.deliveredAt?.let { delivered ->
-                delivered >= scheduledAt - 60_000L
-            } == true
-            if (alreadyDeliveredForThisFire) return
 
-            // Mark first so AlarmManager and WorkManager cannot both create duplicate messages.
-            db.markReminderDelivered(reminderId, now)
+            // Atomic claim: only AlarmManager OR WorkManager may deliver this occurrence.
+            if (!db.tryMarkReminderDelivered(reminderId, scheduledAt, now)) return
 
             val deliveredText = ReminderDeliveryText.build(reminder, nowMillis = now)
             db.insertText(reminder.spaceId, "assistant", deliveredText)
