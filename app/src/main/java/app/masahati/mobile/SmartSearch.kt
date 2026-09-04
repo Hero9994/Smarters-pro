@@ -37,7 +37,35 @@ internal object SmartSearch {
             out += token
             if (token.startsWith("ال") && token.length > 4) out += token.drop(2)
         }
-        return out.take(10)
+        semanticExpansions(normalized).forEach(out::add)
+        return out.take(18)
+    }
+
+    private fun semanticExpansions(normalized: String): List<String> {
+        val out = linkedSetOf<String>()
+        fun has(vararg values: String) = values.any { normalized.contains(normalize(it)) }
+
+        if (has("جواز", "جواز سفر", "passport", "reisepass")) {
+            out += listOf("جواز", "سفر", "passport", "reisepass")
+        }
+        if (
+            (has("نقل", "توصيل", "مواصلات") && has("طبيب", "دكتور", "مشفى", "مستشفى", "عيادة")) ||
+            has("نقل طبي", "مواصلات مرضى", "krankenbeförderung", "krankentransport", "arztfahrt", "transportschein")
+        ) {
+            out += listOf(
+                "نقل", "طبيب", "نقل طبي", "مواصلات مرضى",
+                "krankenbeförderung", "krankenbefoerderung", "krankentransport", "arztfahrt", "transportschein", "transport"
+            )
+        }
+        if (has("فاتورة", "rechnung")) out += listOf("فاتورة", "rechnung")
+        if (has("عقد", "vertrag")) out += listOf("عقد", "vertrag")
+        if (has("تأمين", "تامين", "aok", "krankenkasse", "versicherung")) {
+            out += listOf("aok", "krankenkasse", "versicherung", "تأمين")
+        }
+        if (has("دوام", "مناوبة", "شفت", "dienstplan", "schicht", "arbeit")) {
+            out += listOf("دوام", "مناوبة", "dienstplan", "schicht", "arbeit")
+        }
+        return out.toList()
     }
 
     fun score(
