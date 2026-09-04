@@ -137,6 +137,7 @@ class ReminderTimeTest {
             minute = 30,
             nextFireAt = fire.toInstant().toEpochMilli(),
             enabled = true,
+            deliveredAt = null,
             createdAt = now.minusHours(2).toInstant().toEpochMilli()
         )
         assertEquals(
