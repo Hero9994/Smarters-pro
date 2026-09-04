@@ -173,3 +173,17 @@ Implemented:
 Device checks requested next:
 1. On Samsung Android 16, open keyboard and verify the composer remains fully visible above it.
 2. Create "ذكرني اعبي ديزل اليوم الساعة <2 minutes from now>", close/minimize app, verify notification text, tap it, and confirm the assistant reminder message appears in the same conversation.
+
+
+## LOCKED STABLE FEATURES — DO NOT REGRESS
+These behaviors are confirmed working by the user and must remain unchanged unless the user explicitly requests a change:
+- Current UI/layout/colors and overall conversation appearance.
+- Keyboard/composer behavior once verified on device.
+- Long-press message actions: copy/copy OCR text, star/unstar, move, share, delete/open.
+- Reminder parsing and local scheduling.
+- Reminder notification opens the originating conversation.
+- Reminder delivery writes a real assistant message into the same conversation.
+- No fake/default/sample conversations.
+- Scanner and assistant improvements already merged must not be removed while adding local/offline AI.
+
+Any future AI/model work must be additive and isolated behind an engine/router layer so these stable behaviors are not rewritten.
