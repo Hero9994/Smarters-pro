@@ -149,6 +149,29 @@ object ReminderScheduler {
         val title = explicitTitle.ifBlank { "تذكير مساحاتي" }.take(100)
         val body = args.optString("body").trim().ifBlank { sourceText.trim() }.take(500)
 
+        val natural = NaturalReminderParser.parse(sourceText, now)
+        if (natural != null) {
+            if (!natural.ready) return null
+            val next = natural.triggerAt ?: return null
+            val id = db.createReminder(
+                spaceId = spaceId,
+                title = title,
+                body = body,
+                repeatRule = natural.repeatRule,
+                dayOfWeek = natural.dayOfWeek,
+                hour = natural.hour,
+                minute = natural.minute,
+                nextFireAt = next
+            )
+            val row = db.getReminder(id) ?: return null
+            val exact = schedule(context, db, row)
+            return ReminderCreationResult(
+                id,
+                natural.description ?: formatTrigger(next, zone),
+                exact
+            )
+        }
+
         val relativeMinutes = readRelativeMinutes(args, sourceText)
         if (relativeMinutes != null && relativeMinutes > 0) {
             val next = now.plusMinutes(relativeMinutes.toLong()).withSecond(0).withNano(0).toInstant().toEpochMilli()
