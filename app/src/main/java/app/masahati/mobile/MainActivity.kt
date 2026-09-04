@@ -138,6 +138,14 @@ class MainActivity : ComponentActivity() {
         intent.getLongExtra("open_space_id", -1L).takeIf { it > 0L }?.let { openSpace(it) }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getLongExtra("open_space_id", -1L)
+            .takeIf { it > 0L }
+            ?.let { openSpace(it) }
+    }
+
     override fun onDestroy() {
         recognizer.close()
         worker.shutdown()
