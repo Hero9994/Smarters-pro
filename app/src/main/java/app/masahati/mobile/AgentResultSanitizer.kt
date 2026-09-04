@@ -125,7 +125,7 @@ object AgentResultSanitizer {
 
     private fun falselyClaimsExecution(reply: String): Boolean {
         return Regex(
-            "(?:تم\\\\s+(?:إنشاء|انشاء|إضافة|اضافة|أرشفة|ارشفة|نقل|تغيير|تثبيت)|أنشأت|انشأت|أضفت|اضفت|نقلت|أرشفت|ارشفت|ثبتت|غيّرت)",
+            "(?:تم\\s+(?:إنشاء|انشاء|إضافة|اضافة|أرشفة|ارشفة|نقل|تغيير|تثبيت)|أنشأت|انشأت|أضفت|اضفت|نقلت|أرشفت|ارشفت|ثبتت|غيّرت)",
             RegexOption.IGNORE_CASE
         ).containsMatchIn(reply)
     }
@@ -136,17 +136,17 @@ object AgentResultSanitizer {
 
     private fun looksLikeDocumentDescription(text: String): Boolean =
         Regex(
-            "^(?:هاي|هذه|هي|هاد|هذا)\\\\s+(?:ورقة|الورقة|مستند|المستند|عقد|العقد|وثيقة|الوثيقة)(?:\\\\s|$)",
+            "^(?:هاي|هذه|هي|هاد|هذا)\\s+(?:ورقة|الورقة|مستند|المستند|عقد|العقد|وثيقة|الوثيقة)(?:\\s|$)",
             RegexOption.IGNORE_CASE
         ).containsMatchIn(text.trim())
 
     private fun cleanSearchQuery(text: String): String =
         text.trim()
             .replace(
-                Regex("^(?:وين|أين|اين|ابحث(?:لي)?(?: عن)?|دور(?:لي)?(?: على)?|فتش(?:لي)?(?: عن)?|find|search for|suche nach|wo ist)(?:\\\\s+|$)", RegexOption.IGNORE_CASE),
+                Regex("^(?:وين|أين|اين|ابحث(?:لي)?(?: عن)?|دور(?:لي)?(?: على)?|فتش(?:لي)?(?: عن)?|find|search for|suche nach|wo ist)(?:\\s+|$)", RegexOption.IGNORE_CASE),
                 ""
             )
-            .replace(Regex("^(?:حطيت|حطيتلي|حفظت|خزنت|وضعت|حاطط)(?:\\\\s+|$)", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("^(?:حطيت|حطيتلي|حفظت|خزنت|وضعت|حاطط)(?:\\s+|$)", RegexOption.IGNORE_CASE), "")
             .replace(Regex("[؟?]+$"), "")
             .trim()
 }
