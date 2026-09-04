@@ -467,15 +467,57 @@ class MainActivity : ComponentActivity() {
                     put("recent", arr)
                 }
 
-                val reminderResolution = NaturalReminderParser.parse(content, ZonedDateTime.now())
+                val directReminderText = content.takeIf { NaturalReminderParser.looksLikeReminder(it) }
+                val reminderFollowUpText = if (directReminderText == null && content.length <= 40) {
+                    val lastAssistant = recent.lastOrNull { it.role == "assistant" }
+                    val assistantAskedForReminderDetail = lastAssistant?.text?.let { answer ->
+                        listOf("صباح", "مساء", "أي ساعة", "هل تقصد", "موعد", "وقت التذكير")
+                            .any { token -> answer.contains(token, ignoreCase = true) }
+                    } == true
+                    if (assistantAskedForReminderDetail) {
+                        recent.asReversed()
+                            .firstOrNull { it.role == "user" && NaturalReminderParser.looksLikeReminder(it.text) }
+                            ?.text
+                            ?.let { previous -> previous + " " + content }
+                    } else null
+                } else null
+                val reminderSourceText = directReminderText ?: reminderFollowUpText
+                val reminderResolution = reminderSourceText?.let {
+                    NaturalReminderParser.parse(it, ZonedDateTime.now())
+                }
                 val localReminderResult = reminderResolution?.let { resolution ->
+                    val actionArgs = JSONObject()
+                        .put("title", "تذكير مساحاتي")
+                        .put("body", reminderSourceText.take(500))
+                    resolution.delayMinutes?.let { actionArgs.put("delay_minutes", it) }
+                    if (resolution.repeatRule == "daily") {
+                        actionArgs.put("repeat", "daily")
+                        if (resolution.hour != null && resolution.minute != null) {
+                            actionArgs.put("time", String.format(Locale.ROOT, "%02d:%02d", resolution.hour, resolution.minute))
+                        }
+                    } else if (resolution.repeatRule == "weekly") {
+                        actionArgs.put("repeat", "weekly")
+                        resolution.dayOfWeek?.let { actionArgs.put("day_of_week", it) }
+                        if (resolution.hour != null && resolution.minute != null) {
+                            actionArgs.put("time", String.format(Locale.ROOT, "%02d:%02d", resolution.hour, resolution.minute))
+                        }
+                    } else {
+                        resolution.triggerAt?.let { epoch ->
+                            val iso = ZonedDateTime.ofInstant(
+                                java.time.Instant.ofEpochMilli(epoch),
+                                java.time.ZoneId.systemDefault()
+                            ).toString()
+                            actionArgs.put("trigger_at", iso)
+                        }
+                    }
+
                     JSONObject()
                         .put("ok", true)
                         .put("engine", "local-reminder-parser")
                         .put("classification", "reminder")
                         .put("labels", JSONArray(listOf("تذكير")))
                         .put("keywords", JSONArray())
-                        .put("summary", content.take(320))
+                        .put("summary", reminderSourceText.take(320))
                         .put("confidence", if (resolution.ready) 0.99 else 0.95)
                         .put(
                             "reply",
@@ -488,12 +530,7 @@ class MainActivity : ComponentActivity() {
                                 JSONArray().put(
                                     JSONObject()
                                         .put("type", "create_reminder")
-                                        .put(
-                                            "args",
-                                            JSONObject()
-                                                .put("title", "تذكير مساحاتي")
-                                                .put("body", content.take(500))
-                                        )
+                                        .put("args", actionArgs)
                                         .put("requires_confirmation", false)
                                 )
                             } else JSONArray()
@@ -525,7 +562,7 @@ class MainActivity : ComponentActivity() {
                                     "args",
                                     JSONObject()
                                         .put("title", "تذكير مساحاتي")
-                                        .put("body", content.take(500))
+                                        .put("body", (reminderSourceText ?: content).take(500))
                                 )
                                 .put("requires_confirmation", false)
                         )
