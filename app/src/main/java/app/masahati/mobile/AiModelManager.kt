@@ -55,6 +55,12 @@ class AiModelManager(context: Context) {
                 existing = 0L
             }
 
+            val bytesNeeded = (MODEL_SIZE_BYTES - existing).coerceAtLeast(0L)
+            val reserve = 256L * 1024L * 1024L
+            if (modelDir.usableSpace < bytesNeeded + reserve) {
+                throw IllegalStateException("لا توجد مساحة تخزين كافية لتنزيل نموذج الذكاء المحلي")
+            }
+
             val connection = (URL(MODEL_URL).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 20_000
