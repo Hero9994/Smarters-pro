@@ -434,11 +434,13 @@ class MainActivity : ComponentActivity() {
         renderMessages(spaceId)
         worker.execute {
             val recent = db.recentForAi(spaceId, 20).filter { it.id != messageId }
+            val sourceMessage = db.getMessage(messageId)
             val focusedDocument = db.focusedDocument(spaceId) ?: db.lastFileMessage(spaceId)
             try {
                 val body = JSONObject().apply {
                     put("text", content.take(6000))
                     put("spaceTitle", spaceTitle)
+                    put("mode", if (sourceMessage?.kind == "file") "document_ingest" else "chat")
                     put("now", ZonedDateTime.now().toString())
                     put("timezone", java.time.ZoneId.systemDefault().id)
 
@@ -572,7 +574,23 @@ class MainActivity : ComponentActivity() {
                         )
                 }
 
-                val localModelResult = if (localReminderResult == null) {
+                val directDocumentResult = if (localReminderResult == null) {
+                    when {
+                        sourceMessage?.kind == "file" -> DocumentIntelligence.blankScanResult(sourceMessage)
+                        else -> DocumentIntelligence.directAnswer(content, focusedDocument)
+                    }
+                } else null
+
+                // Quality first: deterministic truth -> cloud reasoning -> local model only as offline fallback.
+                val remote = if (localReminderResult == null && directDocumentResult == null) {
+                    runCatching { postAgent(body) }.getOrNull()
+                } else null
+
+                val localModelResult = if (
+                    localReminderResult == null &&
+                    directDocumentResult == null &&
+                    remote?.optBoolean("ok", false) != true
+                ) {
                     runCatching {
                         val engine = localAi ?: HybridLocalAi(this@MainActivity).also { localAi = it }
                         engine.generate(
@@ -588,14 +606,12 @@ class MainActivity : ComponentActivity() {
                     }.getOrNull()
                 } else null
 
-                val remote = if (localReminderResult == null && localModelResult == null) {
-                    runCatching { postAgent(body) }.getOrNull()
-                } else null
-
                 val result = localReminderResult
-                    ?: localModelResult
+                    ?: directDocumentResult
                     ?: if (remote?.optBoolean("ok", false) == true) remote
-                    else LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                    else localModelResult
+                        ?: DocumentIntelligence.offlineDocumentFallback(content, focusedDocument)
+                        ?: LocalAssistantFallback.analyze(content, spaceTitle, recent)
 
                 if (reminderResolution != null) {
                     val sourceActions = result.optJSONArray("actions") ?: JSONArray()
@@ -638,7 +654,8 @@ class MainActivity : ComponentActivity() {
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
-                val fallback = LocalAssistantFallback.analyze(content, spaceTitle, recent)
+                val fallback = DocumentIntelligence.offlineDocumentFallback(content, focusedDocument)
+                    ?: LocalAssistantFallback.analyze(content, spaceTitle, recent)
                 db.updateAi(
                     messageId,
                     fallback.optString("classification", "note"),
@@ -676,7 +693,10 @@ class MainActivity : ComponentActivity() {
                         val precision = if (created.exact) "" else " قد يتأخر بضع دقائق ما لم تفعّل دقة التنبيهات من إعدادات أندرويد."
                         val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
                         notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
-                        runOnUiThread { maybeRequestNotificationPermission() }
+                        runOnUiThread {
+                            maybeRequestNotificationPermission()
+                            if (!created.exact) maybeRequestExactAlarmPermission()
+                        }
                     }
                 }
                 "enrich_previous_document" -> {
@@ -769,6 +789,16 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private fun maybeRequestExactAlarmPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || ReminderScheduler.exactAlarmsAllowed(this)) return
+        AlertDialog.Builder(this)
+            .setTitle("تفعيل التذكير الدقيق")
+            .setMessage("حتى يصل التذكير بالوقت نفسه بدون تأخير من نظام توفير البطارية، فعّل «السماح بضبط المنبّهات والتذكيرات» لمساحاتي. يوجد أيضاً مسار احتياطي، لكن الدقة تحتاج هذه الصلاحية.")
+            .setPositiveButton("فتح الإعدادات") { _, _ -> ReminderScheduler.openExactAlarmSettings(this) }
+            .setNegativeButton("لاحقاً", null)
+            .show()
     }
 
     private fun postAgent(body: JSONObject): JSONObject {
