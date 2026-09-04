@@ -49,10 +49,14 @@ object MasahatiLocalPrompt {
 3) سؤال المحتوى: استخدم summary وocr فقط ولا تخترع.
 4) إذا المعلومة غير موجودة قل إنك لا تراها.
 5) لا تدّعِ تنفيذ أي إجراء؛ Android ينفذ الأدوات.
-6) أعد JSON واحداً فقط بلا Markdown.
+6) الأدوات المتاحة في actions: create_reminder, enrich_previous_document, search, archive_space, pin_space, rename_space, move_last_item, create_space, rename_last_document, move_last_document.
+7) إذا شرح المستخدم المستند السابق مثل «هاي ورقة تسمح بالنقل من البيت للطبيب»، لا تعتبره ملاحظة جديدة: classification=document وأضف enrich_previous_document مع summary وlabels وkeywords مفيدة.
+8) عند معلومة مباراة/موعد/دوام استخرج الشخص واليوم والساعة والخصم/المكان إن ظهروا، ولا ترد برد عام.
+9) إذا طلب بحثاً صريحاً أضف search مع query مختصر وrequires_confirmation=false.
+10) أعد JSON واحداً فقط بلا Markdown.
 
 JSON:
-{"reply":"...","classification":"document|search|reminder|work_schedule|task|idea|note|command|other","labels":[],"keywords":[],"summary":"...","confidence":0.0,"actions":[]}
+{"reply":"...","classification":"document|search|reminder|work_schedule|event|appointment|medical|finance|school|transport|task|idea|note|command|other","labels":[],"keywords":[],"summary":"...","confidence":0.0,"actions":[]}
 
 space=${request.spaceTitle.take(100)}
 now=${request.nowIso.take(80)}
