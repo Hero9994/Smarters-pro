@@ -9,17 +9,33 @@ import java.time.ZoneId
 
 data class AlphaIndexResult(
     val duplicate: MessageRow?,
-    val hash: String
+    val hash: String,
+    val matchType: String?
 )
 
 object AlphaDocumentProcessor {
     fun indexNewFile(db: MasahatiDatabase, messageId: Long, file: File, ocrText: String?): AlphaIndexResult {
         val hash = sha256(file)
-        val duplicate = db.findDuplicateByHash(hash, messageId)
+        val exactDuplicate = db.findDuplicateByHash(hash, messageId)
         db.setMessageContentHash(messageId, hash)
+
+        val fingerprint = NearDuplicateFingerprint.fingerprint(ocrText.orEmpty())
+        db.setMessageTextFingerprint(messageId, fingerprint)
+        val nearDuplicate = if (exactDuplicate == null && fingerprint != null) {
+            db.findNearDuplicateByFingerprint(fingerprint, messageId)
+        } else null
+
         val chunks = chunkText(ocrText.orEmpty())
         if (chunks.isNotEmpty()) db.replaceDocumentChunks(messageId, chunks)
-        return AlphaIndexResult(duplicate, hash)
+        return AlphaIndexResult(
+            duplicate = exactDuplicate ?: nearDuplicate,
+            hash = hash,
+            matchType = when {
+                exactDuplicate != null -> "exact"
+                nearDuplicate != null -> "near"
+                else -> null
+            }
+        )
     }
 
     fun applyAgentResult(db: MasahatiDatabase, messageId: Long, result: JSONObject) {
@@ -68,7 +84,7 @@ object AlphaDocumentProcessor {
         )
         db.upsertDocumentMeta(meta)
 
-        if (!smartTitle.isNullOrBlank() && row.displayName.orEmpty().startsWith("Scan-", ignoreCase = true)) {
+        if (!smartTitle.isNullOrBlank() && shouldAutoRename(row.displayName)) {
             db.renameMessageDisplayName(messageId, smartDisplayName(smartTitle, row.displayName))
         }
 
@@ -130,6 +146,18 @@ object AlphaDocumentProcessor {
             start = (end - overlap).coerceAtLeast(start + 1)
         }
         return result
+    }
+
+    internal fun shouldAutoRename(name: String?): Boolean {
+        val value = name.orEmpty().trim()
+        if (value.isBlank()) return true
+        val base = value.substringBeforeLast('.', value).lowercase()
+        return base.startsWith("scan-") ||
+            base.matches(Regex("img[_-]?\\d+")) ||
+            base.matches(Regex("image[_-]?\\d*")) ||
+            base.matches(Regex("document[_-]?\\d*")) ||
+            base.matches(Regex("file[_-]?\\d*")) ||
+            base.matches(Regex("٢٠٢\\d.*|202\\d.*"))
     }
 
     private fun smartDisplayName(title: String, oldName: String?): String {
