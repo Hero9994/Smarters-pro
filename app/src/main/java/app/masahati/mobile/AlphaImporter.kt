@@ -164,11 +164,13 @@ object AlphaImporter {
                 }
             }
 
-            val actions = root.optJSONArray("open_actions")
+            val oldToNewAction = mutableMapOf<Long, Long>()
+            val actions = root.optJSONArray("actions") ?: root.optJSONArray("open_actions")
             var actionCount = 0
             if (actions != null) {
                 for (i in 0 until actions.length()) {
                     val item = actions.optJSONObject(i) ?: continue
+                    val oldActionId = item.optLong("id", -1L)
                     val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
                     val oldMessageId = item.optLong("message_id", -1L)
                     val newMessageId = oldToNewMessage[oldMessageId]
@@ -185,16 +187,39 @@ object AlphaImporter {
                         createdAt = createdAt,
                         updatedAt = item.optLong("updated_at", createdAt)
                     )
-                    if (id > 0L) actionCount++
+                    if (id > 0L) {
+                        if (oldActionId > 0L) oldToNewAction[oldActionId] = id
+                        actionCount++
+                    }
                 }
             }
 
-            val reminders = root.optJSONArray("active_reminders")
+            val versions = root.optJSONArray("message_versions")
+            if (versions != null) {
+                for (i in 0 until versions.length()) {
+                    val item = versions.optJSONObject(i) ?: continue
+                    val newMessageId = oldToNewMessage[item.optLong("message_id", -1L)] ?: continue
+                    db.importMessageVersion(
+                        messageId = newMessageId,
+                        reason = item.optString("reason", "imported"),
+                        text = item.optNullableString("text"),
+                        displayName = item.optNullableString("display_name"),
+                        ocrText = item.optNullableString("ocr_text"),
+                        classification = item.optNullableString("classification"),
+                        tags = item.optNullableString("tags"),
+                        summary = item.optNullableString("summary"),
+                        createdAt = item.optLong("created_at", System.currentTimeMillis())
+                    )
+                }
+            }
+
+            val reminders = root.optJSONArray("reminders") ?: root.optJSONArray("active_reminders")
             var reminderCount = 0
             if (reminders != null) {
                 for (i in 0 until reminders.length()) {
                     val item = reminders.optJSONObject(i) ?: continue
                     val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
+                    val oldConditionActionId = item.optLong("condition_action_id", -1L)
                     val id = db.importReminder(
                         spaceId = newSpaceId,
                         title = item.optString("title", "تذكير مستورد"),
@@ -205,6 +230,8 @@ object AlphaImporter {
                         minute = item.optIntOrNull("minute"),
                         nextFireAt = item.optLongOrNull("next_fire_at"),
                         enabled = item.optBoolean("enabled", true),
+                        deliveredAt = item.optLongOrNull("delivered_at"),
+                        conditionActionId = oldToNewAction[oldConditionActionId],
                         createdAt = item.optLong("created_at", System.currentTimeMillis())
                     )
                     if (id > 0L) reminderCount++
@@ -226,7 +253,7 @@ object AlphaImporter {
     private fun sanitizeEntry(name: String): String? {
         val normalized = name.replace('\\', '/').trimStart('/')
         if (normalized.isBlank() || normalized.contains("../") || normalized == "..") return null
-        if (!(normalized == "README.txt" || normalized == "data/masahati.json" || normalized.startsWith("files/"))) return null
+        if (!(normalized == "README.txt" || normalized == "data/masahati.json" || normalized == "data/masahati.md" || normalized.startsWith("files/"))) return null
         return normalized
     }
 
