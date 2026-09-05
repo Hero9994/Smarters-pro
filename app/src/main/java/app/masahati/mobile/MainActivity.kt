@@ -80,6 +80,8 @@ class MainActivity : ComponentActivity() {
     private var composer: EditText? = null
     private var busyCount = 0
     private var localAi: HybridLocalAi? = null
+    private var localAiModelId: String? = null
+    private val betaLab by lazy { BetaLab(this) }
     @Volatile private var modelDownloadRunning = false
 
     private val scannerOptions by lazy {
@@ -444,6 +446,7 @@ class MainActivity : ComponentActivity() {
                     put("mode", if (sourceMessage?.kind == "file") "document_ingest" else "chat")
                     put("now", ZonedDateTime.now().toString())
                     put("timezone", java.time.ZoneId.systemDefault().id)
+                    put("strategy", betaLab.aiStrategy().apiValue)
 
                     val appState = JSONObject().apply {
                         put("currentSpaceId", spaceId)
@@ -582,18 +585,33 @@ class MainActivity : ComponentActivity() {
                     }
                 } else null
 
-                // Quality first: deterministic truth -> cloud reasoning -> local model only as offline fallback.
-                val remote = if (localReminderResult == null && directDocumentResult == null) {
+                // Beta lab lets us compare cloud, local model and rules without changing the stable app.
+                val betaStrategy = betaLab.aiStrategy()
+                val remote = if (
+                    localReminderResult == null &&
+                    directDocumentResult == null &&
+                    betaStrategy != BetaAiStrategy.LOCAL_MODEL_ONLY &&
+                    betaStrategy != BetaAiStrategy.RULES_ONLY
+                ) {
                     runCatching { postAgent(body) }.getOrNull()
                 } else null
 
                 val localModelResult = if (
                     localReminderResult == null &&
                     directDocumentResult == null &&
-                    remote?.optBoolean("ok", false) != true
+                    (
+                        betaStrategy == BetaAiStrategy.LOCAL_MODEL_ONLY ||
+                        (betaStrategy == BetaAiStrategy.AUTO_HYBRID && remote?.optBoolean("ok", false) != true)
+                    )
                 ) {
                     runCatching {
-                        val engine = localAi ?: HybridLocalAi(this@MainActivity).also { localAi = it }
+                        val selectedSpec = betaLab.localModelSpec()
+                        if (localAiModelId != selectedSpec.id) {
+                            localAi?.close()
+                            localAi = null
+                            localAiModelId = selectedSpec.id
+                        }
+                        val engine = localAi ?: HybridLocalAi(this@MainActivity, selectedSpec).also { localAi = it }
                         engine.generate(
                             MasahatiAiRequest(
                                 userText = content,
@@ -652,7 +670,18 @@ class MainActivity : ComponentActivity() {
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
                 val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
-                val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                if (betaLab.showEngineLabels()) {
+                    val engineName = result.optString("engine", "local-rules")
+                    val modelName = result.optString("model", "")
+                    val confidence = result.optDouble("confidence", -1.0)
+                    val meta = buildString {
+                        append(engineName)
+                        if (modelName.isNotBlank()) append(" · ").append(modelName)
+                        if (confidence >= 0.0) append(" · ").append(String.format(Locale.ROOT, "%.2f", confidence))
+                    }
+                    reply += "\n\nBeta · $meta"
+                }
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
                 val fallback = DocumentIntelligence.offlineDocumentFallback(content, focusedDocument)
@@ -851,10 +880,11 @@ class MainActivity : ComponentActivity() {
                 val target = File(filesDir, "documents").apply { mkdirs() }.resolve(fileName)
                 val ocrBuilder = StringBuilder()
                 val cleanedPageCount = if (pages.isNotEmpty()) {
-                    DocumentImageEnhancer.processPagesToPdf(
+                    BetaScannerProcessor.processPagesToPdf(
                         this@MainActivity,
                         pages.map { it.imageUri },
-                        target
+                        target,
+                        betaLab.scanMode()
                     ) { index, cleanedBitmap ->
                         try {
                             val image = InputImage.fromBitmap(cleanedBitmap, 0)
@@ -1007,11 +1037,13 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
+            menu.add("مختبر Beta")
             menu.add("الذكاء المحلي")
             menu.add("إعداد دقة التنبيهات")
             setOnMenuItemClickListener {
                 when (it.title.toString()) {
                     "بحث ذكي شامل" -> promptGlobalSearch()
+                    "مختبر Beta" -> showBetaLabManager()
                     "الذكاء المحلي" -> showLocalAiManager()
                     "إعداد دقة التنبيهات" -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
                     else -> { showArchived = !showArchived; showHome() }
@@ -1022,14 +1054,100 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+    private fun showBetaLabManager() {
+        val items = arrayOf(
+            "طريقة الذكاء: ${betaLab.aiStrategy().label}",
+            "النموذج المحلي: ${betaLab.localModelSpec().displayName}",
+            "السكانر: ${betaLab.scanMode().label}",
+            "إظهار مصدر الرد: ${if (betaLab.showEngineLabels()) "نعم" else "لا"}",
+            "الوضع المقترح"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("مختبر Masahati Beta")
+            .setMessage(betaLab.summary())
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> chooseBetaAiStrategy()
+                    1 -> chooseBetaLocalModel()
+                    2 -> chooseBetaScannerMode()
+                    3 -> {
+                        betaLab.setShowEngineLabels(!betaLab.showEngineLabels())
+                        showBetaLabManager()
+                    }
+                    4 -> {
+                        betaLab.setAiStrategy(BetaAiStrategy.AUTO_HYBRID)
+                        betaLab.setScanMode(BetaScanMode.BALANCED)
+                        betaLab.setLocalModel("qwen")
+                        betaLab.setShowEngineLabels(true)
+                        localAi?.close()
+                        localAi = null
+                        localAiModelId = null
+                        Toast.makeText(this, "تم تطبيق الإعدادات المقترحة", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
+    }
+
+    private fun chooseBetaAiStrategy() {
+        val values = BetaAiStrategy.entries.toTypedArray()
+        val labels = values.map { it.label }.toTypedArray()
+        val selected = values.indexOf(betaLab.aiStrategy()).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("استراتيجية المساعد")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                betaLab.setAiStrategy(values[which])
+                dialog.dismiss()
+                Toast.makeText(this, "الذكاء: ${values[which].label}", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun chooseBetaLocalModel() {
+        val values = LocalModelCatalog.benchmarkCandidates
+        val labels = values.map { "${it.displayName} (${it.expectedBytes / 1_000_000} MB)" }.toTypedArray()
+        val selected = values.indexOfFirst { it.id == betaLab.localModelSpec().id }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("النموذج المحلي")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                val spec = values[which]
+                betaLab.setLocalModel(if (spec.id == LocalModelCatalog.GEMMA4_E2B.id) "gemma" else "qwen")
+                localAi?.close()
+                localAi = null
+                localAiModelId = null
+                dialog.dismiss()
+                Toast.makeText(this, "اخترت ${spec.displayName}. نزّله من «الذكاء المحلي» إذا لم يكن مثبتاً.", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun chooseBetaScannerMode() {
+        val values = BetaScanMode.entries.toTypedArray()
+        val labels = values.map { it.label }.toTypedArray()
+        val selected = values.indexOf(betaLab.scanMode()).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("معالجة السكانر")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                betaLab.setScanMode(values[which])
+                dialog.dismiss()
+                Toast.makeText(this, "السكانر: ${values[which].label}", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
     private fun showLocalAiManager() {
         val packs = LocalModelPackManager(this)
-        val spec = LocalModelCatalog.default
+        val spec = betaLab.localModelSpec()
         if (packs.isInstalled(spec)) {
             AlertDialog.Builder(this)
                 .setTitle("الذكاء المحلي")
                 .setMessage(
-                    "جاهز ✓\n\n${spec.displayName}\nيعمل على الجهاز بدون إنترنت، ويُستخدم قبل الذكاء السحابي."
+                    "جاهز ✓\n\n${spec.displayName}\nيعمل على الجهاز بدون إنترنت ويمكن اختباره من «مختبر Beta»."
                 )
                 .setPositiveButton("إغلاق", null)
                 .setNegativeButton("حذف النموذج") { _, _ ->
@@ -1072,7 +1190,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "تنزيل النموذج يعمل حالياً", Toast.LENGTH_SHORT).show()
             return
         }
-        val spec = LocalModelCatalog.default
+        val spec = betaLab.localModelSpec()
         val packs = LocalModelPackManager(this)
         val status = TextView(this).apply {
             text = "بدء التنزيل…"
@@ -1111,6 +1229,7 @@ class MainActivity : ComponentActivity() {
                 }
                 localAi?.close()
                 localAi = null
+                localAiModelId = null
                 runOnUiThread {
                     status.text = String.format(
                         Locale.ROOT,
