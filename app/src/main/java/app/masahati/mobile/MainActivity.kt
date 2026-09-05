@@ -22,6 +22,7 @@ import android.os.storage.StorageManager
 import android.provider.OpenableColumns
 import android.speech.RecognizerIntent
 import android.text.Editable
+import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -84,6 +85,8 @@ class MainActivity : ComponentActivity() {
     private var semanticSearchEngine: SemanticSearchEngine? = null
     @Volatile private var modelDownloadRunning = false
     @Volatile private var semanticModelDownloadRunning = false
+    private var pendingEncryptedExportPassword: CharArray? = null
+    private var pendingEncryptedImportPassword: CharArray? = null
 
     private val scannerOptions by lazy {
         GmsDocumentScannerOptions.Builder()
@@ -170,6 +173,74 @@ class MainActivity : ComponentActivity() {
             }
             .setNegativeButton("إلغاء", null)
             .show()
+    }
+
+    private val backupEncryptedExportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        val password = pendingEncryptedExportPassword
+        pendingEncryptedExportPassword = null
+        if (uri == null || password == null) {
+            password?.fill('\u0000')
+            return@registerForActivityResult
+        }
+        worker.execute {
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    AlphaBackupCrypto.encrypt(password, output) { encryptedZip ->
+                        AlphaExporter.export(this@MainActivity, db, encryptedZip)
+                    }
+                } ?: error("Cannot open encrypted backup destination")
+            }.onSuccess {
+                runOnUiThread { Toast.makeText(this, "تم إنشاء نسخة مساحاتي مشفرة", Toast.LENGTH_LONG).show() }
+            }.onFailure { error ->
+                runOnUiThread {
+                    Toast.makeText(this, "تعذر إنشاء النسخة المشفرة: ${error.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
+                }
+            }
+            password.fill('\u0000')
+        }
+    }
+
+    private val backupEncryptedImportLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        val password = pendingEncryptedImportPassword
+        pendingEncryptedImportPassword = null
+        if (uri == null || password == null) {
+            password?.fill('\u0000')
+            return@registerForActivityResult
+        }
+        Toast.makeText(this, "جاري فك التشفير والاستيراد…", Toast.LENGTH_LONG).show()
+        worker.execute {
+            var summary: AlphaImportSummary? = null
+            val result = runCatching {
+                contentResolver.openInputStream(uri)?.use { encrypted ->
+                    AlphaBackupCrypto.decrypt(password, encrypted) { plainZip ->
+                        summary = AlphaImporter.importZip(this@MainActivity, db, plainZip)
+                    }
+                } ?: error("Cannot open encrypted backup")
+                summary ?: error("لم تكتمل عملية الاستيراد")
+            }
+            password.fill('\u0000')
+            result.onSuccess { imported ->
+                ReminderScheduler.rescheduleAll(this@MainActivity)
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        "تم استيراد النسخة المشفرة: ${imported.spaces} مساحة، ${imported.messages} عنصر",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    showHome()
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        "فشل فك النسخة المشفرة. تحقق من كلمة المرور أو الملف.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -1220,6 +1291,8 @@ class MainActivity : ComponentActivity() {
             menu.add("سلة المهملات")
             menu.add("تصدير نسخة ZIP")
             menu.add("استيراد نسخة ZIP")
+            menu.add("تصدير نسخة مشفرة")
+            menu.add("استيراد نسخة مشفرة")
             menu.add("الذاكرة الدلالية")
             menu.add("الذكاء المحلي")
             menu.add("إعداد دقة التنبيهات")
@@ -1231,6 +1304,8 @@ class MainActivity : ComponentActivity() {
                     "سلة المهملات" -> showTrash()
                     "تصدير نسخة ZIP" -> backupExportLauncher.launch("Masahati-alpha-backup.zip")
                     "استيراد نسخة ZIP" -> backupImportLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+                    "تصدير نسخة مشفرة" -> promptEncryptedBackupPassword(export = true)
+                    "استيراد نسخة مشفرة" -> promptEncryptedBackupPassword(export = false)
                     "الذاكرة الدلالية" -> showSemanticMemoryManager()
                     "الذكاء المحلي" -> showLocalAiManager()
                     "إعداد دقة التنبيهات" -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
@@ -1543,6 +1618,61 @@ class MainActivity : ComponentActivity() {
             }
             .setNegativeButton("إلغاء", null)
             .show()
+    }
+
+    private fun promptEncryptedBackupPassword(export: Boolean) {
+        val host = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val first = EditText(this).apply {
+            hint = "كلمة المرور (6 أحرف على الأقل)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        host.addView(first, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        val second = if (export) {
+            EditText(this).apply {
+                hint = "تأكيد كلمة المرور"
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                host.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+        } else null
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (export) "نسخة مشفرة" else "فتح نسخة مشفرة")
+            .setView(host)
+            .setPositiveButton(if (export) "إنشاء" else "فتح", null)
+            .setNegativeButton("إلغاء", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val password = first.text.toString()
+                if (password.length < 6) {
+                    first.error = "6 أحرف على الأقل"
+                    return@setOnClickListener
+                }
+                if (export && password != second?.text?.toString()) {
+                    second?.error = "كلمتا المرور غير متطابقتين"
+                    return@setOnClickListener
+                }
+                val chars = password.toCharArray()
+                if (export) {
+                    pendingEncryptedExportPassword?.fill('\u0000')
+                    pendingEncryptedExportPassword = chars
+                    backupEncryptedExportLauncher.launch("Masahati-alpha-backup.masahati")
+                } else {
+                    pendingEncryptedImportPassword?.fill('\u0000')
+                    pendingEncryptedImportPassword = chars
+                    backupEncryptedImportLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+                }
+                first.setText("")
+                second?.setText("")
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     private fun showMessageHistory(message: MessageRow) {
