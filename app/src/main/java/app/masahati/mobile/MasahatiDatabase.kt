@@ -113,7 +113,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 8) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 9) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -146,6 +146,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               starred INTEGER NOT NULL DEFAULT 0,
               ai_json TEXT,
               content_hash TEXT,
+              text_fingerprint TEXT,
               deleted_at INTEGER,
               created_at INTEGER NOT NULL,
               FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
@@ -179,6 +180,10 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         }
         if (oldVersion < 8) {
             db.execSQL("ALTER TABLE reminders ADD COLUMN condition_action_id INTEGER")
+        }
+        if (oldVersion < 9) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN text_fingerprint TEXT")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_text_fingerprint ON messages(text_fingerprint)")
         }
     }
 
@@ -281,6 +286,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_hash ON messages(content_hash)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_text_fingerprint ON messages(text_fingerprint)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_deleted ON messages(deleted_at)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_action_items_due ON action_items(status, due_at)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_document_meta_expiry ON document_meta(expiry_date)")
@@ -622,6 +628,44 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             "id=?",
             arrayOf(messageId.toString())
         )
+    }
+
+    fun setMessageTextFingerprint(messageId: Long, fingerprint: String?) {
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply {
+                if (fingerprint == null) putNull("text_fingerprint") else put("text_fingerprint", fingerprint)
+            },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
+    fun findNearDuplicateByFingerprint(
+        fingerprint: String,
+        excludeMessageId: Long,
+        maxDistance: Int = 7
+    ): MessageRow? {
+        val cursor = readableDatabase.query(
+            "messages",
+            null,
+            "kind='file' AND id<>? AND deleted_at IS NULL AND text_fingerprint IS NOT NULL",
+            arrayOf(excludeMessageId.toString()),
+            null,
+            null,
+            "created_at DESC",
+            "500"
+        )
+        return cursor.use { c ->
+            while (c.moveToNext()) {
+                val i = c.getColumnIndexOrThrow("text_fingerprint")
+                if (c.isNull(i)) continue
+                val candidate = c.getString(i)
+                val distance = NearDuplicateFingerprint.distance(fingerprint, candidate) ?: continue
+                if (distance <= maxDistance) return@use messageFrom(c)
+            }
+            null
+        }
     }
 
     fun findDuplicateByHash(hash: String, excludeMessageId: Long? = null): MessageRow? {
