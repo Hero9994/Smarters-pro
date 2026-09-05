@@ -25,8 +25,20 @@ object DocumentImageEnhancer {
             pageUris.forEachIndexed { index, uri ->
                 val source = decodeSampled(context, uri, 2200)
                     ?: throw IllegalStateException("Cannot decode scanned page ${index + 1}")
-                val cleaned = flattenDocumentShadows(source)
-                if (cleaned !== source) source.recycle()
+                val candidate = flattenDocumentShadows(source)
+                val cleaned = if (candidate === source) {
+                    source
+                } else {
+                    val originalScore = pageQualityScore(source)
+                    val correctedScore = pageQualityScore(candidate)
+                    if (preferCorrected(originalScore, correctedScore)) {
+                        source.recycle()
+                        candidate
+                    } else {
+                        candidate.recycle()
+                        source
+                    }
+                }
                 try {
                     onPageReady(index, cleaned)
                     val pageInfo = PdfDocument.PageInfo.Builder(cleaned.width, cleaned.height, index + 1).create()
@@ -177,6 +189,66 @@ object DocumentImageEnhancer {
             }
         }
         return Bitmap.createBitmap(out, width, height, Bitmap.Config.ARGB_8888)
+    }
+
+    internal fun preferCorrected(originalScore: Float, correctedScore: Float): Boolean =
+        correctedScore >= originalScore + 1.5f
+
+    private fun pageQualityScore(bitmap: Bitmap): Float {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width < 80 || height < 80) return 0f
+
+        val grid = 10
+        val backgrounds = FloatArray(grid * grid)
+        val tileW = max(1, width / grid)
+        val tileH = max(1, height / grid)
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        for (gy in 0 until grid) {
+            val y0 = gy * tileH
+            val y1 = if (gy == grid - 1) height else min(height, y0 + tileH)
+            for (gx in 0 until grid) {
+                val x0 = gx * tileW
+                val x1 = if (gx == grid - 1) width else min(width, x0 + tileW)
+                val hist = IntArray(32)
+                var count = 0
+                val stepX = max(2, (x1 - x0) / 22)
+                val stepY = max(2, (y1 - y0) / 22)
+                var y = y0
+                while (y < y1) {
+                    var x = x0
+                    while (x < x1) {
+                        val lum = luminance(pixels[y * width + x])
+                        hist[(lum * 31 / 255).coerceIn(0, 31)]++
+                        count++
+                        x += stepX
+                    }
+                    y += stepY
+                }
+                val target = (count * 0.86f).toInt().coerceAtLeast(1)
+                var sum = 0
+                var bin = 31
+                for (i in hist.indices) {
+                    sum += hist[i]
+                    if (sum >= target) {
+                        bin = i
+                        break
+                    }
+                }
+                backgrounds[gy * grid + gx] = (bin + 0.5f) * 255f / 32f
+            }
+        }
+
+        backgrounds.sort()
+        val p10 = backgrounds[(backgrounds.lastIndex * 0.10f).toInt()]
+        val p50 = backgrounds[(backgrounds.lastIndex * 0.50f).toInt()]
+        val p90 = backgrounds[(backgrounds.lastIndex * 0.90f).toInt()]
+        val variation = p90 - p10
+        val paperBrightness = ((p50 - 150f) / 90f).coerceIn(0f, 1f) * 35f
+        val uniformity = (55f - variation).coerceIn(0f, 55f)
+        return paperBrightness + uniformity
     }
 
     private fun luminance(color: Int): Int =
