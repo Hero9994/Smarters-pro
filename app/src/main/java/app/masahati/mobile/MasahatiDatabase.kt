@@ -1131,6 +1131,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         minute: Int?,
         nextFireAt: Long?,
         enabled: Boolean,
+        deliveredAt: Long? = null,
         conditionActionId: Long? = null,
         createdAt: Long
     ): Long = writableDatabase.insert(
@@ -1145,7 +1146,9 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             if (hour == null) putNull("hour") else put("hour", hour)
             if (minute == null) putNull("minute") else put("minute", minute)
             if (nextFireAt == null) putNull("next_fire_at") else put("next_fire_at", nextFireAt)
-            put("enabled", if (enabled) 1 else 0)
+            if (deliveredAt == null) putNull("delivered_at") else put("delivered_at", deliveredAt)
+            if (conditionActionId == null) putNull("condition_action_id") else put("condition_action_id", conditionActionId)
+            put("enabled", if (enabled) 1 else put("enabled", 0)
             put("created_at", createdAt)
         }
     )
