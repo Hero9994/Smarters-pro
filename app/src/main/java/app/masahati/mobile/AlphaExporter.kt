@@ -91,6 +91,11 @@ object AlphaExporter {
 
         ZipOutputStream(BufferedOutputStream(output)).use { zip ->
             putBytes(zip, "data/masahati.json", root.toString(2).toByteArray(Charsets.UTF_8))
+            putBytes(
+                zip,
+                "data/masahati.md",
+                buildMarkdown(spaces, allMessages, db).toByteArray(Charsets.UTF_8)
+            )
             allMessages.filter { it.kind == "file" && !it.filePath.isNullOrBlank() }.forEach { m ->
                 val file = File(m.filePath!!)
                 if (!file.isFile) return@forEach
@@ -107,6 +112,43 @@ object AlphaExporter {
 الملف data/masahati.json بصيغة JSON مفتوحة، والملفات الأصلية موجودة داخل files/.
 """.trimIndent()
             putBytes(zip, "README.txt", readme.toByteArray(Charsets.UTF_8))
+        }
+    }
+
+    private fun buildMarkdown(
+        spaces: List<SpaceRow>,
+        messages: List<MessageRow>,
+        db: MasahatiDatabase
+    ): String = buildString {
+        append("# مساحاتي alpha — Export\n\n")
+        spaces.forEach { space ->
+            append("## ").append(space.title).append("\n\n")
+            messages.filter { it.spaceId == space.id }.forEach { message ->
+                if (message.kind == "file") {
+                    append("### 📎 ").append(message.displayName ?: "ملف").append("\n\n")
+                    db.getDocumentMeta(message.id)?.let { meta ->
+                        meta.smartTitle?.let { append("- الاسم الذكي: ").append(it).append("\n") }
+                        meta.docType?.let { append("- النوع: ").append(it).append("\n") }
+                        meta.organization?.let { append("- الجهة: ").append(it).append("\n") }
+                        meta.referenceNumber?.let { append("- الرقم المرجعي: ").append(it).append("\n") }
+                        meta.dueDate?.let { append("- الموعد النهائي: ").append(it).append("\n") }
+                        meta.expiryDate?.let { append("- تاريخ الانتهاء: ").append(it).append("\n") }
+                        meta.actionText?.let { append("- المطلوب: ").append(it).append("\n") }
+                    }
+                    message.summary?.takeIf { it.isNotBlank() }?.let {
+                        append("\n").append(it).append("\n")
+                    }
+                    message.ocrText?.takeIf { it.isNotBlank() }?.let {
+                        append("\n<details><summary>OCR</summary>\n\n")
+                            .append(it.take(8000))
+                            .append("\n\n</details>\n")
+                    }
+                } else {
+                    val who = if (message.role == "assistant") "مساعد مساحاتي" else "المستخدم"
+                    append("**").append(who).append(":** ").append(message.text).append("\n")
+                }
+                append("\n---\n\n")
+            }
         }
     }
 
