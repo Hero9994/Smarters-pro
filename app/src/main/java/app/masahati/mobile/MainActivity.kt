@@ -81,7 +81,9 @@ class MainActivity : ComponentActivity() {
     private var composer: EditText? = null
     private var busyCount = 0
     private var localAi: HybridLocalAi? = null
+    private var semanticSearchEngine: SemanticSearchEngine? = null
     @Volatile private var modelDownloadRunning = false
+    @Volatile private var semanticModelDownloadRunning = false
 
     private val scannerOptions by lazy {
         GmsDocumentScannerOptions.Builder()
@@ -189,6 +191,8 @@ class MainActivity : ComponentActivity() {
         recognizer.close()
         localAi?.close()
         localAi = null
+        semanticSearchEngine?.close()
+        semanticSearchEngine = null
         worker.shutdown()
         modelWorker.shutdownNow()
         db.close()
@@ -682,6 +686,15 @@ class MainActivity : ComponentActivity() {
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
                 runCatching { AlphaDocumentProcessor.applyAgentResult(db, messageId, result) }
+                if (SemanticModelPackManager(this@MainActivity).isInstalled()) {
+                    modelWorker.execute {
+                        runCatching {
+                            val engine = semanticSearchEngine
+                                ?: SemanticSearchEngine(this@MainActivity).also { semanticSearchEngine = it }
+                            engine.indexMissing(db)
+                        }
+                    }
+                }
                 val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
@@ -1051,6 +1064,7 @@ class MainActivity : ComponentActivity() {
             menu.add("اليوم والإجراءات")
             menu.add("سلة المهملات")
             menu.add("تصدير نسخة ZIP")
+            menu.add("الذاكرة الدلالية")
             menu.add("الذكاء المحلي")
             menu.add("إعداد دقة التنبيهات")
             setOnMenuItemClickListener {
@@ -1059,6 +1073,7 @@ class MainActivity : ComponentActivity() {
                     "اليوم والإجراءات" -> showTodayAndActions()
                     "سلة المهملات" -> showTrash()
                     "تصدير نسخة ZIP" -> backupExportLauncher.launch("Masahati-alpha-backup.zip")
+                    "الذاكرة الدلالية" -> showSemanticMemoryManager()
                     "الذكاء المحلي" -> showLocalAiManager()
                     "إعداد دقة التنبيهات" -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
                     else -> { showArchived = !showArchived; showHome() }
@@ -1066,6 +1081,126 @@ class MainActivity : ComponentActivity() {
                 true
             }
             show()
+        }
+    }
+
+    private fun showSemanticMemoryManager() {
+        val packs = SemanticModelPackManager(this)
+        if (packs.isInstalled()) {
+            val pending = db.listDocumentChunks(onlyWithoutEmbedding = true).size
+            AlertDialog.Builder(this)
+                .setTitle("الذاكرة الدلالية")
+                .setMessage(
+                    if (pending == 0) {
+                        "جاهزة ✓\nEmbeddingGemma يعمل محلياً، والبحث يفهم المعنى بالعربي والألماني بدون رفع المستندات."
+                    } else {
+                        "النموذج جاهز ✓\nيوجد $pending مقطع يحتاج فهرسة دلالية."
+                    }
+                )
+                .setPositiveButton(if (pending > 0) "فهرسة الآن" else "إغلاق") { _, _ ->
+                    if (pending > 0) startSemanticIndexing()
+                }
+                .setNegativeButton("حذف النموذج") { _, _ ->
+                    modelWorker.execute {
+                        semanticSearchEngine?.close()
+                        semanticSearchEngine = null
+                        val deleted = packs.delete()
+                        runOnUiThread {
+                            Toast.makeText(
+                                this,
+                                if (deleted) "تم حذف نموذج الذاكرة الدلالية" else "تعذر حذف النموذج",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+                .show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("الذاكرة الدلالية")
+            .setMessage(
+                "تنزيل EmbeddingGemma (~175 MB) يجعل البحث يفهم معنى السؤال حتى لو كانت كلماتك بالعربية والورقة بالألمانية.\n\nالنموذج يعمل على الهاتف ولا يحتاج رفع المستندات للسحابة لإنشاء الفهرس."
+            )
+            .setPositiveButton("تنزيل") { _, _ -> startSemanticModelDownload() }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun startSemanticModelDownload() {
+        if (semanticModelDownloadRunning) {
+            Toast.makeText(this, "تنزيل الذاكرة الدلالية يعمل حالياً", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val packs = SemanticModelPackManager(this)
+        val status = TextView(this).apply {
+            text = "بدء تنزيل EmbeddingGemma…"
+            textSize = 17f
+            setPadding(dp(24), dp(16), dp(24), dp(16))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("الذاكرة الدلالية")
+            .setView(status)
+            .setNegativeButton("إخفاء", null)
+            .create()
+        dialog.show()
+
+        semanticModelDownloadRunning = true
+        modelWorker.execute {
+            var lastPercent = -1
+            try {
+                packs.download { downloaded, total ->
+                    val percent = if (total > 0) ((downloaded * 100L) / total).toInt().coerceIn(0, 100) else -1
+                    if (percent == lastPercent) return@download
+                    lastPercent = percent
+                    val mb = downloaded / (1024L * 1024L)
+                    runOnUiThread {
+                        status.text = if (percent >= 0) {
+                            String.format(Locale.ROOT, "جارِ التنزيل… %d%% (%d MB)", percent, mb)
+                        } else {
+                            String.format(Locale.ROOT, "جارِ التنزيل… %d MB", mb)
+                        }
+                    }
+                }
+                runOnUiThread { status.text = "تم التنزيل ✓\nجارِ بناء الفهرس الدلالي…" }
+                semanticSearchEngine?.close()
+                semanticSearchEngine = SemanticSearchEngine(this@MainActivity)
+                val indexed = semanticSearchEngine!!.indexMissing(db) { done, total ->
+                    runOnUiThread {
+                        status.text = "بناء الفهرس الدلالي… $done / $total"
+                    }
+                }
+                runOnUiThread {
+                    status.text = "جاهزة ✓\nتمت فهرسة $indexed مقطع. البحث الشامل يفهم المعنى من الآن."
+                    Toast.makeText(this, "تم تفعيل الذاكرة الدلالية", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = String.format(
+                        Locale.ROOT,
+                        "تعذر تفعيل الذاكرة الدلالية.\n%s\nيمكن إعادة المحاولة وسيكمل التنزيل الجزئي.",
+                        e.localizedMessage ?: "خطأ غير معروف"
+                    )
+                }
+            } finally {
+                semanticModelDownloadRunning = false
+            }
+        }
+    }
+
+    private fun startSemanticIndexing() {
+        if (!SemanticModelPackManager(this).isInstalled()) return
+        Toast.makeText(this, "بدأت فهرسة المستندات بالمعنى", Toast.LENGTH_SHORT).show()
+        modelWorker.execute {
+            val indexed = runCatching {
+                val engine = semanticSearchEngine
+                    ?: SemanticSearchEngine(this@MainActivity).also { semanticSearchEngine = it }
+                engine.indexMissing(db)
+            }.getOrDefault(0)
+            runOnUiThread {
+                Toast.makeText(this, "تمت فهرسة $indexed مقطع", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -1374,24 +1509,84 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun promptGlobalSearch() {
-        val input = EditText(this).apply { hint = "مثال: جواز السفر أو جدول دوامي"; setPadding(dp(16), dp(10), dp(16), dp(10)) }
+        val input = EditText(this).apply {
+            hint = "مثال: الورقة التي تسمح بنقل المريض للطبيب"
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+        }
         AlertDialog.Builder(this)
             .setTitle("بحث شامل")
             .setView(input)
             .setPositiveButton("بحث") { _, _ ->
-                val q = input.text.toString().trim()
-                if (q.isBlank()) return@setPositiveButton
-                val results = db.search(q, 20)
-                val text = if (results.isEmpty()) "لم أجد نتائج لـ «$q»." else results.joinToString("\n\n") { m ->
-                    val s = db.getSpace(m.spaceId)?.title ?: "مساحة"
-                    val p = m.displayName ?: m.summary ?: m.text.take(100)
-                    "• $s\n$p"
+                val query = input.text.toString().trim()
+                if (query.isBlank()) return@setPositiveButton
+
+                val semanticReady = SemanticModelPackManager(this).isInstalled()
+                if (semanticReady) {
+                    Toast.makeText(this, "جاري البحث بالمعنى…", Toast.LENGTH_SHORT).show()
+                    modelWorker.execute {
+                        val hits = runCatching {
+                            val engine = semanticSearchEngine
+                                ?: SemanticSearchEngine(this@MainActivity).also { semanticSearchEngine = it }
+                            engine.search(db, query, 20)
+                        }.getOrElse {
+                            db.search(query, 20).mapIndexed { index, message ->
+                                SemanticSearchHit(message, 1.0 - index * 0.02, message.summary ?: message.text.take(500))
+                            }
+                        }
+                        runOnUiThread { showSearchHits(query, hits, semantic = true) }
+                    }
+                } else {
+                    val hits = db.search(query, 20).mapIndexed { index, message ->
+                        SemanticSearchHit(
+                            message = message,
+                            score = 1.0 - index * 0.02,
+                            excerpt = message.summary ?: message.ocrText?.take(500) ?: message.text.take(500)
+                        )
+                    }
+                    showSearchHits(query, hits, semantic = false)
                 }
-                AlertDialog.Builder(this).setTitle("نتائج البحث").setMessage(text).setPositiveButton("حسناً", null).show()
             }
             .setNegativeButton("إلغاء", null)
             .show()
     }
+
+    private fun showSearchHits(query: String, hits: List<SemanticSearchHit>, semantic: Boolean) {
+        if (hits.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("نتائج البحث")
+                .setMessage("لم أجد نتائج لـ «$query».")
+                .setPositiveButton("حسناً", null)
+                .show()
+            return
+        }
+        val labels = hits.map { hit ->
+            val message = hit.message
+            val space = db.getSpace(message.spaceId)?.title ?: "مساحة"
+            val title = db.getDocumentMeta(message.id)?.smartTitle
+                ?: message.displayName
+                ?: message.summary
+                ?: message.text.take(70)
+            val confidence = if (semantic) " · ${(hit.score.coerceIn(0.0, 1.0) * 100).toInt()}%" else ""
+            "$space — ${title.take(90)}$confidence"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle(if (semantic) "نتائج البحث بالمعنى" else "نتائج البحث")
+            .setItems(labels) { _, which ->
+                val hit = hits[which]
+                val message = hit.message
+                val excerpt = hit.excerpt.take(1200)
+                AlertDialog.Builder(this)
+                    .setTitle(db.getDocumentMeta(message.id)?.smartTitle ?: message.displayName ?: "النتيجة")
+                    .setMessage(excerpt.ifBlank { message.summary ?: message.text })
+                    .setPositiveButton("فتح المحادثة") { _, _ -> openSpace(message.spaceId) }
+                    .setNegativeButton("إغلاق", null)
+                    .show()
+            }
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
 
     private fun promptNewSpace() {
         val input = EditText(this).apply { hint = "اسم المساحة" }
