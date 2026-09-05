@@ -86,10 +86,11 @@ data class ReminderRow(
     val nextFireAt: Long?,
     val enabled: Boolean,
     val deliveredAt: Long?,
+    val conditionActionId: Long?,
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 7) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 8) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -153,6 +154,9 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             db.execSQL("ALTER TABLE messages ADD COLUMN deleted_at INTEGER")
             createAlphaTables(db)
         }
+        if (oldVersion < 8) {
+            db.execSQL("ALTER TABLE reminders ADD COLUMN condition_action_id INTEGER")
+        }
     }
 
     private fun createReminderTable(db: SQLiteDatabase) {
@@ -170,6 +174,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               next_fire_at INTEGER,
               enabled INTEGER NOT NULL DEFAULT 1,
               delivered_at INTEGER,
+              condition_action_id INTEGER,
               created_at INTEGER NOT NULL,
               FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
             )
@@ -692,6 +697,30 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
     }
 
+    fun getActionItem(id: Long): ActionItemRow? {
+        val cursor = readableDatabase.query("action_items", null, "id=?", arrayOf(id.toString()), null, null, null, "1")
+        return cursor.use { if (it.moveToFirst()) actionItemFrom(it) else null }
+    }
+
+    fun completeActionItem(id: Long): List<Long> {
+        setActionItemStatus(id, "done")
+        val cursor = readableDatabase.query(
+            "reminders", arrayOf("id"), "condition_action_id=? AND enabled=1",
+            arrayOf(id.toString()), null, null, null
+        )
+        val reminderIds = cursor.use { c -> buildList { while (c.moveToNext()) add(c.getLong(0)) } }
+        writableDatabase.update(
+            "reminders",
+            ContentValues().apply {
+                put("enabled", 0)
+                putNull("next_fire_at")
+            },
+            "condition_action_id=?",
+            arrayOf(id.toString())
+        )
+        return reminderIds
+    }
+
     fun replaceDocumentChunks(messageId: Long, chunks: List<String>) {
         writableDatabase.transaction {
             delete("document_chunks", "message_id=?", arrayOf(messageId.toString()))
@@ -764,7 +793,8 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         dayOfWeek: Int?,
         hour: Int?,
         minute: Int?,
-        nextFireAt: Long?
+        nextFireAt: Long?,
+        conditionActionId: Long? = null
     ): Long {
         val now = System.currentTimeMillis()
         return writableDatabase.insert("reminders", null, ContentValues().apply {
@@ -776,6 +806,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             if (hour == null) putNull("hour") else put("hour", hour)
             if (minute == null) putNull("minute") else put("minute", minute)
             if (nextFireAt == null) putNull("next_fire_at") else put("next_fire_at", nextFireAt)
+            if (conditionActionId == null) putNull("condition_action_id") else put("condition_action_id", conditionActionId)
             put("enabled", 1)
             put("created_at", now)
         })
@@ -861,6 +892,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         nextFireAt = c.longOrNull("next_fire_at"),
         enabled = c.getInt(c.getColumnIndexOrThrow("enabled")) == 1,
         deliveredAt = c.longOrNull("delivered_at"),
+        conditionActionId = c.longOrNull("condition_action_id"),
         createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
     )
 
