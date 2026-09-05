@@ -22,4 +22,23 @@ class AlphaBackupCryptoTest {
         }
         assertArrayEquals(plain, recovered.toByteArray())
     }
+
+    @Test
+    fun wrongPasswordFailsAuthentication() {
+        val plain = ByteArray(4096) { (it % 251).toByte() }
+        val encrypted = ByteArrayOutputStream()
+        AlphaBackupCrypto.encrypt("correct123".toCharArray(), encrypted) { out -> out.write(plain) }
+
+        var failed = false
+        try {
+            AlphaBackupCrypto.decrypt(
+                "wrong123".toCharArray(),
+                ByteArrayInputStream(encrypted.toByteArray())
+            ) { input -> input.copyTo(ByteArrayOutputStream()) }
+        } catch (_: Exception) {
+            failed = true
+        }
+        assertTrue(failed)
+    }
+
 }
