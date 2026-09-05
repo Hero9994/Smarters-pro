@@ -66,6 +66,16 @@ data class ActionItemRow(
     val updatedAt: Long
 )
 
+data class TrackedDocumentRow(
+    val messageId: Long,
+    val spaceId: Long,
+    val displayName: String?,
+    val smartTitle: String?,
+    val dueDate: String?,
+    val expiryDate: String?,
+    val actionText: String?
+)
+
 data class DocumentChunkRow(
     val id: Long,
     val messageId: Long,
@@ -642,6 +652,39 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     fun getDocumentMeta(messageId: Long): DocumentMetaRow? {
         val cursor = readableDatabase.query("document_meta", null, "message_id=?", arrayOf(messageId.toString()), null, null, null, "1")
         return cursor.use { if (it.moveToFirst()) documentMetaFrom(it) else null }
+    }
+
+    fun listTrackedDocuments(): List<TrackedDocumentRow> {
+        val cursor = readableDatabase.rawQuery(
+            """
+            SELECT d.message_id, m.space_id, m.display_name, d.smart_title,
+                   d.due_date, d.expiry_date, d.action_text
+            FROM document_meta d
+            JOIN messages m ON m.id=d.message_id
+            WHERE m.deleted_at IS NULL
+              AND ((d.due_date IS NOT NULL AND d.due_date<>'')
+                OR (d.expiry_date IS NOT NULL AND d.expiry_date<>''))
+            ORDER BY COALESCE(d.due_date, d.expiry_date) ASC
+            """.trimIndent(),
+            null
+        )
+        return cursor.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        TrackedDocumentRow(
+                            messageId = c.getLong(0),
+                            spaceId = c.getLong(1),
+                            displayName = if (c.isNull(2)) null else c.getString(2),
+                            smartTitle = if (c.isNull(3)) null else c.getString(3),
+                            dueDate = if (c.isNull(4)) null else c.getString(4),
+                            expiryDate = if (c.isNull(5)) null else c.getString(5),
+                            actionText = if (c.isNull(6)) null else c.getString(6)
+                        )
+                    )
+                }
+            }
+        }
     }
 
     fun clearGeneratedActionItemsForMessage(messageId: Long) {
