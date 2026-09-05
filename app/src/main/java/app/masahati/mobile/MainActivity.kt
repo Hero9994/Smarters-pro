@@ -538,7 +538,65 @@ class MainActivity : ComponentActivity() {
                     put("recent", arr)
                 }
 
-                val directReminderText = content.takeIf { NaturalReminderParser.looksLikeReminder(it) }
+                val conditionalResolution = ConditionalReminderParser.parse(content, ZonedDateTime.now())
+                val conditionalReminderResult = conditionalResolution?.let { resolution ->
+                    if (!resolution.ready || resolution.dueAt == null) {
+                        JSONObject()
+                            .put("ok", true)
+                            .put("engine", "conditional-reminder-parser")
+                            .put("classification", "reminder")
+                            .put("labels", JSONArray(listOf("تذكير شرطي")))
+                            .put("keywords", JSONArray())
+                            .put("summary", content.take(320))
+                            .put("confidence", 0.98)
+                            .put("actions", JSONArray())
+                            .put("reply", resolution.clarification ?: "أحتاج مدة واضحة للتذكير الشرطي.")
+                    } else {
+                        val actionId = db.createActionItem(
+                            spaceId = spaceId,
+                            messageId = messageId,
+                            kind = "conditional_reminder",
+                            title = resolution.task,
+                            details = content.take(600),
+                            dueAt = resolution.dueAt,
+                            sourceExcerpt = content.take(600)
+                        )
+                        val reminderId = db.createReminder(
+                            spaceId = spaceId,
+                            title = "تذكير شرطي",
+                            body = "ما زال عليك: ${resolution.task}",
+                            repeatRule = "none",
+                            dayOfWeek = null,
+                            hour = null,
+                            minute = null,
+                            nextFireAt = resolution.dueAt,
+                            conditionActionId = actionId
+                        )
+                        val reminder = db.getReminder(reminderId)
+                        val exact = reminder?.let { ReminderScheduler.schedule(this@MainActivity, db, it) } ?: false
+                        runOnUiThread {
+                            maybeRequestNotificationPermission()
+                            if (!exact) maybeRequestExactAlarmPermission()
+                        }
+                        JSONObject()
+                            .put("ok", true)
+                            .put("engine", "conditional-reminder-parser")
+                            .put("classification", "reminder")
+                            .put("labels", JSONArray(listOf("تذكير شرطي")))
+                            .put("keywords", JSONArray(listOf(resolution.task)))
+                            .put("summary", content.take(320))
+                            .put("confidence", 0.99)
+                            .put("actions", JSONArray())
+                            .put(
+                                "reply",
+                                "تمام. إذا بقي «${resolution.task}» غير منجز بعد ${resolution.description ?: "المدة المحددة"}، سأذكّرك."
+                            )
+                    }
+                }
+
+                val directReminderText = if (conditionalReminderResult == null) {
+                    content.takeIf { NaturalReminderParser.looksLikeReminder(it) }
+                } else null
                 val reminderFollowUpText = if (directReminderText == null && content.length <= 40) {
                     val lastAssistant = recent.lastOrNull { it.role == "assistant" }
                     val assistantAskedForReminderDetail = lastAssistant?.text?.let { answer ->
@@ -557,7 +615,7 @@ class MainActivity : ComponentActivity() {
                     NaturalReminderParser.parse(it, ZonedDateTime.now())
                 }
                 val resolvedReminderText = reminderSourceText ?: content
-                val localReminderResult = reminderResolution?.let { resolution ->
+                val localReminderResult = conditionalReminderResult ?: reminderResolution?.let { resolution ->
                     val actionArgs = JSONObject()
                         .put("title", "تذكير مساحاتي")
                         .put("body", resolvedReminderText.take(500))
@@ -1475,7 +1533,8 @@ class MainActivity : ComponentActivity() {
                 AlertDialog.Builder(this)
                     .setTitle("إنهاء هذا الإجراء؟")
                     .setPositiveButton("تم") { _, _ ->
-                        db.setActionItemStatus(id, "done")
+                        val reminderIds = db.completeActionItem(id)
+                        reminderIds.forEach { ReminderScheduler.cancel(this@MainActivity, it) }
                         showTodayAndActions()
                     }
                     .setNegativeButton("إلغاء", null)
