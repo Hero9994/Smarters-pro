@@ -746,6 +746,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                if (sourceMessage?.kind != "file") {
+                    runCatching { AlphaAnswerGrounding.apply(result, content, focusedDocument, db) }
+                }
+
                 val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
