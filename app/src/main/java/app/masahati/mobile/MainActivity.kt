@@ -1049,7 +1049,8 @@ class MainActivity : ComponentActivity() {
                 val messageId = db.insertFile(spaceId, "user", fileName, target.absolutePath, "application/pdf", ocr)
                 val indexed = AlphaDocumentProcessor.indexNewFile(db, messageId, target, ocr)
                 val duplicateHint = indexed.duplicate?.let { existing ->
-                    "\n\nملاحظة داخلية: هذا المسح مطابق تماماً لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). نبّه المستخدم للتكرار."
+                    val match = if (indexed.matchType == "exact") "مطابق تماماً" else "يبدو مسحاً آخر لنفس المستند"
+                    "\n\nملاحظة داخلية: هذا المسح $match لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). نبّه المستخدم للتكرار."
                 }.orEmpty()
                 val aiText = if (ocr.isBlank()) {
                     "مستند ممسوح ضوئياً باسم $fileName وعدد صفحاته $cleanedPageCount. صنفه ونظم كلمات البحث المناسبة بدون اختراع محتوى غير ظاهر."
@@ -1093,7 +1094,8 @@ class MainActivity : ComponentActivity() {
                 val id = db.insertFile(spaceId, "user", displayName, target.absolutePath, mime, ocr)
                 val indexed = AlphaDocumentProcessor.indexNewFile(db, id, target, ocr)
                 val duplicateHint = indexed.duplicate?.let { existing ->
-                    "\n\nملاحظة داخلية: هذا الملف مطابق تماماً لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). لا تدّعِ أنه جديد؛ أخبر المستخدم عن التكرار باختصار."
+                    val match = if (indexed.matchType == "exact") "مطابق تماماً" else "يبدو نسخة أخرى من نفس المستند"
+                    "\n\nملاحظة داخلية: هذا الملف $match لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). أخبر المستخدم عن التكرار باختصار."
                 }.orEmpty()
                 val aiText = when {
                     ocr.isNotBlank() -> "ملف مرفق باسم $displayName. النص المستخرج محلياً:\n${ocr.take(4800)}"
