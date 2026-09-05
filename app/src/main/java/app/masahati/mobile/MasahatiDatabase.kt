@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.core.database.sqlite.transaction
 
 data class SpaceRow(
     val id: Long,
@@ -684,21 +685,17 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun replaceDocumentChunks(messageId: Long, chunks: List<String>) {
-        writableDatabase.beginTransaction()
-        try {
-            writableDatabase.delete("document_chunks", "message_id=?", arrayOf(messageId.toString()))
+        writableDatabase.transaction {
+            delete("document_chunks", "message_id=?", arrayOf(messageId.toString()))
             val now = System.currentTimeMillis()
             chunks.forEachIndexed { index, text ->
-                writableDatabase.insert("document_chunks", null, ContentValues().apply {
+                insert("document_chunks", null, ContentValues().apply {
                     put("message_id", messageId)
                     put("chunk_index", index)
                     put("text", text)
                     put("created_at", now)
                 })
             }
-            writableDatabase.setTransactionSuccessful()
-        } finally {
-            writableDatabase.endTransaction()
         }
     }
 
