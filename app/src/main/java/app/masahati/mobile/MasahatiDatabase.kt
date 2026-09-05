@@ -563,6 +563,21 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             .map { it.second }
     }
 
+    fun renameMessageDisplayName(messageId: Long, displayName: String) {
+        saveMessageVersion(messageId, "smart_rename")
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("display_name", displayName.take(180)) },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
+    fun allMessagesIncludingTrash(): List<MessageRow> {
+        val cursor = readableDatabase.query("messages", null, null, null, null, null, "created_at ASC, id ASC")
+        return cursor.use { c -> buildList { while (c.moveToNext()) add(messageFrom(c)) } }
+    }
+
     fun setMessageContentHash(messageId: Long, hash: String) {
         writableDatabase.update(
             "messages",
