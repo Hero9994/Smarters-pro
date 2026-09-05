@@ -15,10 +15,9 @@ internal object NearDuplicateFingerprint {
         val weights = IntArray(64)
         features.forEach { feature ->
             val hash = fnv1a64(feature)
-            val weight = feature.length.coerceIn(2, 40)
             for (bit in 0 until 64) {
-                if (((hash ushr bit) and 1L) == 1L) weights[bit] += weight
-                else weights[bit] -= weight
+                if (((hash ushr bit) and 1L) == 1L) weights[bit] += 1
+                else weights[bit] -= 1
             }
         }
 
