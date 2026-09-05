@@ -508,6 +508,14 @@ class MainActivity : ComponentActivity() {
             val recent = db.recentForAi(spaceId, 20).filter { it.id != messageId }
             val sourceMessage = db.getMessage(messageId)
             val focusedDocument = db.focusedDocument(spaceId) ?: db.lastFileMessage(spaceId)
+            val memoryMatches = if (sourceMessage?.kind == "file") {
+                emptyList()
+            } else {
+                db.search(content, 10)
+                    .filter { it.id != messageId }
+                    .filterNot { candidate -> recent.any { it.id == candidate.id } }
+                    .take(6)
+            }
             try {
                 val body = JSONObject().apply {
                     put("text", content.take(6000))
@@ -531,6 +539,21 @@ class MainActivity : ComponentActivity() {
                                 })
                             }
                         put("spaces", spaces)
+                        val memory = JSONArray()
+                        memoryMatches.forEach { remembered ->
+                            memory.put(JSONObject().apply {
+                                put("messageId", remembered.id)
+                                put("spaceId", remembered.spaceId)
+                                put("spaceTitle", db.getSpace(remembered.spaceId)?.title.orEmpty())
+                                put("displayName", remembered.displayName.orEmpty())
+                                put("classification", remembered.classification.orEmpty())
+                                put("summary", remembered.summary.orEmpty().take(700))
+                                put("text", remembered.text.take(900))
+                                put("ocrText", remembered.ocrText.orEmpty().take(1400))
+                                put("createdAt", remembered.createdAt)
+                            })
+                        }
+                        put("memory", memory)
                         focusedDocument?.let { doc ->
                             put("currentDocument", JSONObject().apply {
                                 put("id", doc.id)
@@ -1465,27 +1488,42 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncomingShare(incoming: Intent) {
-        if (incoming.action != Intent.ACTION_SEND) return
+        if (incoming.action != Intent.ACTION_SEND && incoming.action != Intent.ACTION_SEND_MULTIPLE) return
+
         val textValue = incoming.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
-        val stream = if (Build.VERSION.SDK_INT >= 33) {
-            incoming.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        val streams = mutableListOf<Uri>()
+
+        if (incoming.action == Intent.ACTION_SEND_MULTIPLE) {
+            val list = if (Build.VERSION.SDK_INT >= 33) {
+                incoming.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                incoming.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            list?.filterNotNull()?.let(streams::addAll)
         } else {
-            @Suppress("DEPRECATION")
-            incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            val stream = if (Build.VERSION.SDK_INT >= 33) {
+                incoming.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            if (stream != null) streams += stream
         }
-        if (textValue.isBlank() && stream == null) return
+
+        if (textValue.isBlank() && streams.isEmpty()) return
 
         chooseSpaceForIncoming { spaceId, title ->
             currentSpaceId = spaceId
             currentSpaceTitle = title
             showChat()
-            if (stream != null) {
-                handlePickedFile(stream)
-            } else {
+
+            if (textValue.isNotBlank()) {
                 val id = db.insertText(spaceId, "user", textValue)
                 renderMessages(spaceId)
                 analyzeWithAgent(id, textValue, title)
             }
+            streams.distinct().forEach { uri -> handlePickedFile(uri) }
         }
     }
 
