@@ -528,7 +528,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         val c = readableDatabase.query(
             "messages",
             null,
-            "space_id=? AND starred=1",
+            "space_id=? AND starred=1 AND deleted_at IS NULL",
             arrayOf(spaceId.toString()),
             null,
             null,
@@ -813,6 +813,13 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return cursor.use { c -> buildList { while (c.moveToNext()) add(actionItemFrom(c)) } }
     }
 
+    fun listAllActionItems(): List<ActionItemRow> {
+        val cursor = readableDatabase.query(
+            "action_items", null, null, null, null, null, "created_at ASC, id ASC"
+        )
+        return cursor.use { c -> buildList { while (c.moveToNext()) add(actionItemFrom(c)) } }
+    }
+
     fun setActionItemStatus(id: Long, status: String) {
         writableDatabase.update(
             "action_items",
@@ -944,6 +951,58 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             }
         }
     }
+    fun listAllMessageVersions(): List<MessageVersionRow> {
+        val cursor = readableDatabase.query(
+            "message_versions", null, null, null, null, null, "created_at ASC, id ASC"
+        )
+        return cursor.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        MessageVersionRow(
+                            id = c.getLong(c.getColumnIndexOrThrow("id")),
+                            messageId = c.getLong(c.getColumnIndexOrThrow("message_id")),
+                            reason = c.getString(c.getColumnIndexOrThrow("reason")),
+                            text = c.stringOrNull("text"),
+                            displayName = c.stringOrNull("display_name"),
+                            ocrText = c.stringOrNull("ocr_text"),
+                            classification = c.stringOrNull("classification"),
+                            tags = c.stringOrNull("tags"),
+                            summary = c.stringOrNull("summary"),
+                            createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun importMessageVersion(
+        messageId: Long,
+        reason: String,
+        text: String?,
+        displayName: String?,
+        ocrText: String?,
+        classification: String?,
+        tags: String?,
+        summary: String?,
+        createdAt: Long
+    ): Long = writableDatabase.insert(
+        "message_versions",
+        null,
+        ContentValues().apply {
+            put("message_id", messageId)
+            put("reason", reason.take(60))
+            if (text == null) putNull("text") else put("text", text)
+            if (displayName == null) putNull("display_name") else put("display_name", displayName)
+            if (ocrText == null) putNull("ocr_text") else put("ocr_text", ocrText)
+            if (classification == null) putNull("classification") else put("classification", classification)
+            if (tags == null) putNull("tags") else put("tags", tags)
+            if (summary == null) putNull("summary") else put("summary", summary)
+            put("created_at", createdAt)
+        }
+    )
+
 
     fun restoreMessageVersion(versionId: Long): Boolean {
         val cursor = readableDatabase.query(
@@ -1072,6 +1131,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         minute: Int?,
         nextFireAt: Long?,
         enabled: Boolean,
+        conditionActionId: Long? = null,
         createdAt: Long
     ): Long = writableDatabase.insert(
         "reminders",
@@ -1097,6 +1157,11 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     fun listActiveReminders(): List<ReminderRow> {
         val c = readableDatabase.query("reminders", null, "enabled=1", emptyArray(), null, null, "next_fire_at ASC")
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(reminderFrom(cursor)) } }
+    }
+
+    fun listAllReminders(): List<ReminderRow> {
+        val c = readableDatabase.query("reminders", null, null, null, null, null, "created_at ASC, id ASC")
         return c.use { cursor -> buildList { while (cursor.moveToNext()) add(reminderFrom(cursor)) } }
     }
 
