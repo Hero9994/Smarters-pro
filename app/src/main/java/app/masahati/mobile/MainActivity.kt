@@ -380,7 +380,7 @@ class MainActivity : ComponentActivity() {
         busyCount++
         renderMessages(spaceId)
         worker.execute {
-            val recent = db.recentForAi(spaceId, 10).filter { it.id != messageId }
+            val recent = db.recentForAi(spaceId, 16).filter { it.id != messageId }
             try {
                 val body = JSONObject().apply {
                     put("text", content.take(5000))
@@ -571,7 +571,7 @@ class MainActivity : ComponentActivity() {
         val conn = (URL(AGENT_URL).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 5_000
-            readTimeout = 13_000
+            readTimeout = 30_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
@@ -916,7 +916,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val SPACE_LIST_ID = 4001
         private const val MESSAGE_LIST_ID = 4002
-        private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-dev"
+        private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-v07"
         private const val SUPABASE_PUBLISHABLE_KEY = "sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3"
     }
 }
