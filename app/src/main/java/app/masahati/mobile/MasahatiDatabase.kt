@@ -96,7 +96,7 @@ data class ReminderRow(
     val nextFireAt: Long?,
     val enabled: Boolean,
     val deliveredAt: Long?,
-    val conditionActionId: Long?,
+    val conditionActionId: Long? = null,
     val createdAt: Long
 )
 
