@@ -20,6 +20,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.storage.StorageManager
 import android.provider.OpenableColumns
+import android.speech.RecognizerIntent
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -106,6 +107,33 @@ class MainActivity : ComponentActivity() {
         if (uri != null) handlePickedFile(uri)
     }
 
+    private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val spoken = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.trim()
+            .orEmpty()
+        if (spoken.isNotBlank()) {
+            composer?.setText(spoken)
+            composer?.setSelection(spoken.length)
+        }
+    }
+
+    private val backupExportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        worker.execute {
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use { AlphaExporter.export(this@MainActivity, db, it) }
+                    ?: error("Cannot open export destination")
+            }.onSuccess {
+                runOnUiThread { Toast.makeText(this, "تم تصدير نسخة ZIP كاملة", Toast.LENGTH_LONG).show() }
+            }.onFailure { error ->
+                runOnUiThread { Toast.makeText(this, "تعذر التصدير: ${error.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show() }
+            }
+        }
+    }
+
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             ReminderScheduler.rescheduleAll(this)
@@ -145,6 +173,7 @@ class MainActivity : ComponentActivity() {
         })
         showHome()
         intent.getLongExtra("open_space_id", -1L).takeIf { it > 0L }?.let { openSpace(it) }
+        handleIncomingShare(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -153,6 +182,7 @@ class MainActivity : ComponentActivity() {
         intent.getLongExtra("open_space_id", -1L)
             .takeIf { it > 0L }
             ?.let { openSpace(it) }
+        handleIncomingShare(intent)
     }
 
     override fun onDestroy() {
@@ -651,6 +681,7 @@ class MainActivity : ComponentActivity() {
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
+                runCatching { AlphaDocumentProcessor.applyAgentResult(db, messageId, result) }
                 val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
@@ -874,11 +905,15 @@ class MainActivity : ComponentActivity() {
                 }
                 val ocr = ocrBuilder.toString()
                 val messageId = db.insertFile(spaceId, "user", fileName, target.absolutePath, "application/pdf", ocr)
+                val indexed = AlphaDocumentProcessor.indexNewFile(db, messageId, target, ocr)
+                val duplicateHint = indexed.duplicate?.let { existing ->
+                    "\n\nملاحظة داخلية: هذا المسح مطابق تماماً لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). نبّه المستخدم للتكرار."
+                }.orEmpty()
                 val aiText = if (ocr.isBlank()) {
                     "مستند ممسوح ضوئياً باسم $fileName وعدد صفحاته $cleanedPageCount. صنفه ونظم كلمات البحث المناسبة بدون اختراع محتوى غير ظاهر."
                 } else {
                     "مستند ممسوح ضوئياً باسم $fileName بعد تنظيف الظلال تلقائياً. النص المستخرج محلياً:\n${ocr.take(4800)}"
-                }
+                } + duplicateHint
                 runOnUiThread {
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     if (currentSpaceId == spaceId) renderMessages(spaceId)
@@ -914,10 +949,14 @@ class MainActivity : ComponentActivity() {
                     } catch (_: Exception) { }
                 }
                 val id = db.insertFile(spaceId, "user", displayName, target.absolutePath, mime, ocr)
+                val indexed = AlphaDocumentProcessor.indexNewFile(db, id, target, ocr)
+                val duplicateHint = indexed.duplicate?.let { existing ->
+                    "\n\nملاحظة داخلية: هذا الملف مطابق تماماً لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). لا تدّعِ أنه جديد؛ أخبر المستخدم عن التكرار باختصار."
+                }.orEmpty()
                 val aiText = when {
                     ocr.isNotBlank() -> "ملف مرفق باسم $displayName. النص المستخرج محلياً:\n${ocr.take(4800)}"
                     else -> "تم إرفاق ملف باسم $displayName ونوعه $mime. صنفه بالاعتماد فقط على الاسم والنوع ولا تخترع محتوى داخله."
-                }
+                } + duplicateHint
                 runOnUiThread {
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     renderMessages(spaceId)
@@ -969,9 +1008,11 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add("سكانر ذكي")
             menu.add("إرفاق ملف أو صورة")
+            menu.add("إملاء صوتي")
             setOnMenuItemClickListener {
                 when (it.title.toString()) {
                     "سكانر ذكي" -> startSmartScanner()
+                    "إملاء صوتي" -> startVoiceInbox()
                     else -> filePicker.launch(arrayOf("application/pdf", "image/*", "text/*"))
                 }
                 true
@@ -1007,11 +1048,17 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
+            menu.add("اليوم والإجراءات")
+            menu.add("سلة المهملات")
+            menu.add("تصدير نسخة ZIP")
             menu.add("الذكاء المحلي")
             menu.add("إعداد دقة التنبيهات")
             setOnMenuItemClickListener {
                 when (it.title.toString()) {
                     "بحث ذكي شامل" -> promptGlobalSearch()
+                    "اليوم والإجراءات" -> showTodayAndActions()
+                    "سلة المهملات" -> showTrash()
+                    "تصدير نسخة ZIP" -> backupExportLauncher.launch("Masahati-alpha-backup.zip")
                     "الذكاء المحلي" -> showLocalAiManager()
                     "إعداد دقة التنبيهات" -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
                     else -> { showArchived = !showArchived; showHome() }
@@ -1133,6 +1180,177 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startVoiceInbox() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "احكي ما تريد حفظه في مساحاتي")
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        }
+        try {
+            voiceLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, "لا توجد خدمة إملاء صوتي على الجهاز", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun handleIncomingShare(incoming: Intent) {
+        if (incoming.action != Intent.ACTION_SEND) return
+        val textValue = incoming.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
+        val stream = if (Build.VERSION.SDK_INT >= 33) {
+            incoming.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        }
+        if (textValue.isBlank() && stream == null) return
+
+        chooseSpaceForIncoming { spaceId, title ->
+            currentSpaceId = spaceId
+            currentSpaceTitle = title
+            showChat()
+            if (stream != null) {
+                handlePickedFile(stream)
+            } else {
+                val id = db.insertText(spaceId, "user", textValue)
+                renderMessages(spaceId)
+                analyzeWithAgent(id, textValue, title)
+            }
+        }
+    }
+
+    private fun chooseSpaceForIncoming(onChosen: (Long, String) -> Unit) {
+        val spaces = (db.listSpaces(false) + db.listSpaces(true)).distinctBy { it.id }
+        if (spaces.isEmpty()) {
+            val id = db.createSpace("الوارد")
+            onChosen(id, "الوارد")
+            return
+        }
+        val labels = spaces.map { it.title }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("حفظ في أي مساحة؟")
+            .setItems(labels) { _, which ->
+                val chosen = spaces[which]
+                onChosen(chosen.id, chosen.title)
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun showDocumentDetails(message: MessageRow) {
+        val meta = db.getDocumentMeta(message.id)
+        if (meta == null) {
+            AlertDialog.Builder(this)
+                .setTitle(message.displayName ?: "تفاصيل المستند")
+                .setMessage("لم يتم استخراج بيانات منظمة لهذا المستند بعد.")
+                .setPositiveButton("إغلاق", null)
+                .show()
+            return
+        }
+        val lines = buildList {
+            meta.smartTitle?.let { add("الاسم الذكي: $it") }
+            meta.docType?.let { add("النوع: $it") }
+            meta.organization?.let { add("الجهة: $it") }
+            meta.personNames?.let { add("الأسماء: $it") }
+            meta.referenceNumber?.let { add("الرقم المرجعي: $it") }
+            meta.amountText?.let { add("المبلغ: $it ${meta.currency.orEmpty()}".trim()) }
+            meta.issueDate?.let { add("تاريخ الإصدار: $it") }
+            meta.dueDate?.let { add("آخر موعد: $it") }
+            meta.expiryDate?.let { add("تاريخ الانتهاء: $it") }
+            if (meta.actionRequired) add("المطلوب: ${meta.actionText ?: "يوجد إجراء مطلوب"}")
+            meta.confidence?.let { add("الثقة: ${(it * 100).toInt()}%") }
+            meta.evidenceJson?.takeIf { it.isNotBlank() }?.let { evidence ->
+                add("\nالدليل من المستند:\n${formatEvidence(evidence)}")
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(meta.smartTitle ?: message.displayName ?: "تفاصيل المستند")
+            .setMessage(lines.joinToString("\n").ifBlank { "لا توجد تفاصيل إضافية." })
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
+    private fun formatEvidence(raw: String): String {
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return raw.take(1200)
+        val lines = mutableListOf<String>()
+        for (i in 0 until arr.length().coerceAtMost(8)) {
+            val item = arr.optJSONObject(i) ?: continue
+            val field = item.optString("field")
+            val value = item.optString("value")
+            val excerpt = item.optString("excerpt")
+            val line = listOf(field, value, excerpt).filter { it.isNotBlank() }.joinToString(": ")
+            if (line.isNotBlank()) lines += "• $line"
+        }
+        return lines.joinToString("\n").take(1800)
+    }
+
+    private fun showTodayAndActions() {
+        val actions = db.listOpenActionItems(100)
+        val reminders = db.listActiveReminders()
+        if (actions.isEmpty() && reminders.isEmpty()) {
+            Toast.makeText(this, "لا يوجد شيء يحتاج انتباهك حالياً", Toast.LENGTH_LONG).show()
+            return
+        }
+        val labels = mutableListOf<String>()
+        val actionIds = mutableListOf<Long?>()
+        actions.forEach { a ->
+            val due = a.dueAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }
+            labels += listOfNotNull("⚑ ${a.title}", due?.let { "— $it" }).joinToString(" ")
+            actionIds += a.id
+        }
+        reminders.forEach { r ->
+            val due = r.nextFireAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }.orEmpty()
+            labels += "⏰ ${r.body.take(70)} ${if (due.isBlank()) "" else "— $due"}"
+            actionIds += null
+        }
+        AlertDialog.Builder(this)
+            .setTitle("اليوم والإجراءات")
+            .setItems(labels.toTypedArray()) { _, which ->
+                val id = actionIds[which] ?: return@setItems
+                AlertDialog.Builder(this)
+                    .setTitle("إنهاء هذا الإجراء؟")
+                    .setPositiveButton("تم") { _, _ ->
+                        db.setActionItemStatus(id, "done")
+                        showTodayAndActions()
+                    }
+                    .setNegativeButton("إلغاء", null)
+                    .show()
+            }
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showTrash() {
+        val trash = db.listTrash(100)
+        if (trash.isEmpty()) {
+            Toast.makeText(this, "سلة المهملات فارغة", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = trash.map {
+            if (it.kind == "file") "📎 ${it.displayName ?: "ملف"}" else it.text.replace("\n", " ").take(90)
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("سلة المهملات")
+            .setItems(labels) { _, which ->
+                val item = trash[which]
+                AlertDialog.Builder(this)
+                    .setTitle(labels[which])
+                    .setItems(arrayOf("استرجاع", "حذف نهائي")) { _, action ->
+                        if (action == 0) {
+                            db.restoreMessage(item.id)
+                            Toast.makeText(this, "تم الاسترجاع", Toast.LENGTH_SHORT).show()
+                        } else {
+                            item.filePath?.let { runCatching { File(it).delete() } }
+                            db.hardDeleteMessage(item.id)
+                            Toast.makeText(this, "تم الحذف النهائي", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .show()
+            }
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
     private fun showSpaceMenu(anchor: View, space: SpaceRow) {
         PopupMenu(this, anchor).apply {
             menu.add(if (space.pinned) "إلغاء التثبيت" else "تثبيت")
@@ -1214,6 +1432,7 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             if (m.kind == "file") {
                 if (m.filePath != null) menu.add("فتح")
+                menu.add("تفاصيل المستند")
                 if (!m.ocrText.isNullOrBlank()) menu.add("نسخ النص")
             } else {
                 menu.add("نسخ")
@@ -1225,6 +1444,7 @@ class MainActivity : ComponentActivity() {
             setOnMenuItemClickListener { item ->
                 when (item.title.toString()) {
                     "فتح" -> openSavedFile(m)
+                    "تفاصيل المستند" -> showDocumentDetails(m)
                     "نسخ", "نسخ النص" -> copyMessage(m)
                     "تمييز بنجمة ★" -> {
                         db.setMessageStarred(m.id, true)
@@ -1327,9 +1547,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun confirmDeleteMessage(m: MessageRow) {
-        AlertDialog.Builder(this).setTitle("حذف هذا العنصر؟")
-            .setPositiveButton("حذف") { _, _ ->
-                m.filePath?.let { runCatching { File(it).delete() } }
+        AlertDialog.Builder(this).setTitle("نقل إلى سلة المهملات؟")
+            .setMessage("يمكنك استرجاعه لاحقاً من سلة المهملات.")
+            .setPositiveButton("نقل للسلة") { _, _ ->
                 db.deleteMessage(m.id)
                 currentSpaceId?.let { renderMessages(it) }
             }.setNegativeButton("إلغاء", null).show()
