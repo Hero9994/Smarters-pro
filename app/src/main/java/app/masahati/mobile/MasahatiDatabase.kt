@@ -630,6 +630,14 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return cursor.use { if (it.moveToFirst()) documentMetaFrom(it) else null }
     }
 
+    fun clearGeneratedActionItemsForMessage(messageId: Long) {
+        writableDatabase.delete(
+            "action_items",
+            "message_id=? AND status='open' AND kind IN ('deadline','document_action')",
+            arrayOf(messageId.toString())
+        )
+    }
+
     fun createActionItem(
         spaceId: Long,
         messageId: Long?,
