@@ -31,6 +31,40 @@ data class MessageRow(
     val createdAt: Long
 )
 
+data class DocumentMetaRow(
+    val messageId: Long,
+    val smartTitle: String?,
+    val docType: String?,
+    val organization: String?,
+    val personNames: String?,
+    val referenceNumber: String?,
+    val amountText: String?,
+    val currency: String?,
+    val issueDate: String?,
+    val dueDate: String?,
+    val expiryDate: String?,
+    val actionRequired: Boolean,
+    val actionText: String?,
+    val confidence: Double?,
+    val evidenceJson: String?,
+    val extractedJson: String?,
+    val updatedAt: Long
+)
+
+data class ActionItemRow(
+    val id: Long,
+    val spaceId: Long,
+    val messageId: Long?,
+    val kind: String,
+    val title: String,
+    val details: String?,
+    val dueAt: Long?,
+    val status: String,
+    val sourceExcerpt: String?,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
 data class ReminderRow(
     val id: Long,
     val spaceId: Long,
@@ -46,7 +80,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 6) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 7) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -78,6 +112,8 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               summary TEXT,
               starred INTEGER NOT NULL DEFAULT 0,
               ai_json TEXT,
+              content_hash TEXT,
+              deleted_at INTEGER,
               created_at INTEGER NOT NULL,
               FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
             )
@@ -86,6 +122,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         db.execSQL("CREATE INDEX idx_messages_space_created ON messages(space_id, created_at)")
         db.execSQL("CREATE INDEX idx_spaces_archived_pinned ON spaces(archived, pinned, updated_at)")
         createReminderTable(db)
+        createAlphaTables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -101,6 +138,11 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         }
         if (oldVersion < 6) {
             db.execSQL("ALTER TABLE reminders ADD COLUMN delivered_at INTEGER")
+        }
+        if (oldVersion < 7) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN content_hash TEXT")
+            db.execSQL("ALTER TABLE messages ADD COLUMN deleted_at INTEGER")
+            createAlphaTables(db)
         }
     }
 
@@ -125,6 +167,87 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_reminders_active_next ON reminders(enabled, next_fire_at)")
+    }
+
+    private fun createAlphaTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS document_meta(
+              message_id INTEGER PRIMARY KEY,
+              smart_title TEXT,
+              doc_type TEXT,
+              organization TEXT,
+              person_names TEXT,
+              reference_number TEXT,
+              amount_text TEXT,
+              currency TEXT,
+              issue_date TEXT,
+              due_date TEXT,
+              expiry_date TEXT,
+              action_required INTEGER NOT NULL DEFAULT 0,
+              action_text TEXT,
+              confidence REAL,
+              evidence_json TEXT,
+              extracted_json TEXT,
+              updated_at INTEGER NOT NULL,
+              FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS action_items(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              space_id INTEGER NOT NULL,
+              message_id INTEGER,
+              kind TEXT NOT NULL,
+              title TEXT NOT NULL,
+              details TEXT,
+              due_at INTEGER,
+              status TEXT NOT NULL DEFAULT 'open',
+              source_excerpt TEXT,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE,
+              FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE SET NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS document_chunks(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              message_id INTEGER NOT NULL,
+              chunk_index INTEGER NOT NULL,
+              text TEXT NOT NULL,
+              embedding BLOB,
+              created_at INTEGER NOT NULL,
+              UNIQUE(message_id, chunk_index),
+              FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS message_versions(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              message_id INTEGER NOT NULL,
+              reason TEXT NOT NULL,
+              text TEXT,
+              display_name TEXT,
+              ocr_text TEXT,
+              classification TEXT,
+              tags TEXT,
+              summary TEXT,
+              created_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_hash ON messages(content_hash)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_deleted ON messages(deleted_at)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_action_items_due ON action_items(status, due_at)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_document_meta_expiry ON document_meta(expiry_date)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_chunks_message ON document_chunks(message_id, chunk_index)")
     }
 
     fun listSpaces(archived: Boolean = false, query: String = ""): List<SpaceRow> {
@@ -246,10 +369,12 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun updateOcr(messageId: Long, ocrText: String) {
+        saveMessageVersion(messageId, "ocr_update")
         writableDatabase.update("messages", ContentValues().apply { put("ocr_text", ocrText) }, "id=?", arrayOf(messageId.toString()))
     }
 
     fun updateAi(messageId: Long, classification: String?, tags: String?, summary: String?, aiJson: String) {
+        saveMessageVersion(messageId, "ai_update")
         writableDatabase.update("messages", ContentValues().apply {
             put("classification", classification)
             put("tags", tags)
@@ -260,7 +385,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     fun listMessages(spaceId: Long): List<MessageRow> {
         val c = readableDatabase.query(
-            "messages", null, "space_id=?", arrayOf(spaceId.toString()), null, null, "created_at ASC, id ASC"
+            "messages", null, "space_id=? AND deleted_at IS NULL", arrayOf(spaceId.toString()), null, null, "created_at ASC, id ASC"
         )
         return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
     }
@@ -269,7 +394,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         val c = readableDatabase.query(
             "messages",
             null,
-            "space_id=? AND (text<>'' OR (ocr_text IS NOT NULL AND ocr_text<>'') OR (summary IS NOT NULL AND summary<>'') OR (display_name IS NOT NULL AND display_name<>''))",
+            "space_id=? AND deleted_at IS NULL AND (text<>'' OR (ocr_text IS NOT NULL AND ocr_text<>'') OR (summary IS NOT NULL AND summary<>'') OR (display_name IS NOT NULL AND display_name<>''))",
             arrayOf(spaceId.toString()),
             null,
             null,
@@ -281,7 +406,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     fun lastUserMessage(spaceId: Long): MessageRow? {
         val c = readableDatabase.query(
-            "messages", null, "space_id=? AND role='user'", arrayOf(spaceId.toString()), null, null,
+            "messages", null, "space_id=? AND role='user' AND deleted_at IS NULL", arrayOf(spaceId.toString()), null, null,
             "created_at DESC, id DESC", "1"
         )
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }
@@ -289,7 +414,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     fun lastFileMessage(spaceId: Long): MessageRow? {
         val c = readableDatabase.query(
-            "messages", null, "space_id=? AND kind='file'", arrayOf(spaceId.toString()), null, null,
+            "messages", null, "space_id=? AND kind='file' AND deleted_at IS NULL", arrayOf(spaceId.toString()), null, null,
             "created_at DESC, id DESC", "1"
         )
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }
@@ -297,7 +422,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     fun getMessage(messageId: Long): MessageRow? {
         val c = readableDatabase.query(
-            "messages", null, "id=?", arrayOf(messageId.toString()), null, null, null, "1"
+            "messages", null, "id=? AND deleted_at IS NULL", arrayOf(messageId.toString()), null, null, null, "1"
         )
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }
     }
@@ -370,11 +495,41 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun deleteMessage(messageId: Long) {
+        saveMessageVersion(messageId, "trash")
         writableDatabase.execSQL(
             "UPDATE spaces SET focus_message_id=NULL WHERE focus_message_id=?",
             arrayOf(messageId)
         )
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("deleted_at", System.currentTimeMillis()) },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
+    fun restoreMessage(messageId: Long) {
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { putNull("deleted_at") },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
+    fun hardDeleteMessage(messageId: Long) {
+        writableDatabase.delete("message_versions", "message_id=?", arrayOf(messageId.toString()))
+        writableDatabase.delete("document_chunks", "message_id=?", arrayOf(messageId.toString()))
+        writableDatabase.delete("document_meta", "message_id=?", arrayOf(messageId.toString()))
         writableDatabase.delete("messages", "id=?", arrayOf(messageId.toString()))
+    }
+
+    fun listTrash(limit: Int = 100): List<MessageRow> {
+        val cursor = readableDatabase.query(
+            "messages", null, "deleted_at IS NOT NULL", emptyArray(), null, null,
+            "deleted_at DESC", limit.coerceIn(1, 500).toString()
+        )
+        return cursor.use { c -> buildList { while (c.moveToNext()) add(messageFrom(c)) } }
     }
 
     fun search(query: String, limit: Int = 12): List<MessageRow> {
@@ -382,7 +537,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         if (SmartSearch.normalize(clean).isBlank()) return emptyList()
 
         val scored = mutableListOf<Pair<Int, MessageRow>>()
-        val c = readableDatabase.query("messages", null, null, null, null, null, "created_at DESC, id DESC")
+        val c = readableDatabase.query("messages", null, "deleted_at IS NULL", null, null, null, "created_at DESC, id DESC")
         c.use { cursor ->
             while (cursor.moveToNext()) {
                 val row = messageFrom(cursor)
@@ -406,6 +561,149 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             )
             .take(limit.coerceIn(1, 50))
             .map { it.second }
+    }
+
+    fun setMessageContentHash(messageId: Long, hash: String) {
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("content_hash", hash) },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+    }
+
+    fun findDuplicateByHash(hash: String, excludeMessageId: Long? = null): MessageRow? {
+        val where = if (excludeMessageId == null) {
+            "content_hash=? AND deleted_at IS NULL"
+        } else {
+            "content_hash=? AND id<>? AND deleted_at IS NULL"
+        }
+        val args = if (excludeMessageId == null) arrayOf(hash) else arrayOf(hash, excludeMessageId.toString())
+        val cursor = readableDatabase.query("messages", null, where, args, null, null, "created_at DESC", "1")
+        return cursor.use { if (it.moveToFirst()) messageFrom(it) else null }
+    }
+
+    fun upsertDocumentMeta(meta: DocumentMetaRow) {
+        writableDatabase.insertWithOnConflict(
+            "document_meta",
+            null,
+            ContentValues().apply {
+                put("message_id", meta.messageId)
+                put("smart_title", meta.smartTitle)
+                put("doc_type", meta.docType)
+                put("organization", meta.organization)
+                put("person_names", meta.personNames)
+                put("reference_number", meta.referenceNumber)
+                put("amount_text", meta.amountText)
+                put("currency", meta.currency)
+                put("issue_date", meta.issueDate)
+                put("due_date", meta.dueDate)
+                put("expiry_date", meta.expiryDate)
+                put("action_required", if (meta.actionRequired) 1 else 0)
+                put("action_text", meta.actionText)
+                put("confidence", meta.confidence)
+                put("evidence_json", meta.evidenceJson)
+                put("extracted_json", meta.extractedJson)
+                put("updated_at", System.currentTimeMillis())
+            },
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    fun getDocumentMeta(messageId: Long): DocumentMetaRow? {
+        val cursor = readableDatabase.query("document_meta", null, "message_id=?", arrayOf(messageId.toString()), null, null, null, "1")
+        return cursor.use { if (it.moveToFirst()) documentMetaFrom(it) else null }
+    }
+
+    fun createActionItem(
+        spaceId: Long,
+        messageId: Long?,
+        kind: String,
+        title: String,
+        details: String?,
+        dueAt: Long?,
+        sourceExcerpt: String?
+    ): Long {
+        val now = System.currentTimeMillis()
+        return writableDatabase.insert("action_items", null, ContentValues().apply {
+            put("space_id", spaceId)
+            if (messageId == null) putNull("message_id") else put("message_id", messageId)
+            put("kind", kind.take(60))
+            put("title", title.take(180))
+            put("details", details?.take(1200))
+            if (dueAt == null) putNull("due_at") else put("due_at", dueAt)
+            put("status", "open")
+            put("source_excerpt", sourceExcerpt?.take(1200))
+            put("created_at", now)
+            put("updated_at", now)
+        })
+    }
+
+    fun listOpenActionItems(limit: Int = 100): List<ActionItemRow> {
+        val cursor = readableDatabase.query(
+            "action_items", null, "status='open'", emptyArray(), null, null,
+            "CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, created_at DESC",
+            limit.coerceIn(1, 500).toString()
+        )
+        return cursor.use { c -> buildList { while (c.moveToNext()) add(actionItemFrom(c)) } }
+    }
+
+    fun setActionItemStatus(id: Long, status: String) {
+        writableDatabase.update(
+            "action_items",
+            ContentValues().apply {
+                put("status", status.take(30))
+                put("updated_at", System.currentTimeMillis())
+            },
+            "id=?",
+            arrayOf(id.toString())
+        )
+    }
+
+    fun replaceDocumentChunks(messageId: Long, chunks: List<String>) {
+        writableDatabase.beginTransaction()
+        try {
+            writableDatabase.delete("document_chunks", "message_id=?", arrayOf(messageId.toString()))
+            val now = System.currentTimeMillis()
+            chunks.forEachIndexed { index, text ->
+                writableDatabase.insert("document_chunks", null, ContentValues().apply {
+                    put("message_id", messageId)
+                    put("chunk_index", index)
+                    put("text", text)
+                    put("created_at", now)
+                })
+            }
+            writableDatabase.setTransactionSuccessful()
+        } finally {
+            writableDatabase.endTransaction()
+        }
+    }
+
+    fun setChunkEmbedding(messageId: Long, chunkIndex: Int, embedding: ByteArray) {
+        writableDatabase.update(
+            "document_chunks",
+            ContentValues().apply { put("embedding", embedding) },
+            "message_id=? AND chunk_index=?",
+            arrayOf(messageId.toString(), chunkIndex.toString())
+        )
+    }
+
+    fun saveMessageVersion(messageId: Long, reason: String) {
+        val cursor = readableDatabase.query("messages", null, "id=?", arrayOf(messageId.toString()), null, null, null, "1")
+        cursor.use {
+            if (!it.moveToFirst()) return
+            writableDatabase.insert("message_versions", null, ContentValues().apply {
+                put("message_id", messageId)
+                put("reason", reason.take(60))
+                put("text", it.stringOrNull("text"))
+                put("display_name", it.stringOrNull("display_name"))
+                put("ocr_text", it.stringOrNull("ocr_text"))
+                put("classification", it.stringOrNull("classification"))
+                put("tags", it.stringOrNull("tags"))
+                put("summary", it.stringOrNull("summary"))
+                put("created_at", System.currentTimeMillis())
+            })
+        }
     }
 
     fun createReminder(
@@ -467,6 +765,40 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return changed == 1
     }
 
+    private fun documentMetaFrom(c: Cursor) = DocumentMetaRow(
+        messageId = c.getLong(c.getColumnIndexOrThrow("message_id")),
+        smartTitle = c.stringOrNull("smart_title"),
+        docType = c.stringOrNull("doc_type"),
+        organization = c.stringOrNull("organization"),
+        personNames = c.stringOrNull("person_names"),
+        referenceNumber = c.stringOrNull("reference_number"),
+        amountText = c.stringOrNull("amount_text"),
+        currency = c.stringOrNull("currency"),
+        issueDate = c.stringOrNull("issue_date"),
+        dueDate = c.stringOrNull("due_date"),
+        expiryDate = c.stringOrNull("expiry_date"),
+        actionRequired = c.getInt(c.getColumnIndexOrThrow("action_required")) == 1,
+        actionText = c.stringOrNull("action_text"),
+        confidence = c.doubleOrNull("confidence"),
+        evidenceJson = c.stringOrNull("evidence_json"),
+        extractedJson = c.stringOrNull("extracted_json"),
+        updatedAt = c.getLong(c.getColumnIndexOrThrow("updated_at"))
+    )
+
+    private fun actionItemFrom(c: Cursor) = ActionItemRow(
+        id = c.getLong(c.getColumnIndexOrThrow("id")),
+        spaceId = c.getLong(c.getColumnIndexOrThrow("space_id")),
+        messageId = c.longOrNull("message_id"),
+        kind = c.getString(c.getColumnIndexOrThrow("kind")),
+        title = c.getString(c.getColumnIndexOrThrow("title")),
+        details = c.stringOrNull("details"),
+        dueAt = c.longOrNull("due_at"),
+        status = c.getString(c.getColumnIndexOrThrow("status")),
+        sourceExcerpt = c.stringOrNull("source_excerpt"),
+        createdAt = c.getLong(c.getColumnIndexOrThrow("created_at")),
+        updatedAt = c.getLong(c.getColumnIndexOrThrow("updated_at"))
+    )
+
     private fun reminderFrom(c: Cursor) = ReminderRow(
         id = c.getLong(c.getColumnIndexOrThrow("id")),
         spaceId = c.getLong(c.getColumnIndexOrThrow("space_id")),
@@ -490,6 +822,11 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     private fun Cursor.longOrNull(name: String): Long? {
         val i = getColumnIndexOrThrow(name)
         return if (isNull(i)) null else getLong(i)
+    }
+
+    private fun Cursor.doubleOrNull(name: String): Double? {
+        val i = getColumnIndexOrThrow(name)
+        return if (isNull(i)) null else getDouble(i)
     }
 
     private fun spaceFrom(c: Cursor) = SpaceRow(
