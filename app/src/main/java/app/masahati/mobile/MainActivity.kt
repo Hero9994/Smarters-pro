@@ -616,9 +616,15 @@ class MainActivity : ComponentActivity() {
                     }
                 } else null
 
-                // Quality first: deterministic truth -> cloud reasoning -> local model only as offline fallback.
+                // Quality first: deterministic truth -> dedicated document intelligence -> general agent -> local fallback.
                 val remote = if (localReminderResult == null && directDocumentResult == null) {
-                    runCatching { postAgent(body) }.getOrNull()
+                    runCatching {
+                        if (sourceMessage?.kind == "file") {
+                            postDocumentAlpha(sourceMessage)
+                        } else {
+                            postAgent(body)
+                        }
+                    }.getOrNull()
                 } else null
 
                 val localModelResult = if (
@@ -860,6 +866,30 @@ class MainActivity : ComponentActivity() {
             requestMethod = "POST"
             connectTimeout = 5_000
             readTimeout = 28_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("apikey", SUPABASE_PUBLISHABLE_KEY)
+        }
+        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+        val raw = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        conn.disconnect()
+        return if (raw.isBlank()) JSONObject().put("ok", false) else JSONObject(raw)
+    }
+
+    private fun postDocumentAlpha(message: MessageRow): JSONObject {
+        val meta = db.getDocumentMeta(message.id)
+        val body = JSONObject()
+            .put("displayName", message.displayName.orEmpty())
+            .put("mimeType", message.mimeType.orEmpty())
+            .put("ocrText", message.ocrText.orEmpty().take(14_000))
+            .put("existingSummary", meta?.smartTitle ?: message.summary.orEmpty())
+
+        val conn = (URL(DOCUMENT_ALPHA_URL).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 5_000
+            readTimeout = 32_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
@@ -1808,6 +1838,7 @@ class MainActivity : ComponentActivity() {
         private const val SPACE_LIST_ID = 4001
         private const val MESSAGE_LIST_ID = 4002
         private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-dev"
+        private const val DOCUMENT_ALPHA_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-document-alpha"
         private const val SUPABASE_PUBLISHABLE_KEY = "sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3"
     }
 }
