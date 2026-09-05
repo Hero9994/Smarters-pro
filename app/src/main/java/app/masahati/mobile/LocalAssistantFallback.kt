@@ -7,7 +7,7 @@ object LocalAssistantFallback {
     fun analyze(text: String, spaceTitle: String, recent: List<MessageRow> = emptyList()): JSONObject {
         val raw = text.trim()
         val lower = raw.lowercase()
-        val context = recent.takeLast(6).joinToString(" ") { (it.text.ifBlank { it.ocrText.orEmpty() }) }.lowercase()
+        val context = recent.takeLast(8).joinToString(" ") { (it.text.ifBlank { it.ocrText.orEmpty() }) }.lowercase()\n        val lastUserContext = recent.asReversed().firstOrNull { it.role == "user" }?.let { it.text.ifBlank { it.ocrText.orEmpty() } }.orEmpty()
         val labels = linkedSetOf<String>()
         val keywords = linkedSetOf<String>()
         val actions = JSONArray()
@@ -62,7 +62,7 @@ object LocalAssistantFallback {
                 addLabel("بحث")
                 addKeyword(q.take(80))
             }
-            has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
+            (raw.contains("؟") || raw.contains("?") || has("ضد مين", "مين الخصم", "ضد من", "متى", "امتى", "إمتى", "شو الموعد", "أي ساعة", "اي ساعة", "شو هاد", "شو هاي", "اشو هاد", "ايش هاد")) && recent.isNotEmpty() -> {\n                classification = "question"\n                addLabel("سؤال")\n                reply = when {\n                    has("ضد مين", "مين الخصم", "ضد من") -> {\n                        val after = lastUserContext.substringAfter("ضد ", "").trim()\n                        val opponent = after.split(' ', '،', ',', '.', '؟', '?').firstOrNull { it.isNotBlank() }\n                        if (opponent != null) "حسب آخر معلومة عندي: المباراة ضد $opponent." else "ما لقيت اسم الخصم بشكل واضح في آخر المعلومات."\n                    }\n                    has("متى", "امتى", "إمتى", "شو الموعد", "أي ساعة", "اي ساعة") -> when {\n                        day != null && time != null -> "حسب آخر معلومة عندي: $day الساعة $time."\n                        day != null -> "حسب آخر معلومة عندي: الموعد يوم $day، لكن الوقت غير واضح."\n                        time != null -> "حسب آخر معلومة عندي: الساعة $time، لكن اليوم غير واضح."\n                        else -> "ما لقيت موعداً واضحاً في آخر المعلومات."\n                    }\n                    recentFile != null && has("شو هاد", "شو هاي", "اشو هاد", "ايش هاد") -> {\n                        val d = recentFile.summary?.takeIf { it.isNotBlank() } ?: recentFile.tags?.takeIf { it.isNotBlank() } ?: recentFile.displayName.orEmpty()\n                        if (d.isNotBlank()) "حسب آخر مستند: $d." else "عندي مستند سابق، لكن وصفه غير كافٍ لأجاوب بدقة."\n                    }\n                    else -> if (lastUserContext.isNotBlank()) "حسب آخر معلومة عندي: ${lastUserContext.take(220)}" else "ما عندي سياق كافٍ لأجاوب بدقة."\n                }\n            }\n            has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
                 classification = "command"
                 actions.put(JSONObject().put("type", "archive_space").put("args", JSONObject().put("space_name", spaceTitle)).put("requires_confirmation", false))
                 reply = "فهمت أنك تريد أرشفة هذه المساحة."
