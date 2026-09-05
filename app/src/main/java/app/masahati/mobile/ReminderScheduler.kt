@@ -421,6 +421,14 @@ object ReminderDelivery {
             val reminder = db.getReminder(reminderId) ?: return
             if (!reminder.enabled) return
 
+            reminder.conditionActionId?.let { actionId ->
+                val action = db.getActionItem(actionId)
+                if (action == null || action.status != "open") {
+                    db.disableReminder(reminderId)
+                    return
+                }
+            }
+
             val now = System.currentTimeMillis()
             val scheduledAt = reminder.nextFireAt ?: now
 
