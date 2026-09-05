@@ -15,8 +15,9 @@ object AlphaExporter {
         val spaces = (db.listSpaces(false) + db.listSpaces(true)).distinctBy { it.id }
         val allMessages = db.allMessagesIncludingTrash()
         val trashIds = db.listTrash(500).mapTo(mutableSetOf()) { it.id }
-        val reminders = db.listActiveReminders()
-        val actions = db.listOpenActionItems(500)
+        val reminders = db.listAllReminders()
+        val actions = db.listAllActionItems()
+        val versions = db.listAllMessageVersions()
 
         val root = JSONObject()
             .put("format", "masahati-alpha-backup-v1")
@@ -56,7 +57,7 @@ object AlphaExporter {
             }
         })
 
-        root.put("active_reminders", JSONArray().apply {
+        root.put("reminders", JSONArray().apply {
             reminders.forEach { r ->
                 put(JSONObject()
                     .put("id", r.id)
@@ -69,11 +70,13 @@ object AlphaExporter {
                     .put("minute", r.minute)
                     .put("next_fire_at", r.nextFireAt)
                     .put("enabled", r.enabled)
+                    .put("delivered_at", r.deliveredAt)
+                    .put("condition_action_id", r.conditionActionId)
                     .put("created_at", r.createdAt))
             }
         })
 
-        root.put("open_actions", JSONArray().apply {
+        root.put("actions", JSONArray().apply {
             actions.forEach { a ->
                 put(JSONObject()
                     .put("id", a.id)
@@ -85,7 +88,24 @@ object AlphaExporter {
                     .put("due_at", a.dueAt)
                     .put("status", a.status)
                     .put("source_excerpt", a.sourceExcerpt)
-                    .put("created_at", a.createdAt))
+                    .put("created_at", a.createdAt)
+                    .put("updated_at", a.updatedAt))
+            }
+        })
+
+        root.put("message_versions", JSONArray().apply {
+            versions.forEach { v ->
+                put(JSONObject()
+                    .put("id", v.id)
+                    .put("message_id", v.messageId)
+                    .put("reason", v.reason)
+                    .put("text", v.text)
+                    .put("display_name", v.displayName)
+                    .put("ocr_text", v.ocrText)
+                    .put("classification", v.classification)
+                    .put("tags", v.tags)
+                    .put("summary", v.summary)
+                    .put("created_at", v.createdAt))
             }
         })
 
