@@ -150,6 +150,7 @@ class MainActivity : ComponentActivity() {
         db = MasahatiDatabase(this)
         ReminderScheduler.ensureChannel(this)
         ReminderScheduler.rescheduleAll(this)
+        MorningBriefScheduler.ensureIfEnabled(this)
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(pageBg)
@@ -1150,6 +1151,7 @@ class MainActivity : ComponentActivity() {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
             menu.add("اليوم والإجراءات")
+            menu.add("الملخص الصباحي")
             menu.add("سلة المهملات")
             menu.add("تصدير نسخة ZIP")
             menu.add("الذاكرة الدلالية")
@@ -1159,6 +1161,7 @@ class MainActivity : ComponentActivity() {
                 when (it.title.toString()) {
                     "بحث ذكي شامل" -> promptGlobalSearch()
                     "اليوم والإجراءات" -> showTodayAndActions()
+                    "الملخص الصباحي" -> showMorningBriefSettings()
                     "سلة المهملات" -> showTrash()
                     "تصدير نسخة ZIP" -> backupExportLauncher.launch("Masahati-alpha-backup.zip")
                     "الذاكرة الدلالية" -> showSemanticMemoryManager()
@@ -1510,39 +1513,75 @@ class MainActivity : ComponentActivity() {
     private fun showTodayAndActions() {
         val actions = db.listOpenActionItems(100)
         val reminders = db.listActiveReminders()
-        if (actions.isEmpty() && reminders.isEmpty()) {
+        val trackedDates = AlphaDateTracker.upcoming(db, horizonDays = 90)
+        if (actions.isEmpty() && reminders.isEmpty() && trackedDates.isEmpty()) {
             Toast.makeText(this, "لا يوجد شيء يحتاج انتباهك حالياً", Toast.LENGTH_LONG).show()
             return
         }
+
         val labels = mutableListOf<String>()
-        val actionIds = mutableListOf<Long?>()
-        actions.forEach { a ->
-            val due = a.dueAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }
-            labels += listOfNotNull("⚑ ${a.title}", due?.let { "— $it" }).joinToString(" ")
-            actionIds += a.id
-        }
-        reminders.forEach { r ->
-            val due = r.nextFireAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }.orEmpty()
-            labels += "⏰ ${r.body.take(70)} ${if (due.isBlank()) "" else "— $due"}"
-            actionIds += null
-        }
-        AlertDialog.Builder(this)
-            .setTitle("اليوم والإجراءات")
-            .setItems(labels.toTypedArray()) { _, which ->
-                val id = actionIds[which] ?: return@setItems
+        val handlers = mutableListOf<() -> Unit>()
+
+        actions.forEach { action ->
+            val due = action.dueAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }
+            labels += listOfNotNull("⚑ ${action.title}", due?.let { "— $it" }).joinToString(" ")
+            handlers += {
                 AlertDialog.Builder(this)
                     .setTitle("إنهاء هذا الإجراء؟")
+                    .setMessage(action.title)
                     .setPositiveButton("تم") { _, _ ->
-                        val reminderIds = db.completeActionItem(id)
+                        val reminderIds = db.completeActionItem(action.id)
                         reminderIds.forEach { ReminderScheduler.cancel(this@MainActivity, it) }
                         showTodayAndActions()
                     }
                     .setNegativeButton("إلغاء", null)
                     .show()
             }
+        }
+
+        reminders.forEach { reminder ->
+            val due = reminder.nextFireAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }.orEmpty()
+            labels += "⏰ ${reminder.body.take(70)} ${if (due.isBlank()) "" else "— $due"}"
+            handlers += { openSpace(reminder.spaceId) }
+        }
+
+        trackedDates.forEach { notice ->
+            val prefix = if (notice.kind == "due") "📅" else "⏳"
+            labels += "$prefix ${AlphaDateTracker.label(notice)}"
+            handlers += { openSpace(notice.source.spaceId) }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("اليوم والإجراءات")
+            .setItems(labels.toTypedArray()) { _, which -> handlers[which].invoke() }
             .setPositiveButton("إغلاق", null)
             .show()
     }
+
+    private fun showMorningBriefSettings() {
+        val enabled = MorningBriefScheduler.isEnabled(this)
+        AlertDialog.Builder(this)
+            .setTitle("الملخص الصباحي")
+            .setMessage(
+                if (enabled) {
+                    "مفعّل ✓\nيصل تقريباً الساعة 08:00 ويجمع الإجراءات والتذكيرات والمواعيد القريبة وانتهاء المستندات."
+                } else {
+                    "يمكن لمساحاتي إرسال ملخص صباحي تقريباً الساعة 08:00 عند وجود شيء يحتاج انتباهك. لا يتم إنشاء محادثة افتراضية."
+                }
+            )
+            .setPositiveButton(if (enabled) "إيقاف" else "تفعيل") { _, _ ->
+                MorningBriefScheduler.setEnabled(this, !enabled)
+                if (!enabled) maybeRequestNotificationPermission()
+                Toast.makeText(
+                    this,
+                    if (enabled) "تم إيقاف الملخص الصباحي" else "تم تفعيل الملخص الصباحي",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
+    }
+
 
     private fun showTrash() {
         val trash = db.listTrash(100)
