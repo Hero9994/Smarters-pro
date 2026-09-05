@@ -66,6 +66,14 @@ data class ActionItemRow(
     val updatedAt: Long
 )
 
+data class DocumentChunkRow(
+    val id: Long,
+    val messageId: Long,
+    val chunkIndex: Int,
+    val text: String,
+    val embedding: ByteArray?
+)
+
 data class ReminderRow(
     val id: Long,
     val spaceId: Long,
@@ -708,6 +716,28 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
     }
 
+    fun listDocumentChunks(onlyWithoutEmbedding: Boolean = false): List<DocumentChunkRow> {
+        val where = if (onlyWithoutEmbedding) "embedding IS NULL" else null
+        val cursor = readableDatabase.query(
+            "document_chunks", null, where, null, null, null, "message_id ASC, chunk_index ASC"
+        )
+        return cursor.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        DocumentChunkRow(
+                            id = c.getLong(c.getColumnIndexOrThrow("id")),
+                            messageId = c.getLong(c.getColumnIndexOrThrow("message_id")),
+                            chunkIndex = c.getInt(c.getColumnIndexOrThrow("chunk_index")),
+                            text = c.getString(c.getColumnIndexOrThrow("text")),
+                            embedding = c.blobOrNull("embedding")
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     fun saveMessageVersion(messageId: Long, reason: String) {
         val cursor = readableDatabase.query("messages", null, "id=?", arrayOf(messageId.toString()), null, null, null, "1")
         cursor.use {
@@ -847,6 +877,11 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     private fun Cursor.doubleOrNull(name: String): Double? {
         val i = getColumnIndexOrThrow(name)
         return if (isNull(i)) null else getDouble(i)
+    }
+
+    private fun Cursor.blobOrNull(name: String): ByteArray? {
+        val i = getColumnIndexOrThrow(name)
+        return if (isNull(i)) null else getBlob(i)
     }
 
     private fun spaceFrom(c: Cursor) = SpaceRow(
