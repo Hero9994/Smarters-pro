@@ -28,7 +28,7 @@ class NearDuplicateFingerprintTest {
                 .replace("Musterstraße", "Musterstrasse")
                 .replace("900 EUR", "900,00 EUR")
         )!!
-        assertTrue((NearDuplicateFingerprint.distance(a, b) ?: 64) <= 12)
+        assertTrue((NearDuplicateFingerprint.distance(a, b) ?: 64) <= 7)
     }
 
     @Test
