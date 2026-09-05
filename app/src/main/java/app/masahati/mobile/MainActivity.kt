@@ -136,6 +136,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val backupImportLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        AlertDialog.Builder(this)
+            .setTitle("استيراد نسخة مساحاتي؟")
+            .setMessage("سيتم إضافة المحتوى إلى بياناتك الحالية بدون حذف أي شيء موجود.")
+            .setPositiveButton("استيراد") { _, _ ->
+                Toast.makeText(this, "جاري استيراد النسخة…", Toast.LENGTH_LONG).show()
+                worker.execute {
+                    runCatching {
+                        contentResolver.openInputStream(uri)?.use { AlphaImporter.importZip(this@MainActivity, db, it) }
+                            ?: error("Cannot open backup")
+                    }.onSuccess { summary ->
+                        ReminderScheduler.rescheduleAll(this@MainActivity)
+                        runOnUiThread {
+                            Toast.makeText(
+                                this,
+                                "تم الاستيراد: ${summary.spaces} مساحة، ${summary.messages} عنصر، ${summary.files} ملف",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            showHome()
+                        }
+                    }.onFailure { error ->
+                        runOnUiThread {
+                            Toast.makeText(
+                                this,
+                                "تعذر استيراد النسخة: ${error.localizedMessage ?: "خطأ"}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             ReminderScheduler.rescheduleAll(this)
@@ -1158,6 +1194,7 @@ class MainActivity : ComponentActivity() {
             menu.add("الملخص الصباحي")
             menu.add("سلة المهملات")
             menu.add("تصدير نسخة ZIP")
+            menu.add("استيراد نسخة ZIP")
             menu.add("الذاكرة الدلالية")
             menu.add("الذكاء المحلي")
             menu.add("إعداد دقة التنبيهات")
@@ -1168,6 +1205,7 @@ class MainActivity : ComponentActivity() {
                     "الملخص الصباحي" -> showMorningBriefSettings()
                     "سلة المهملات" -> showTrash()
                     "تصدير نسخة ZIP" -> backupExportLauncher.launch("Masahati-alpha-backup.zip")
+                    "استيراد نسخة ZIP" -> backupImportLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
                     "الذاكرة الدلالية" -> showSemanticMemoryManager()
                     "الذكاء المحلي" -> showLocalAiManager()
                     "إعداد دقة التنبيهات" -> ReminderScheduler.openExactAlarmSettings(this@MainActivity)
@@ -1464,6 +1502,52 @@ class MainActivity : ComponentActivity() {
                 onChosen(chosen.id, chosen.title)
             }
             .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun showMessageHistory(message: MessageRow) {
+        val versions = db.listMessageVersions(message.id, 50)
+        if (versions.isEmpty()) {
+            Toast.makeText(this, "لا يوجد سجل تعديلات لهذا العنصر", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val formatter = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+        val labels = versions.map { version ->
+            val reason = when (version.reason) {
+                "ai_update" -> "تحليل ذكي"
+                "ocr_update" -> "تحديث OCR"
+                "smart_rename" -> "إعادة تسمية ذكية"
+                "trash" -> "قبل النقل للسلة"
+                "before_restore" -> "قبل استرجاع نسخة"
+                else -> version.reason
+            }
+            "$reason — ${formatter.format(Date(version.createdAt))}"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("سجل التعديلات")
+            .setItems(labels) { _, which ->
+                val version = versions[which]
+                val preview = listOfNotNull(
+                    version.displayName?.let { "الاسم: $it" },
+                    version.summary?.let { "الملخص: $it" },
+                    version.text?.takeIf { it.isNotBlank() }?.let { "النص: ${it.take(700)}" },
+                    version.ocrText?.takeIf { it.isNotBlank() }?.let { "OCR: ${it.take(700)}" }
+                ).joinToString("\n\n").ifBlank { "نسخة محفوظة قبل التعديل." }
+
+                AlertDialog.Builder(this)
+                    .setTitle(labels[which])
+                    .setMessage(preview)
+                    .setPositiveButton("استرجاع هذه النسخة") { _, _ ->
+                        if (db.restoreMessageVersion(version.id)) {
+                            currentSpaceId?.let(::renderMessages)
+                            Toast.makeText(this, "تم استرجاع النسخة", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("إغلاق", null)
+                    .show()
+            }
+            .setPositiveButton("إغلاق", null)
             .show()
     }
 
@@ -1765,6 +1849,7 @@ class MainActivity : ComponentActivity() {
                 menu.add("نسخ")
             }
             menu.add(if (m.starred) "إلغاء النجمة" else "تمييز بنجمة ★")
+            menu.add("سجل التعديلات")
             menu.add("نقل إلى مساحة أخرى")
             menu.add("مشاركة")
             menu.add("حذف")
@@ -1781,6 +1866,7 @@ class MainActivity : ComponentActivity() {
                         db.setMessageStarred(m.id, false)
                         currentSpaceId?.let(::renderMessages)
                     }
+                    "سجل التعديلات" -> showMessageHistory(m)
                     "نقل إلى مساحة أخرى" -> showMoveMessageDialog(m)
                     "مشاركة" -> shareMessage(m)
                     "حذف" -> confirmDeleteMessage(m)
