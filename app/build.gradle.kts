@@ -10,14 +10,14 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.7.0"
+        versionCode = 701
+        versionName = "0.7.0-beta"
     }
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".v07"
-            versionNameSuffix = "-dev"
+            applicationIdSuffix = ".beta"
+            versionNameSuffix = "-lab"
         }
         release {
             isMinifyEnabled = false
