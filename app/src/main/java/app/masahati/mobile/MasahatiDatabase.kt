@@ -84,6 +84,19 @@ data class DocumentChunkRow(
     val embedding: ByteArray?
 )
 
+data class MessageVersionRow(
+    val id: Long,
+    val messageId: Long,
+    val reason: String,
+    val text: String?,
+    val displayName: String?,
+    val ocrText: String?,
+    val classification: String?,
+    val tags: String?,
+    val summary: String?,
+    val createdAt: Long
+)
+
 data class ReminderRow(
     val id: Long,
     val spaceId: Long,
@@ -695,6 +708,34 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
     }
 
+    fun importActionItem(
+        spaceId: Long,
+        messageId: Long?,
+        kind: String,
+        title: String,
+        details: String?,
+        dueAt: Long?,
+        status: String,
+        sourceExcerpt: String?,
+        createdAt: Long,
+        updatedAt: Long
+    ): Long = writableDatabase.insert(
+        "action_items",
+        null,
+        ContentValues().apply {
+            put("space_id", spaceId)
+            if (messageId == null) putNull("message_id") else put("message_id", messageId)
+            put("kind", kind.take(60))
+            put("title", title.take(180))
+            if (details == null) putNull("details") else put("details", details.take(1200))
+            if (dueAt == null) putNull("due_at") else put("due_at", dueAt)
+            put("status", status.take(30).ifBlank { "open" })
+            if (sourceExcerpt == null) putNull("source_excerpt") else put("source_excerpt", sourceExcerpt.take(1200))
+            put("created_at", createdAt)
+            put("updated_at", updatedAt)
+        }
+    )
+
     fun createActionItem(
         spaceId: Long,
         messageId: Long?,
@@ -827,6 +868,128 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             })
         }
     }
+    fun listMessageVersions(messageId: Long, limit: Int = 50): List<MessageVersionRow> {
+        val cursor = readableDatabase.query(
+            "message_versions",
+            null,
+            "message_id=?",
+            arrayOf(messageId.toString()),
+            null,
+            null,
+            "created_at DESC, id DESC",
+            limit.coerceIn(1, 200).toString()
+        )
+        return cursor.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        MessageVersionRow(
+                            id = c.getLong(c.getColumnIndexOrThrow("id")),
+                            messageId = c.getLong(c.getColumnIndexOrThrow("message_id")),
+                            reason = c.getString(c.getColumnIndexOrThrow("reason")),
+                            text = c.stringOrNull("text"),
+                            displayName = c.stringOrNull("display_name"),
+                            ocrText = c.stringOrNull("ocr_text"),
+                            classification = c.stringOrNull("classification"),
+                            tags = c.stringOrNull("tags"),
+                            summary = c.stringOrNull("summary"),
+                            createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun restoreMessageVersion(versionId: Long): Boolean {
+        val cursor = readableDatabase.query(
+            "message_versions", null, "id=?", arrayOf(versionId.toString()), null, null, null, "1"
+        )
+        val version = cursor.use {
+            if (!it.moveToFirst()) return false
+            MessageVersionRow(
+                id = it.getLong(it.getColumnIndexOrThrow("id")),
+                messageId = it.getLong(it.getColumnIndexOrThrow("message_id")),
+                reason = it.getString(it.getColumnIndexOrThrow("reason")),
+                text = it.stringOrNull("text"),
+                displayName = it.stringOrNull("display_name"),
+                ocrText = it.stringOrNull("ocr_text"),
+                classification = it.stringOrNull("classification"),
+                tags = it.stringOrNull("tags"),
+                summary = it.stringOrNull("summary"),
+                createdAt = it.getLong(it.getColumnIndexOrThrow("created_at"))
+            )
+        }
+        saveMessageVersion(version.messageId, "before_restore")
+        val changed = writableDatabase.update(
+            "messages",
+            ContentValues().apply {
+                put("text", version.text ?: "")
+                if (version.displayName == null) putNull("display_name") else put("display_name", version.displayName)
+                if (version.ocrText == null) putNull("ocr_text") else put("ocr_text", version.ocrText)
+                if (version.classification == null) putNull("classification") else put("classification", version.classification)
+                if (version.tags == null) putNull("tags") else put("tags", version.tags)
+                if (version.summary == null) putNull("summary") else put("summary", version.summary)
+                putNull("deleted_at")
+            },
+            "id=?",
+            arrayOf(version.messageId.toString())
+        )
+        return changed == 1
+    }
+
+    fun importSpace(
+        title: String,
+        pinned: Boolean,
+        archived: Boolean,
+        createdAt: Long,
+        updatedAt: Long
+    ): Long = writableDatabase.insert(
+        "spaces",
+        null,
+        ContentValues().apply {
+            put("title", title.trim().ifBlank { "مساحة مستوردة" }.take(120))
+            put("pinned", if (pinned) 1 else 0)
+            put("archived", if (archived) 1 else 0)
+            put("created_at", createdAt)
+            put("updated_at", updatedAt)
+        }
+    )
+
+    fun importMessage(
+        spaceId: Long,
+        role: String,
+        kind: String,
+        text: String,
+        filePath: String?,
+        mimeType: String?,
+        displayName: String?,
+        ocrText: String?,
+        classification: String?,
+        tags: String?,
+        summary: String?,
+        starred: Boolean,
+        createdAt: Long
+    ): Long = writableDatabase.insert(
+        "messages",
+        null,
+        ContentValues().apply {
+            put("space_id", spaceId)
+            put("role", role.take(20))
+            put("kind", kind.take(20))
+            put("text", text)
+            if (filePath == null) putNull("file_path") else put("file_path", filePath)
+            if (mimeType == null) putNull("mime_type") else put("mime_type", mimeType)
+            if (displayName == null) putNull("display_name") else put("display_name", displayName)
+            if (ocrText == null) putNull("ocr_text") else put("ocr_text", ocrText)
+            if (classification == null) putNull("classification") else put("classification", classification)
+            if (tags == null) putNull("tags") else put("tags", tags)
+            if (summary == null) putNull("summary") else put("summary", summary)
+            put("starred", if (starred) 1 else 0)
+            put("created_at", createdAt)
+        }
+    )
+
 
     fun createReminder(
         spaceId: Long,
@@ -854,6 +1017,34 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             put("created_at", now)
         })
     }
+
+    fun importReminder(
+        spaceId: Long,
+        title: String,
+        body: String,
+        repeatRule: String,
+        dayOfWeek: Int?,
+        hour: Int?,
+        minute: Int?,
+        nextFireAt: Long?,
+        enabled: Boolean,
+        createdAt: Long
+    ): Long = writableDatabase.insert(
+        "reminders",
+        null,
+        ContentValues().apply {
+            put("space_id", spaceId)
+            put("title", title.take(100))
+            put("body", body.take(500))
+            put("repeat_rule", repeatRule.take(20).ifBlank { "none" })
+            if (dayOfWeek == null) putNull("day_of_week") else put("day_of_week", dayOfWeek)
+            if (hour == null) putNull("hour") else put("hour", hour)
+            if (minute == null) putNull("minute") else put("minute", minute)
+            if (nextFireAt == null) putNull("next_fire_at") else put("next_fire_at", nextFireAt)
+            put("enabled", if (enabled) 1 else 0)
+            put("created_at", createdAt)
+        }
+    )
 
     fun getReminder(id: Long): ReminderRow? {
         val c = readableDatabase.query("reminders", null, "id=?", arrayOf(id.toString()), null, null, null, "1")
