@@ -122,6 +122,12 @@ class MainActivity : ComponentActivity() {
         if (spoken.isNotBlank()) {
             composer?.setText(spoken)
             composer?.setSelection(spoken.length)
+            AlertDialog.Builder(this)
+                .setTitle("الإملاء الصوتي")
+                .setMessage(spoken)
+                .setPositiveButton("حفظ الآن") { _, _ -> sendText() }
+                .setNegativeButton("تعديل", null)
+                .show()
         }
     }
 
