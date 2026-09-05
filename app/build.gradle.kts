@@ -43,5 +43,6 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.0")
     implementation("androidx.work:work-runtime:2.11.2")
+    implementation("com.google.mediapipe:tasks-text:1.0.0")
     testImplementation("junit:junit:4.13.2")
 }
