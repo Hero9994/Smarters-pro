@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'develop/**'
+      - 'beta/**'
   pull_request:
     branches:
       - main
@@ -15,7 +16,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -43,7 +44,7 @@ jobs:
       - name: Build, lint and test
         run: gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
-      - name: Verify integrated APK identity and signature
+      - name: Verify beta APK identity and signature
         shell: bash
         run: |
           set -euo pipefail
@@ -51,13 +52,13 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$META"
           test -f "$APK"
-          jq -e '.applicationId == "app.masahati.mobile.v07" and .elements[0].versionCode == 7 and .elements[0].versionName == "0.7.0-dev"' "$META"
+          jq -e '.applicationId == "app.masahati.mobile.beta" and .elements[0].versionCode == 701 and .elements[0].versionName == "0.7.0-beta-lab"' "$META"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
 
-      - name: Upload integrated debug APK
+      - name: Upload beta debug APK
         uses: actions/upload-artifact@v7
         with:
-          name: masahati-v0.7-agent-scanner-apk
+          name: masahati-beta-ai-scanner-lab-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -66,7 +67,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: masahati-v0.7-lint
+          name: masahati-beta-lint
           path: app/build/reports/lint-results-debug.html
           if-no-files-found: warn
           retention-days: 14
