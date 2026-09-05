@@ -1,6 +1,7 @@
 package app.masahati.mobile
 
 import android.content.Context
+import androidx.core.content.edit
 import app.masahati.mobile.ai.LocalModelCatalog
 import app.masahati.mobile.ai.LocalModelSpec
 
@@ -27,7 +28,7 @@ class BetaLab(context: Context) {
     }.getOrDefault(BetaAiStrategy.AUTO_HYBRID)
 
     fun setAiStrategy(value: BetaAiStrategy) {
-        prefs.edit().putString(KEY_AI, value.name).apply()
+        prefs.edit { putString(KEY_AI, value.name) }
     }
 
     fun scanMode(): BetaScanMode = runCatching {
@@ -35,7 +36,7 @@ class BetaLab(context: Context) {
     }.getOrDefault(BetaScanMode.BALANCED)
 
     fun setScanMode(value: BetaScanMode) {
-        prefs.edit().putString(KEY_SCAN, value.name).apply()
+        prefs.edit { putString(KEY_SCAN, value.name) }
     }
 
     fun localModelSpec(): LocalModelSpec =
@@ -43,13 +44,13 @@ class BetaLab(context: Context) {
         else LocalModelCatalog.QWEN3_1_7B_DYNAMIC
 
     fun setLocalModel(id: String) {
-        prefs.edit().putString(KEY_MODEL, if (id == "gemma") "gemma" else "qwen").apply()
+        prefs.edit { putString(KEY_MODEL, if (id == "gemma") "gemma" else "qwen") }
     }
 
     fun showEngineLabels(): Boolean = prefs.getBoolean(KEY_ENGINE_LABELS, true)
 
     fun setShowEngineLabels(value: Boolean) {
-        prefs.edit().putBoolean(KEY_ENGINE_LABELS, value).apply()
+        prefs.edit { putBoolean(KEY_ENGINE_LABELS, value) }
     }
 
     fun summary(): String =
