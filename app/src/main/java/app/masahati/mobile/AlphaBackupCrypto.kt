@@ -1,6 +1,7 @@
 package app.masahati.mobile
 
 import java.io.InputStream
+import java.io.FilterInputStream
 import java.io.OutputStream
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -45,7 +46,10 @@ object AlphaBackupCrypto {
             init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
         }
         CipherInputStream(input, cipher).use { decrypted ->
-            readPlainZip(decrypted)
+            val nonClosing = object : FilterInputStream(decrypted) {
+                override fun close() = Unit
+            }
+            readPlainZip(nonClosing)
             while (decrypted.read() != -1) {
                 // Drain to force GCM tag verification before success is reported.
             }
