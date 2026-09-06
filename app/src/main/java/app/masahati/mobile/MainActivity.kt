@@ -439,6 +439,8 @@ class MainActivity : ComponentActivity() {
             setMargins(dp(16), 0, dp(16), dp(10))
         })
 
+        addHomeToolsSection()
+
         val listHost = LinearLayout(this).apply {
             id = SPACE_LIST_ID
             orientation = LinearLayout.VERTICAL
@@ -1443,6 +1445,136 @@ class MainActivity : ComponentActivity() {
             }
             show()
         }
+    }
+
+    private fun addHomeToolsSection() {
+        val title = text("أدوات مساحاتي", 18f, Color.rgb(60, 66, 64), true)
+        root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(18), dp(2), dp(18), dp(6))
+        })
+
+        val host = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(4), dp(12), dp(8))
+            background = rounded(surfaceBg, 18f, Color.rgb(218, 220, 217), 1)
+        }
+
+        fun addRow(vararg items: Pair<String, () -> Unit>) {
+            val row = horizontal()
+            items.forEachIndexed { index, item ->
+                val b = Button(this).apply {
+                    text = item.first
+                    textSize = 14.5f
+                    setTextColor(Color.rgb(38, 44, 43))
+                    isAllCaps = false
+                    background = rounded(controlBg, 14f)
+                    setOnClickListener { item.second.invoke() }
+                    setPadding(dp(4), 0, dp(4), 0)
+                }
+                row.addView(b, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    if (index > 0) marginStart = dp(6)
+                })
+            }
+            host.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply {
+                bottomMargin = dp(4)
+            })
+        }
+
+        addRow(
+            "📄 سكانر" to { chooseSpaceForTool("اختر مساحة لحفظ المسح") { openSpace(it); startSmartScanner() } },
+            "🔎 بحث ذكي" to { promptGlobalSearch() },
+            "⏰ اليوم" to { showTodayAndActions() }
+        )
+        addRow(
+            "🎙 صوت" to { chooseSpaceForTool("اختر مساحة للملاحظة الصوتية") { openSpace(it); startVoiceInbox() } },
+            "🧠 ذاكرة" to { showSemanticMemoryManager() },
+            "🤖 AI محلي" to { showLocalAiManager() }
+        )
+        addRow(
+            "💾 نسخ" to { showBackupHub() },
+            "🗑 السلة" to { showTrash() },
+            "🧰 كل الأدوات" to { showToolsHub() }
+        )
+
+        root.addView(host, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(14), 0, dp(14), dp(10))
+        })
+    }
+
+    private fun chooseSpaceForTool(title: String, action: (Long) -> Unit) {
+        val spaces = (db.listSpaces(false) + db.listSpaces(true)).distinctBy { it.id }
+        if (spaces.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("لا توجد مساحة بعد")
+                .setMessage("أنشئ مساحة أولاً، وبعدها استخدم الأداة داخلها.")
+                .setPositiveButton("إنشاء مساحة") { _, _ -> promptNewSpace() }
+                .setNegativeButton("إلغاء", null)
+                .show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setItems(spaces.map { it.title }.toTypedArray()) { _, which -> action(spaces[which].id) }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun showBackupHub() {
+        val items = arrayOf(
+            "تصدير نسخة ZIP",
+            "استيراد نسخة ZIP",
+            "تصدير نسخة مشفرة",
+            "استيراد نسخة مشفرة"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("النسخ الاحتياطي")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> backupExportLauncher.launch("Masahati-alpha-backup.zip")
+                    1 -> backupImportLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+                    2 -> promptEncryptedBackupPassword(export = true)
+                    3 -> promptEncryptedBackupPassword(export = false)
+                }
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showToolsHub() {
+        val items = arrayOf(
+            "📄 سكانر مستندات ذكي",
+            "📎 إرفاق ملف أو صورة",
+            "🎙 إملاء صوتي",
+            "🔎 بحث ذكي شامل",
+            "⏰ اليوم والإجراءات",
+            "🌅 الملخص الصباحي",
+            "🧠 الذاكرة الدلالية",
+            "🤖 الذكاء المحلي",
+            "💾 النسخ الاحتياطي",
+            "🗑 سلة المهملات",
+            if (showArchived) "📂 المساحات النشطة" else "📦 المساحات المؤرشفة",
+            "🔔 إعداد دقة التنبيهات"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("كل أدوات مساحاتي")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> chooseSpaceForTool("اختر مساحة لحفظ المسح") { openSpace(it); startSmartScanner() }
+                    1 -> chooseSpaceForTool("اختر مساحة لحفظ الملف") { openSpace(it); filePicker.launch(arrayOf("*/*")) }
+                    2 -> chooseSpaceForTool("اختر مساحة للملاحظة الصوتية") { openSpace(it); startVoiceInbox() }
+                    3 -> promptGlobalSearch()
+                    4 -> showTodayAndActions()
+                    5 -> showMorningBriefSettings()
+                    6 -> showSemanticMemoryManager()
+                    7 -> showLocalAiManager()
+                    8 -> showBackupHub()
+                    9 -> showTrash()
+                    10 -> { showArchived = !showArchived; showHome() }
+                    11 -> ReminderScheduler.openExactAlarmSettings(this)
+                }
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
     }
 
     private fun showHomeMenu(anchor: View) {
