@@ -142,9 +142,11 @@ class MainActivity : ComponentActivity() {
                 contentResolver.openOutputStream(uri)?.use { AlphaExporter.export(this@MainActivity, db, it) }
                     ?: error("Cannot open export destination")
             }.onSuccess {
-                runOnUiThread { Toast.makeText(this, "تم تصدير نسخة ZIP كاملة", Toast.LENGTH_LONG).show() }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread Toast.makeText(this, "تم تصدير نسخة ZIP كاملة", Toast.LENGTH_LONG).show() }
             }.onFailure { error ->
-                runOnUiThread { Toast.makeText(this, "تعذر التصدير: ${error.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show() }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread Toast.makeText(this, "تعذر التصدير: ${error.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show() }
             }
         }
     }
@@ -163,6 +165,7 @@ class MainActivity : ComponentActivity() {
                     }.onSuccess { summary ->
                         ReminderScheduler.rescheduleAll(this@MainActivity)
                         runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                             Toast.makeText(
                                 this,
                                 "تم الاستيراد: ${summary.spaces} مساحة، ${summary.messages} عنصر، ${summary.files} ملف",
@@ -172,6 +175,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }.onFailure { error ->
                         runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                             Toast.makeText(
                                 this,
                                 "تعذر استيراد النسخة: ${error.localizedMessage ?: "خطأ"}",
@@ -202,9 +206,11 @@ class MainActivity : ComponentActivity() {
                     }
                 } ?: error("Cannot open encrypted backup destination")
             }.onSuccess {
-                runOnUiThread { Toast.makeText(this, "تم إنشاء نسخة مساحاتي مشفرة", Toast.LENGTH_LONG).show() }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread Toast.makeText(this, "تم إنشاء نسخة مساحاتي مشفرة", Toast.LENGTH_LONG).show() }
             }.onFailure { error ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     Toast.makeText(this, "تعذر إنشاء النسخة المشفرة: ${error.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -243,6 +249,7 @@ class MainActivity : ComponentActivity() {
             result.onSuccess { imported ->
                 ReminderScheduler.rescheduleAll(this@MainActivity)
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     Toast.makeText(
                         this,
                         "تم استيراد النسخة المشفرة: ${imported.spaces} مساحة، ${imported.messages} عنصر",
@@ -252,6 +259,7 @@ class MainActivity : ComponentActivity() {
                 }
             }.onFailure { error ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     Toast.makeText(
                         this,
                         "فشل فك النسخة المشفرة. تحقق من كلمة المرور أو الملف.",
@@ -770,6 +778,7 @@ class MainActivity : ComponentActivity() {
                         val reminder = db.getReminder(reminderId)
                         val exact = reminder?.let { ReminderScheduler.schedule(this@MainActivity, db, it) } ?: false
                         runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                             maybeRequestNotificationPermission()
                             if (!exact) maybeRequestExactAlarmPermission()
                         }
@@ -975,6 +984,7 @@ class MainActivity : ComponentActivity() {
             } finally {
                 busyCount = (busyCount - 1).coerceAtLeast(0)
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     if (currentSpaceId == spaceId) {
                         currentSpaceTitle = db.getSpace(spaceId)?.title ?: currentSpaceTitle
                         showChat()
@@ -1002,6 +1012,7 @@ class MainActivity : ComponentActivity() {
                         val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
                         notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
                         runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                             maybeRequestNotificationPermission()
                             if (!created.exact) maybeRequestExactAlarmPermission()
                         }
@@ -1214,12 +1225,14 @@ class MainActivity : ComponentActivity() {
                     "مستند ممسوح ضوئياً باسم $fileName بعد تنظيف الظلال تلقائياً. النص المستخرج محلياً:\n${ocr.take(4800)}"
                 } + signalHint + duplicateHint
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     if (currentSpaceId == spaceId) renderMessages(spaceId)
                     confirmCloudDocumentAnalysis(messageId, aiText, currentSpaceTitle)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     renderMessages(spaceId)
                     Toast.makeText(this, "لم يكتمل حفظ المسح: ${e.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
@@ -1280,6 +1293,7 @@ class MainActivity : ComponentActivity() {
                     else -> "تم إرفاق ملف باسم $displayName ونوعه $mime. صنفه بالاعتماد فقط على الاسم والنوع ولا تخترع محتوى داخله."
                 } + signalHint + duplicateHint
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     renderMessages(spaceId)
                     when (cloudDecision) {
@@ -1293,6 +1307,7 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     renderMessages(spaceId)
                     Toast.makeText(this, "تعذر حفظ الملف: ${e.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
@@ -1430,6 +1445,7 @@ class MainActivity : ComponentActivity() {
                         semanticSearchEngine = null
                         val deleted = packs.delete()
                         runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                             Toast.makeText(
                                 this,
                                 if (deleted) "تم حذف نموذج الذاكرة الدلالية" else "تعذر حذف النموذج",
@@ -1480,6 +1496,7 @@ class MainActivity : ComponentActivity() {
                     lastPercent = percent
                     val mb = downloaded / (1024L * 1024L)
                     runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                         status.text = if (percent >= 0) {
                             String.format(Locale.ROOT, "جارِ التنزيل… %d%% (%d MB)", percent, mb)
                         } else {
@@ -1487,20 +1504,24 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                runOnUiThread { status.text = "تم التنزيل ✓\nجارِ بناء الفهرس الدلالي…" }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread status.text = "تم التنزيل ✓\nجارِ بناء الفهرس الدلالي…" }
                 semanticSearchEngine?.close()
                 semanticSearchEngine = SemanticSearchEngine(this@MainActivity)
                 val indexed = semanticSearchEngine!!.indexMissing(db) { done, total ->
                     runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                         status.text = "بناء الفهرس الدلالي… $done / $total"
                     }
                 }
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     status.text = "جاهزة ✓\nتمت فهرسة $indexed مقطع. البحث الشامل يفهم المعنى من الآن."
                     Toast.makeText(this, "تم تفعيل الذاكرة الدلالية", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     status.text = String.format(
                         Locale.ROOT,
                         "تعذر تفعيل الذاكرة الدلالية.\n%s\nيمكن إعادة المحاولة وسيكمل التنزيل الجزئي.",
@@ -1523,6 +1544,7 @@ class MainActivity : ComponentActivity() {
                 engine.indexMissing(db)
             }.getOrDefault(0)
             runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                 Toast.makeText(this, "تمت فهرسة $indexed مقطع", Toast.LENGTH_LONG).show()
             }
         }
@@ -1548,6 +1570,7 @@ class MainActivity : ComponentActivity() {
                                 localAi = null
                                 val deleted = packs.delete(spec)
                                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                                     Toast.makeText(
                                         this,
                                         if (deleted) "تم حذف النموذج المحلي" else "تعذر حذف النموذج",
@@ -1608,6 +1631,7 @@ class MainActivity : ComponentActivity() {
                     lastPercent = percent
                     val mb = downloaded / (1024L * 1024L)
                     runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                         status.text = if (percent >= 0) {
                             String.format(Locale.ROOT, "جارِ التنزيل… %d%%  (%d MB)", percent, mb)
                         } else {
@@ -1618,6 +1642,7 @@ class MainActivity : ComponentActivity() {
                 localAi?.close()
                 localAi = null
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     status.text = String.format(
                         Locale.ROOT,
                         "جاهز ✓\n%s\nسيستخدمه المساعد تلقائياً من الآن.",
@@ -1627,6 +1652,7 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     status.text = String.format(
                         Locale.ROOT,
                         "تعذر إكمال التنزيل.\n%s\nيمكن إعادة المحاولة وسيكمل من الملف الجزئي إن أمكن.",
@@ -1739,6 +1765,7 @@ class MainActivity : ComponentActivity() {
             val hint = signals.asPromptHint().takeIf { it.isNotBlank() }?.let { "\n\nإشارات محلية موثوقة:\n$it" }.orEmpty()
             val aiText = "صفحة ويب محفوظة محلياً بعنوان «${clip.title}». الرابط: ${clip.url}\nالنص:\n${storedText.take(4800)}$hint"
             runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                 if (currentSpaceId == spaceId) renderMessages(spaceId)
                 confirmCloudDocumentAnalysis(messageId, aiText, spaceTitle)
             }
@@ -2062,7 +2089,8 @@ class MainActivity : ComponentActivity() {
                                 SemanticSearchHit(message, 1.0 - index * 0.02, message.summary ?: message.text.take(500))
                             }
                         }
-                        runOnUiThread { showSearchHits(query, hits, semantic = true) }
+                        runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread showSearchHits(query, hits, semantic = true) }
                     }
                 } else {
                     val hits = db.search(query, 20).mapIndexed { index, message ->
