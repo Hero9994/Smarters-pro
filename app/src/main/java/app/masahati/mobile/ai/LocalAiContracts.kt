@@ -9,7 +9,8 @@ data class MasahatiAiRequest(
     val recent: List<MessageRow>,
     val focusedDocument: MessageRow?,
     val nowIso: String,
-    val timezone: String
+    val timezone: String,
+    val availableSpaces: List<String> = emptyList()
 )
 
 interface LocalAiEngine {
