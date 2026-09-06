@@ -29,6 +29,76 @@ object DocumentIntelligence {
         return asksName && !asksContent
     }
 
+    fun knownDocumentResult(doc: MessageRow): JSONObject? {
+        val ocr = doc.ocrText.orEmpty().trim()
+        if (ocr.isBlank()) return null
+        val lower = ocr.lowercase()
+
+        if (
+            listOf("krankenbeförderung", "krankenbefoerderung", "krankentransport").any(lower::contains) &&
+            listOf("arzt", "ärzt", "wohnung", "wohnort", "patient").any(lower::contains)
+        ) {
+            return result(
+                reply = "قرأت المستند: هو موافقة/تصريح مرتبط بنقل المريض من المنزل إلى الطبيب.",
+                summary = "موافقة/تصريح لنقل المريض من المنزل إلى الطبيب",
+                confidence = 0.98,
+                labels = listOf("مستند", "نقل مرضى", "طبيب"),
+                keywords = listOf("Krankenbeförderung", "نقل مرضى", "طبيب", "Wohnort", "Arzt")
+            )
+        }
+
+        if (lower.contains("mietvertrag")) {
+            val start = findDateNear(ocr, listOf("vertragsbeginn", "beginn", "gültig ab", "gueltig ab"))
+            val end = findDateNear(ocr, listOf("vertragsende", "gültig bis", "gueltig bis", "ablauf", "endet"))
+            val dateText = listOfNotNull(
+                start?.let { "البداية $it" },
+                end?.let { "الانتهاء $it" }
+            ).joinToString("، ")
+            val summary = if (dateText.isBlank()) "عقد إيجار" else "عقد إيجار: $dateText"
+            return result(
+                reply = "قرأت المستند كعقد إيجار" + if (dateText.isBlank()) "." else "، $dateText.",
+                summary = summary,
+                confidence = 0.96,
+                labels = listOf("مستند", "عقد إيجار"),
+                keywords = listOfNotNull("Mietvertrag", "عقد إيجار", start, end)
+            )
+        }
+
+        if (lower.contains("rechnung") || lower.contains("invoice")) {
+            return result(
+                reply = "قرأت المستند كفاتورة وحفظت نوعه للبحث.",
+                summary = "فاتورة",
+                confidence = 0.9,
+                labels = listOf("مستند", "فاتورة"),
+                keywords = listOf("Rechnung", "فاتورة")
+            )
+        }
+
+        if (lower.contains("aok") || lower.contains("krankenversicherung")) {
+            val contribution = lower.contains("beitrag") || lower.contains("beitragsbescheinigung")
+            val summary = if (contribution) "مستند تأمين صحي من AOK متعلق بالمساهمات/الاشتراكات" else "مستند تأمين صحي من AOK"
+            return result(
+                reply = "قرأت المستند كمستند تأمين صحي من AOK" + if (contribution) " متعلق بالمساهمات أو الاشتراكات." else ".",
+                summary = summary,
+                confidence = 0.9,
+                labels = listOf("مستند", "AOK", "تأمين صحي"),
+                keywords = listOf("AOK", "Krankenversicherung", "تأمين صحي")
+            )
+        }
+
+        if (lower.contains("bescheid")) {
+            return result(
+                reply = "قرأت المستند كقرار أو إشعار رسمي (Bescheid)، وسأحفظ هذا النوع للبحث.",
+                summary = "قرار/إشعار رسمي (Bescheid)",
+                confidence = 0.86,
+                labels = listOf("مستند", "Bescheid", "قرار رسمي"),
+                keywords = listOf("Bescheid", "قرار رسمي")
+            )
+        }
+
+        return null
+    }
+
     fun directAnswer(question: String, doc: MessageRow?): JSONObject? {
         if (doc == null) return null
         val q = question.trim().lowercase()
@@ -135,13 +205,19 @@ object DocumentIntelligence {
         return lines.take(8).joinToString("\n").take(900).ifBlank { ocr.take(900) }
     }
 
-    private fun result(reply: String, summary: String, confidence: Double): JSONObject =
+    private fun result(
+        reply: String,
+        summary: String,
+        confidence: Double,
+        labels: List<String> = listOf("مستند"),
+        keywords: List<String> = emptyList()
+    ): JSONObject =
         JSONObject()
             .put("ok", true)
             .put("engine", "document-intelligence")
             .put("classification", "document")
-            .put("labels", JSONArray(listOf("مستند")))
-            .put("keywords", JSONArray())
+            .put("labels", JSONArray(labels.distinct().take(8)))
+            .put("keywords", JSONArray(keywords.filter { it.isNotBlank() }.distinct().take(12)))
             .put("summary", summary.take(600))
             .put("confidence", confidence)
             .put("actions", JSONArray())
