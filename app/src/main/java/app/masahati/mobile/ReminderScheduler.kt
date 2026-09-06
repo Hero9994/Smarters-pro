@@ -78,6 +78,7 @@ data class ReminderCreationResult(
 object ReminderScheduler {
     const val CHANNEL_ID = "masahati_reminders_v1"
     private const val ACTION_FIRE = "app.masahati.mobile.REMINDER_FIRE"
+    private const val UNIQUE_RESCHEDULE = "masahati-reminders-reschedule"
 
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -174,12 +175,24 @@ object ReminderScheduler {
     private fun workName(reminderId: Long): String = "masahati-reminder-$reminderId"
 
     fun rescheduleAll(context: Context) {
-        val db = MasahatiDatabase(context.applicationContext)
+        val appContext = context.applicationContext
+        val db = MasahatiDatabase(appContext)
         try {
-            db.listActiveReminders().forEach { schedule(context, db, it) }
+            db.listActiveReminders().forEach { schedule(appContext, db, it) }
         } finally {
             db.close()
         }
+    }
+
+    fun enqueueReschedule(context: Context) {
+        val request = OneTimeWorkRequestBuilder<ReminderRescheduleWorker>()
+            .addTag(UNIQUE_RESCHEDULE)
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            UNIQUE_RESCHEDULE,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
     fun createFromAgent(
@@ -498,6 +511,18 @@ class ReminderBackupWorker(
     }
 }
 
+class ReminderRescheduleWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : Worker(appContext, params) {
+    override fun doWork(): Result = try {
+        ReminderScheduler.rescheduleAll(applicationContext)
+        Result.success()
+    } catch (_: Exception) {
+        Result.retry()
+    }
+}
+
 class ReminderBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
@@ -505,7 +530,7 @@ class ReminderBootReceiver : BroadcastReceiver() {
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
             AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED ->
-                ReminderScheduler.rescheduleAll(context.applicationContext)
+                ReminderScheduler.enqueueReschedule(context.applicationContext)
         }
     }
 }
