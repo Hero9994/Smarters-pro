@@ -122,7 +122,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 11) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 12) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -384,6 +384,17 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_document_meta_expiry ON document_meta(expiry_date)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_chunks_message ON document_chunks(message_id, chunk_index)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_message_versions_message ON message_versions(message_id)")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS today_task_state(
+              date_key TEXT NOT NULL,
+              source_type TEXT NOT NULL,
+              source_id INTEGER NOT NULL,
+              status TEXT NOT NULL,
+              updated_at INTEGER NOT NULL,
+              PRIMARY KEY(date_key, source_type, source_id)
+            )
+            """.trimIndent())
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_today_task_state_date_status ON today_task_state(date_key, status, updated_at)")
     }
 
     fun listSpaces(archived: Boolean = false, query: String = ""): List<SpaceRow> {
