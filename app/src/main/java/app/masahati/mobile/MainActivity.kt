@@ -412,10 +412,14 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = text("مساحاتي", 30f, teal, true).apply { gravity = Gravity.START }
+        val tools = button("الأدوات", 15f).apply {
+            setOnClickListener { showToolsHub() }
+        }
         val menu = button("⋮", 28f).apply {
             setOnClickListener { showHomeMenu(this) }
         }
         top.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(tools, LinearLayout.LayoutParams(dp(82), dp(48)).apply { marginEnd = dp(6) })
         top.addView(menu, LinearLayout.LayoutParams(dp(52), dp(52)))
         root.addView(top)
 
@@ -534,10 +538,12 @@ class MainActivity : ComponentActivity() {
         }
         val back = button("←", 26f).apply { setOnClickListener { showHome() } }
         val title = text(currentSpaceTitle, 29f, Color.rgb(25, 30, 30), true).apply { gravity = Gravity.CENTER }
+        val tools = button("🧰", 21f).apply { setOnClickListener { showToolsHub() } }
         val menu = button("⋮", 28f).apply { setOnClickListener { showChatMenu(this) } }
         top.addView(back, LinearLayout.LayoutParams(dp(56), dp(56)))
         top.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(menu, LinearLayout.LayoutParams(dp(56), dp(56)))
+        top.addView(tools, LinearLayout.LayoutParams(dp(52), dp(52)))
+        top.addView(menu, LinearLayout.LayoutParams(dp(52), dp(52)))
         root.addView(top)
 
         val messagesHost = LinearLayout(this).apply {
@@ -550,6 +556,8 @@ class MainActivity : ComponentActivity() {
             addView(messagesHost, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         root.addView(chatScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        addChatQuickTools(spaceId)
 
         val bottom = horizontal().apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -1407,6 +1415,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun addChatQuickTools(spaceId: Long) {
+        val bar = horizontal().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(5), dp(10), dp(3))
+            setBackgroundColor(surfaceBg)
+        }
+
+        fun quick(label: String, action: () -> Unit): Button = Button(this).apply {
+            text = label
+            textSize = 13.5f
+            isAllCaps = false
+            setTextColor(Color.rgb(42, 48, 47))
+            background = rounded(controlBg, 14f)
+            setPadding(dp(3), 0, dp(3), 0)
+            setOnClickListener { action() }
+        }
+
+        val scanner = quick("📄 سكانر") { startSmartScanner() }
+        val search = quick("🔎 بحث") { promptGlobalSearch() }
+        val today = quick("⏰ اليوم") { showTodayAndActions() }
+        val all = quick("✨ المزايا") { showToolsHub() }
+
+        listOf(scanner, search, today, all).forEachIndexed { index, view ->
+            bar.addView(view, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                if (index > 0) marginStart = dp(5)
+            })
+        }
+        root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+    }
+
     private fun showAttachMenu(anchor: View) {
         PopupMenu(this, anchor).apply {
             menu.add("سكانر ذكي")
@@ -1448,9 +1486,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun addHomeToolsSection() {
-        val title = text("أدوات مساحاتي", 18f, Color.rgb(60, 66, 64), true)
+        val title = text("أدوات مساحاتي Alpha", 18f, Color.rgb(60, 66, 64), true)
         root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(dp(18), dp(2), dp(18), dp(6))
+            setMargins(dp(18), dp(2), dp(18), dp(2))
+        })
+        val subtitle = text(
+            "السكانر الذكي • البحث بالمعنى • التذكيرات • فهم المستندات • AI • النسخ الاحتياطي",
+            13.5f,
+            Color.rgb(95, 101, 99),
+            false
+        )
+        root.addView(subtitle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(18), 0, dp(18), dp(6))
         })
 
         val host = LinearLayout(this).apply {
@@ -1493,7 +1540,7 @@ class MainActivity : ComponentActivity() {
         addRow(
             "💾 نسخ" to { showBackupHub() },
             "🗑 السلة" to { showTrash() },
-            "🧰 كل الأدوات" to { showToolsHub() }
+            "✨ 20 ميزة" to { showToolsHub() }
         )
 
         root.addView(host, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
