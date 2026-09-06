@@ -8,6 +8,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class LiteRtLmLocalEngine(
     context: Context,
@@ -38,12 +39,34 @@ class LiteRtLmLocalEngine(
 
     private fun createEngine(): Engine {
         val file = packs.modelFile(spec)
-        val config = EngineConfig(
-            modelPath = file.absolutePath,
-            backend = Backend.CPU(),
-            maxNumTokens = spec.maxTokens
+        val cache = File(appContext.cacheDir, "litertlm-${spec.id}").apply { mkdirs() }
+
+        val gpu = Engine(
+            EngineConfig(
+                modelPath = file.absolutePath,
+                backend = Backend.GPU(),
+                maxNumTokens = spec.maxTokens,
+                cacheDir = cache.absolutePath
+            )
         )
-        return Engine(config).also { it.initialize() }
+        try {
+            gpu.initialize()
+            return gpu
+        } catch (gpuFailure: Throwable) {
+            runCatching { gpu.close() }
+            if (spec.expectedBytes > 1_500_000_000L) throw gpuFailure
+        }
+
+        val cpu = Engine(
+            EngineConfig(
+                modelPath = file.absolutePath,
+                backend = Backend.CPU(),
+                maxNumTokens = spec.maxTokens,
+                cacheDir = cache.absolutePath
+            )
+        )
+        cpu.initialize()
+        return cpu
     }
 
     override fun close() {
@@ -69,7 +92,7 @@ class LiteRtLmLocalEngine(
         if (!parsed.has("classification")) parsed.put("classification", "other")
         if (!parsed.has("summary")) parsed.put("summary", parsed.optString("reply").trim().take(420))
         parsed.put("ok", true)
-        parsed.put("engine", "litert-lm-local")
+        parsed.put("engine", "litert-lm-local-gpu")
         parsed.put("model", spec.id)
         return parsed
     }
