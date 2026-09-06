@@ -98,6 +98,14 @@ data class MessageVersionRow(
     val createdAt: Long
 )
 
+data class TodayTaskStateRow(
+    val dateKey: String,
+    val sourceType: String,
+    val sourceId: Long,
+    val status: String,
+    val updatedAt: Long
+)
+
 data class ReminderRow(
     val id: Long,
     val spaceId: Long,
@@ -114,7 +122,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 10) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 11) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -222,6 +230,19 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             db.execSQL("DROP TABLE message_versions")
             db.execSQL("ALTER TABLE message_versions_v10 RENAME TO message_versions")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_message_versions_message ON message_versions(message_id)")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS today_task_state(
+              date_key TEXT NOT NULL,
+              source_type TEXT NOT NULL,
+              source_id INTEGER NOT NULL,
+              status TEXT NOT NULL,
+              updated_at INTEGER NOT NULL,
+              PRIMARY KEY(date_key, source_type, source_id)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_today_task_state_date_status ON today_task_state(date_key, status, updated_at)")
         }
     }
 
@@ -991,6 +1012,37 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return cursor.use { c -> buildList { while (c.moveToNext()) add(actionItemFrom(c)) } }
     }
 
+    fun listTodayActionItems(startMillis: Long, endMillis: Long): List<ActionItemRow> {
+        val cursor = readableDatabase.query(
+            "action_items",
+            null,
+            """
+            (
+              status='open'
+              AND (
+                (due_at IS NOT NULL AND due_at < ?)
+                OR (due_at IS NULL AND created_at >= ? AND created_at < ?)
+              )
+            )
+            OR (
+              status IN ('done','skipped')
+              AND updated_at >= ? AND updated_at < ?
+            )
+            """.trimIndent(),
+            arrayOf(
+                endMillis.toString(),
+                startMillis.toString(),
+                endMillis.toString(),
+                startMillis.toString(),
+                endMillis.toString()
+            ),
+            null,
+            null,
+            "CASE status WHEN 'open' THEN 0 WHEN 'skipped' THEN 1 ELSE 2 END ASC, COALESCE(due_at, created_at) ASC, id ASC"
+        )
+        return cursor.use { c -> buildList { while (c.moveToNext()) add(actionItemFrom(c)) } }
+    }
+
     fun setActionItemStatus(id: Long, status: String) {
         writableDatabase.update(
             "action_items",
@@ -1003,13 +1055,9 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
     }
 
-    fun getActionItem(id: Long): ActionItemRow? {
-        val cursor = readableDatabase.query("action_items", null, "id=?", arrayOf(id.toString()), null, null, null, "1")
-        return cursor.use { if (it.moveToFirst()) actionItemFrom(it) else null }
-    }
-
-    fun completeActionItem(id: Long): List<Long> {
-        setActionItemStatus(id, "done")
+    fun finishActionItem(id: Long, status: String): List<Long> {
+        require(status == "done" || status == "skipped") { "Unsupported action status" }
+        setActionItemStatus(id, status)
         val cursor = readableDatabase.query(
             "reminders", arrayOf("id"), "condition_action_id=? AND enabled=1",
             arrayOf(id.toString()), null, null, null
@@ -1026,6 +1074,15 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
         return reminderIds
     }
+
+    fun getActionItem(id: Long): ActionItemRow? {
+        val cursor = readableDatabase.query("action_items", null, "id=?", arrayOf(id.toString()), null, null, null, "1")
+        return cursor.use { if (it.moveToFirst()) actionItemFrom(it) else null }
+    }
+
+    fun completeActionItem(id: Long): List<Long> = finishActionItem(id, "done")
+
+    fun skipActionItem(id: Long): List<Long> = finishActionItem(id, "skipped")
 
     fun replaceDocumentChunks(messageId: Long, chunks: List<String>) {
         writableDatabase.transaction {
@@ -1280,6 +1337,96 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     )
 
 
+    fun listTodayTaskStates(dateKey: String): List<TodayTaskStateRow> {
+        val cursor = readableDatabase.query(
+            "today_task_state",
+            null,
+            "date_key=?",
+            arrayOf(dateKey),
+            null,
+            null,
+            "updated_at ASC"
+        )
+        return cursor.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        TodayTaskStateRow(
+                            dateKey = c.getString(c.getColumnIndexOrThrow("date_key")),
+                            sourceType = c.getString(c.getColumnIndexOrThrow("source_type")),
+                            sourceId = c.getLong(c.getColumnIndexOrThrow("source_id")),
+                            status = c.getString(c.getColumnIndexOrThrow("status")),
+                            updatedAt = c.getLong(c.getColumnIndexOrThrow("updated_at"))
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun listAllTodayTaskStates(): List<TodayTaskStateRow> {
+        val cursor = readableDatabase.query(
+            "today_task_state", null, null, null, null, null, "date_key ASC, updated_at ASC"
+        )
+        return cursor.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        TodayTaskStateRow(
+                            dateKey = c.getString(c.getColumnIndexOrThrow("date_key")),
+                            sourceType = c.getString(c.getColumnIndexOrThrow("source_type")),
+                            sourceId = c.getLong(c.getColumnIndexOrThrow("source_id")),
+                            status = c.getString(c.getColumnIndexOrThrow("status")),
+                            updatedAt = c.getLong(c.getColumnIndexOrThrow("updated_at"))
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun setTodayTaskState(dateKey: String, sourceType: String, sourceId: Long, status: String) {
+        require(status == "done" || status == "skipped") { "Unsupported today-task status" }
+        writableDatabase.insertWithOnConflict(
+            "today_task_state",
+            null,
+            ContentValues().apply {
+                put("date_key", dateKey)
+                put("source_type", sourceType.take(40))
+                put("source_id", sourceId)
+                put("status", status)
+                put("updated_at", System.currentTimeMillis())
+            },
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    fun importTodayTaskState(
+        dateKey: String,
+        sourceType: String,
+        sourceId: Long,
+        status: String,
+        updatedAt: Long
+    ) {
+        if (status != "done" && status != "skipped") return
+        writableDatabase.insertWithOnConflict(
+            "today_task_state",
+            null,
+            ContentValues().apply {
+                put("date_key", dateKey)
+                put("source_type", sourceType.take(40))
+                put("source_id", sourceId)
+                put("status", status)
+                put("updated_at", updatedAt)
+            },
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    fun pruneTodayTaskStates(beforeDateKey: String) {
+        writableDatabase.delete("today_task_state", "date_key < ?", arrayOf(beforeDateKey))
+    }
+
     fun createReminder(
         spaceId: Long,
         title: String,
@@ -1351,6 +1498,24 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
 
     fun listAllReminders(): List<ReminderRow> {
         val c = readableDatabase.query("reminders", null, null, null, null, null, "created_at ASC, id ASC")
+        return c.use { cursor -> buildList { while (cursor.moveToNext()) add(reminderFrom(cursor)) } }
+    }
+
+    fun listTodayReminders(startMillis: Long, endMillis: Long): List<ReminderRow> {
+        val c = readableDatabase.query(
+            "reminders",
+            null,
+            "(next_fire_at >= ? AND next_fire_at < ?) OR (delivered_at >= ? AND delivered_at < ?)",
+            arrayOf(
+                startMillis.toString(),
+                endMillis.toString(),
+                startMillis.toString(),
+                endMillis.toString()
+            ),
+            null,
+            null,
+            "COALESCE(delivered_at, next_fire_at, created_at) ASC, id ASC"
+        )
         return c.use { cursor -> buildList { while (cursor.moveToNext()) add(reminderFrom(cursor)) } }
     }
 
