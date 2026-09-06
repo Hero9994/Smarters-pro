@@ -22,11 +22,16 @@ object AlphaImporter {
         val tempRoot = File(context.cacheDir, "masahati-import-${UUID.randomUUID()}").apply { mkdirs() }
         try {
             var totalBytes = 0L
+            var entryCount = 0
             val seenEntries = mutableSetOf<String>()
             ZipArchiveInputStream(input.buffered()).use { zip ->
                 while (true) {
                     val entry = zip.nextEntry ?: break
-                    if (!zip.canReadEntryData(entry)) error("يوجد ملف داخل النسخة لا يمكن قراءته")
+                    entryCount++
+                    if (entryCount > 10_000) error("النسخة الاحتياطية تحتوي عدداً كبيراً جداً من الملفات")
+                    if (!zip.canReadEntryData(entry) || entry.isUnixSymlink) {
+                        error("يوجد ملف داخل النسخة لا يمكن قراءته بأمان")
+                    }
                     val safe = sanitizeEntry(entry.name) ?: error("نسخة احتياطية غير صالحة")
                     if (!seenEntries.add(safe)) error("النسخة الاحتياطية تحتوي مساراً مكرراً")
                     if (!entry.isDirectory) {
@@ -252,7 +257,7 @@ object AlphaImporter {
         return files.listFiles()?.firstOrNull { it.isFile && it.name.startsWith("$oldMessageId-") }
     }
 
-    private fun sanitizeEntry(name: String): String? {
+    internal fun sanitizeEntry(name: String): String? {
         val normalized = name.replace('\\', '/').trimStart('/')
         if (normalized.isBlank() || normalized.contains("../") || normalized == "..") return null
         if (!(normalized == "README.txt" || normalized == "data/masahati.json" || normalized == "data/masahati.md" || normalized.startsWith("files/"))) return null
