@@ -604,7 +604,11 @@ class MainActivity : ComponentActivity() {
                                 recent = recent,
                                 focusedDocument = focusedDocument,
                                 nowIso = ZonedDateTime.now().toString(),
-                                timezone = java.time.ZoneId.systemDefault().id
+                                timezone = java.time.ZoneId.systemDefault().id,
+                                availableSpaces = (db.listSpaces(false) + db.listSpaces(true))
+                                    .distinctBy { it.id }
+                                    .map { it.title }
+                                    .take(30)
                             )
                         )
                     }.getOrNull()
