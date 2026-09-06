@@ -1,6 +1,7 @@
 package app.masahati.mobile.ai
 
 import android.content.Context
+import android.os.storage.StorageManager
 import java.io.File
 import java.io.FileInputStream
 import java.io.RandomAccessFile
@@ -20,7 +21,7 @@ class LocalModelPackManager(private val context: Context) {
 
     fun isInstalled(spec: LocalModelSpec = LocalModelCatalog.default): Boolean {
         val file = modelFile(spec)
-        if (!file.isFile || file.length() < spec.expectedBytes / 2) return false
+        if (!file.isFile || file.length() != spec.expectedBytes) return false
         val marker = markerFile(spec)
         if (!marker.isFile) return false
         return runCatching { marker.readText().trim().equals(spec.sha256, ignoreCase = true) }.getOrDefault(false)
@@ -45,6 +46,11 @@ class LocalModelPackManager(private val context: Context) {
 
         val partial = File(finalFile.absolutePath + ".part")
         var existing = if (partial.exists()) partial.length() else 0L
+        if (existing > spec.expectedBytes) {
+            partial.delete()
+            existing = 0L
+        }
+        ensureFreeSpace(finalFile.parentFile ?: context.filesDir, (spec.expectedBytes - existing).coerceAtLeast(0L))
 
         val connection = (URL(spec.downloadUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
@@ -82,6 +88,9 @@ class LocalModelPackManager(private val context: Context) {
                 }
             }
 
+            if (partial.length() != spec.expectedBytes) {
+                throw IllegalStateException("Model download size mismatch")
+            }
             val digest = sha256(partial)
             if (!digest.equals(spec.sha256, ignoreCase = true)) {
                 throw IllegalStateException("Model checksum mismatch")
@@ -95,6 +104,18 @@ class LocalModelPackManager(private val context: Context) {
             return finalFile
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun ensureFreeSpace(directory: File, neededBytes: Long) {
+        if (neededBytes <= 0L) return
+        val reserve = 128L * 1024L * 1024L
+        val available = runCatching {
+            val storage = context.getSystemService(StorageManager::class.java)
+            storage.getAllocatableBytes(storage.getUuidForPath(directory))
+        }.getOrElse { directory.usableSpace }
+        if (available in 1 until (neededBytes + reserve)) {
+            throw IllegalStateException("مساحة التخزين غير كافية لتنزيل نموذج الذكاء المحلي")
         }
     }
 
