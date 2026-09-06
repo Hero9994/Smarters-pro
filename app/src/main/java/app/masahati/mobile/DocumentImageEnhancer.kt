@@ -4,6 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.ColorMatrix
+import android.graphics.Canvas
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import java.io.File
@@ -26,7 +30,7 @@ object DocumentImageEnhancer {
                 val source = decodeSampled(context, uri, 2200)
                     ?: throw IllegalStateException("Cannot decode scanned page ${index + 1}")
                 val candidate = flattenDocumentShadows(source)
-                val cleaned = if (candidate === source) {
+                val shadowCleaned = if (candidate === source) {
                     source
                 } else {
                     val originalScore = pageQualityScore(source)
@@ -39,6 +43,9 @@ object DocumentImageEnhancer {
                         source
                     }
                 }
+                val enhanced = autoEnhanceReadability(shadowCleaned)
+                if (enhanced !== shadowCleaned) shadowCleaned.recycle()
+                val cleaned = enhanced
                 try {
                     onPageReady(index, cleaned)
                     val pageInfo = PdfDocument.PageInfo.Builder(cleaned.width, cleaned.height, index + 1).create()
@@ -193,6 +200,73 @@ object DocumentImageEnhancer {
 
     internal fun preferCorrected(originalScore: Float, correctedScore: Float): Boolean =
         correctedScore >= originalScore + 1.5f
+
+    internal fun autoLevels(low: Int, high: Int): Pair<Float, Float>? {
+        val safeLow = low.coerceIn(0, 255)
+        val safeHigh = high.coerceIn(safeLow + 1, 255)
+        val span = safeHigh - safeLow
+        val whiteEnough = safeHigh >= 238
+        val contrastEnough = span >= 205
+        if (whiteEnough && contrastEnough) return null
+
+        val scale = (235f / span.coerceAtLeast(80)).coerceIn(1.0f, 1.16f)
+        val desiredHigh = if (safeHigh < 220) 242f else 247f
+        val offset = (desiredHigh - safeHigh * scale).coerceIn(-10f, 22f)
+        if (scale < 1.025f && kotlin.math.abs(offset) < 4f) return null
+        return scale to offset
+    }
+
+    private fun autoEnhanceReadability(source: Bitmap): Bitmap {
+        val width = source.width
+        val height = source.height
+        if (width < 120 || height < 120) return source
+
+        val histogram = IntArray(256)
+        val step = max(4, min(width, height) / 180)
+        var samples = 0
+        var y = 0
+        while (y < height) {
+            var x = 0
+            while (x < width) {
+                histogram[luminance(source.getPixel(x, y))]++
+                samples++
+                x += step
+            }
+            y += step
+        }
+        if (samples < 100) return source
+
+        fun percentile(p: Float): Int {
+            val target = (samples * p).toInt().coerceAtLeast(1)
+            var cumulative = 0
+            for (i in histogram.indices) {
+                cumulative += histogram[i]
+                if (cumulative >= target) return i
+            }
+            return 255
+        }
+
+        val low = percentile(0.035f)
+        val high = percentile(0.965f)
+        val levels = autoLevels(low, high) ?: return source
+        val scale = levels.first
+        val offset = levels.second
+
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val matrix = ColorMatrix(
+            floatArrayOf(
+                scale, 0f, 0f, 0f, offset,
+                0f, scale, 0f, 0f, offset,
+                0f, 0f, scale, 0f, offset,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(matrix)
+        }
+        Canvas(output).drawBitmap(source, 0f, 0f, paint)
+        return output
+    }
 
     private fun pageQualityScore(bitmap: Bitmap): Float {
         val width = bitmap.width
