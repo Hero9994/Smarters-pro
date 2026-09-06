@@ -83,6 +83,7 @@ class MainActivity : ComponentActivity() {
     private var busyCount = 0
     private var localAi: HybridLocalAi? = null
     private var semanticSearchEngine: SemanticSearchEngine? = null
+    private var performanceMonitor: AlphaPerformanceMonitor? = null
     @Volatile private var modelDownloadRunning = false
     @Volatile private var semanticModelDownloadRunning = false
     private var pendingEncryptedExportPassword: CharArray? = null
@@ -270,6 +271,7 @@ class MainActivity : ComponentActivity() {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
         setContentView(root)
+        performanceMonitor = AlphaPerformanceMonitor(this).also { it.start() }
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
@@ -301,12 +303,24 @@ class MainActivity : ComponentActivity() {
         handleIncomingShare(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        performanceMonitor?.onResume()
+    }
+
+    override fun onPause() {
+        performanceMonitor?.onPause()
+        super.onPause()
+    }
+
     override fun onDestroy() {
         recognizer.close()
         localAi?.close()
         localAi = null
         semanticSearchEngine?.close()
         semanticSearchEngine = null
+        performanceMonitor?.close()
+        performanceMonitor = null
         worker.shutdown()
         modelWorker.shutdownNow()
         db.close()
