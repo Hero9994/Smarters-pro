@@ -1589,40 +1589,76 @@ class MainActivity : ComponentActivity() {
 
     private fun showToolsHub() {
         val items = arrayOf(
-            "📄 سكانر مستندات ذكي",
-            "📎 إرفاق ملف أو صورة",
-            "🎙 إملاء صوتي",
-            "🔎 بحث ذكي شامل",
-            "⏰ اليوم والإجراءات",
-            "🌅 الملخص الصباحي",
-            "🧠 الذاكرة الدلالية",
-            "🤖 الذكاء المحلي",
-            "💾 النسخ الاحتياطي",
-            "🗑 سلة المهملات",
-            if (showArchived) "📂 المساحات النشطة" else "📦 المساحات المؤرشفة",
-            "🔔 إعداد دقة التنبيهات"
+            "1. 📥 Universal Inbox — مشاركة أي ملف/نص لمساحاتي",
+            "2. 🏷 اسم ذكي للمستندات",
+            "3. 📄 اكتشاف نوع المستند",
+            "4. 🧾 استخراج الجهة والمبالغ والتواريخ والأرقام",
+            "5. 🔎 بحث بالمعنى",
+            "6. 📴 بحث محلي Offline",
+            "7. 🧠 ذاكرة سياق بين المساحات",
+            "8. 🔍 جواب مع دليل من المستند",
+            "9. ✅ درجة ثقة ومنع التخمين",
+            "10. ⚑ مركز الإجراءات",
+            "11. 📅 اكتشاف المواعيد النهائية",
+            "12. ⏳ تتبع انتهاء العقود والوثائق",
+            "13. 🔔 التذكير داخل نفس المحادثة",
+            "14. 🔁 تذكيرات شرطية",
+            "15. 🌅 الملخص الصباحي",
+            "16. 🎙 Voice Inbox",
+            "17. 📷 Scanner Intelligence 2.0",
+            "18. ♻ كشف الملفات المكررة",
+            "19. 🗑 السلة + سجل التعديلات",
+            "20. 💾 Backup/Restore + نسخة مشفرة"
         )
+
         AlertDialog.Builder(this)
-            .setTitle("كل أدوات مساحاتي")
+            .setTitle("مزايا مساحاتي Alpha — 20/20")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> chooseSpaceForTool("اختر مساحة لحفظ المسح") { openSpace(it); startSmartScanner() }
-                    1 -> chooseSpaceForTool("اختر مساحة لحفظ الملف") { openSpace(it); filePicker.launch(arrayOf("*/*")) }
-                    2 -> chooseSpaceForTool("اختر مساحة للملاحظة الصوتية") { openSpace(it); startVoiceInbox() }
-                    3 -> promptGlobalSearch()
-                    4 -> showTodayAndActions()
-                    5 -> showMorningBriefSettings()
+                    0 -> showShareHowTo()
+                    1, 2, 3 -> chooseSpaceForTool("اختر مساحة ثم امسح مستنداً لتجربة فهم المستند") { openSpace(it); startSmartScanner() }
+                    4, 5 -> promptGlobalSearch()
                     6 -> showSemanticMemoryManager()
-                    7 -> showLocalAiManager()
-                    8 -> showBackupHub()
-                    9 -> showTrash()
-                    10 -> { showArchived = !showArchived; showHome() }
-                    11 -> ReminderScheduler.openExactAlarmSettings(this)
+                    7, 8 -> showFeatureInfo(
+                        "الجواب الموثوق",
+                        "وقت تسأل عن عقد أو فاتورة أو ورقة، مساحاتي يحاول يجيب من نفس المستند ويعرض سطر الدليل. إذا الثقة ضعيفة، لا يعطي جواباً واثقاً."
+                    )
+                    9, 10, 11, 13 -> showTodayAndActions()
+                    12 -> showFeatureInfo(
+                        "التذكير داخل المحادثة",
+                        "أي تذكير يتم تنفيذه يظهر أيضاً كرسالة من مساعد مساحاتي داخل نفس المساحة التي طلبت فيها التذكير."
+                    )
+                    14 -> showMorningBriefSettings()
+                    15 -> chooseSpaceForTool("اختر مساحة للملاحظة الصوتية") { openSpace(it); startVoiceInbox() }
+                    16 -> chooseSpaceForTool("اختر مساحة لحفظ المسح") { openSpace(it); startSmartScanner() }
+                    17 -> showFeatureInfo(
+                        "كشف التكرار",
+                        "مساحاتي يقارن بصمة الملف وOCR. إذا صورت نفس الورقة مرة ثانية بشكل مختلف، يحاول تنبيهك أنها موجودة مسبقاً."
+                    )
+                    18 -> showTrash()
+                    19 -> showBackupHub()
                 }
             }
-            .setNegativeButton("إغلاق", null)
+            .setPositiveButton("إغلاق", null)
             .show()
     }
+
+    private fun showFeatureInfo(title: String, message: String) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("حسناً", null)
+            .show()
+    }
+
+    private fun showShareHowTo() {
+        AlertDialog.Builder(this)
+            .setTitle("Universal Inbox")
+            .setMessage("من واتساب أو Gmail أو الصور أو المتصفح أو تطبيق الملفات: اضغط مشاركة → اختر «مساحاتي alpha» → اختر المساحة. يدعم نصوصاً وصوراً وPDF وعدة ملفات دفعة واحدة.")
+            .setPositiveButton("حسناً", null)
+            .show()
+    }
+
 
     private fun showHomeMenu(anchor: View) {
         PopupMenu(this, anchor).apply {
