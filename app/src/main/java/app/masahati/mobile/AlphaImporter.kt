@@ -21,6 +21,12 @@ object AlphaImporter {
     fun importZip(context: Context, db: MasahatiDatabase, input: InputStream): AlphaImportSummary {
         val tempRoot = File(context.cacheDir, "masahati-import-${UUID.randomUUID()}").apply { mkdirs() }
         try {
+            val reserveBytes = 96L * 1024L * 1024L
+            val storageBudget = (tempRoot.usableSpace - reserveBytes).coerceAtLeast(0L)
+            val importLimit = minOf(MAX_UNCOMPRESSED_BYTES, storageBudget)
+            if (importLimit < 8L * 1024L * 1024L) {
+                error("مساحة التخزين غير كافية لاستيراد النسخة")
+            }
             var totalBytes = 0L
             var entryCount = 0
             val seenEntries = mutableSetOf<String>()
@@ -43,7 +49,9 @@ object AlphaImporter {
                                 val read = zip.read(buffer)
                                 if (read < 0) break
                                 totalBytes += read
-                                if (totalBytes > MAX_UNCOMPRESSED_BYTES) error("النسخة الاحتياطية أكبر من الحد المسموح")
+                                if (totalBytes > importLimit) {
+                                    error("النسخة الاحتياطية أكبر من المساحة المتاحة أو الحد المسموح")
+                                }
                                 output.write(buffer, 0, read)
                             }
                         }
