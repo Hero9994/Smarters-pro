@@ -47,4 +47,77 @@ class DocumentIntelligenceTest {
         val ocr = "Termine: 01.10.2026 und 30.09.2027"
         assertNull(DocumentIntelligence.resolveGroundedDate("متى بينتهي؟", ocr))
     }
+
+    @Test
+    fun medicalTransportScanIsNotMisclassifiedAsWorkScheduleOffline() {
+        val doc = MessageRow(
+            id = 20,
+            spaceId = 3,
+            role = "user",
+            kind = "file",
+            text = "",
+            filePath = "/tmp/transport.pdf",
+            mimeType = "application/pdf",
+            displayName = "Scan.pdf",
+            ocrText = "Genehmigung zur Krankenbeförderung vom Wohnort zum Arzt. Patient.",
+            classification = null,
+            tags = null,
+            summary = null,
+            starred = false,
+            createdAt = 1
+        )
+        val result = DocumentIntelligence.knownDocumentResult(doc)
+        assertNotNull(result)
+        assertEquals("document", result!!.getString("classification"))
+        assertTrue(result.getString("reply").contains("نقل"))
+        assertFalse(result.getString("reply").contains("دوام"))
+        assertTrue(result.getJSONArray("labels").toString().contains("نقل مرضى"))
+    }
+
+    @Test
+    fun rentalContractScanExtractsGroundedStartAndEndDatesOffline() {
+        val doc = MessageRow(
+            id = 21,
+            spaceId = 3,
+            role = "user",
+            kind = "file",
+            text = "",
+            filePath = "/tmp/vertrag.pdf",
+            mimeType = "application/pdf",
+            displayName = "Mietvertrag.pdf",
+            ocrText = "Mietvertrag. Vertragsbeginn 01.10.2026. Vertragsende 30.09.2027.",
+            classification = null,
+            tags = null,
+            summary = null,
+            starred = false,
+            createdAt = 1
+        )
+        val result = DocumentIntelligence.knownDocumentResult(doc)
+        assertNotNull(result)
+        assertTrue(result!!.getString("summary").contains("01.10.2026"))
+        assertTrue(result.getString("summary").contains("30.09.2027"))
+        assertTrue(result.getJSONArray("labels").toString().contains("عقد إيجار"))
+    }
+
+    @Test
+    fun unknownDocumentDoesNotInventOfflineMeaning() {
+        val doc = MessageRow(
+            id = 22,
+            spaceId = 3,
+            role = "user",
+            kind = "file",
+            text = "",
+            filePath = "/tmp/unknown.pdf",
+            mimeType = "application/pdf",
+            displayName = "unknown.pdf",
+            ocrText = "ABC 123 XYZ",
+            classification = null,
+            tags = null,
+            summary = null,
+            starred = false,
+            createdAt = 1
+        )
+        assertNull(DocumentIntelligence.knownDocumentResult(doc))
+    }
+
 }
