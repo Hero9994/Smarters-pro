@@ -589,7 +589,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val count = TextView(this).apply {
-            text = summary.open.toString()
+            text = String.format(Locale.getDefault(), "%d", summary.open)
             textSize = 16f
             gravity = Gravity.CENTER
             setTextColor(if (summary.open > 0) Color.WHITE else teal)
