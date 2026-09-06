@@ -344,16 +344,24 @@ class MainActivity : ComponentActivity() {
             }
         })
         showHome()
-        intent.getLongExtra("open_space_id", -1L).takeIf { it > 0L }?.let { openSpace(it) }
+        if (intent.getBooleanExtra("open_today_tasks", false)) {
+            openTodayTasks()
+        } else {
+            intent.getLongExtra("open_space_id", -1L).takeIf { it > 0L }?.let { openSpace(it) }
+        }
         handleIncomingShare(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getLongExtra("open_space_id", -1L)
-            .takeIf { it > 0L }
-            ?.let { openSpace(it) }
+        if (intent.getBooleanExtra("open_today_tasks", false)) {
+            openTodayTasks()
+        } else {
+            intent.getLongExtra("open_space_id", -1L)
+                .takeIf { it > 0L }
+                ?.let { openSpace(it) }
+        }
         handleIncomingShare(intent)
     }
 
