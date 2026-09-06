@@ -42,9 +42,32 @@ class SemanticModelPackManager(private val context: Context) {
     fun download(onProgress: (Long, Long) -> Unit = { _, _ -> }): File {
         if (isInstalled()) return modelFile()
         val finalFile = modelFile()
+
+        // Repair a completed model whose marker write/rename was interrupted.
+        if (finalFile.isFile && finalFile.length() == SemanticModelSpec.EXPECTED_BYTES) {
+            if (md5(finalFile).equals(SemanticModelSpec.EXPECTED_MD5, ignoreCase = true)) {
+                markerFile().writeText(SemanticModelSpec.EXPECTED_MD5)
+                return finalFile
+            }
+            finalFile.delete()
+            markerFile().delete()
+        }
+
         val partial = File(finalFile.absolutePath + ".part")
         var existing = partial.takeIf { it.exists() }?.length() ?: 0L
         if (existing > SemanticModelSpec.EXPECTED_BYTES) {
+            partial.delete()
+            existing = 0L
+        } else if (existing == SemanticModelSpec.EXPECTED_BYTES) {
+            if (md5(partial).equals(SemanticModelSpec.EXPECTED_MD5, ignoreCase = true)) {
+                if (finalFile.exists()) finalFile.delete()
+                if (!partial.renameTo(finalFile)) {
+                    partial.copyTo(finalFile, overwrite = true)
+                    partial.delete()
+                }
+                markerFile().writeText(SemanticModelSpec.EXPECTED_MD5)
+                return finalFile
+            }
             partial.delete()
             existing = 0L
         }
@@ -110,7 +133,7 @@ class SemanticModelPackManager(private val context: Context) {
             val storage = context.getSystemService(StorageManager::class.java)
             storage.getAllocatableBytes(storage.getUuidForPath(directory))
         }.getOrElse { directory.usableSpace }
-        if (available in 1 until (neededBytes + reserve)) {
+        if (available < neededBytes + reserve) {
             throw IllegalStateException("مساحة التخزين غير كافية لتنزيل الذاكرة الدلالية")
         }
     }
