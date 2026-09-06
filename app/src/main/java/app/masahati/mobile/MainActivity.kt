@@ -68,6 +68,12 @@ class MainActivity : ComponentActivity() {
     private val pageBg = Color.rgb(239, 239, 234)
     private val surfaceBg = Color.rgb(247, 246, 242)
     private val controlBg = Color.rgb(230, 232, 228)
+    private val todayGreen = Color.rgb(60, 122, 76)
+    private val todayGreenSoft = Color.rgb(231, 242, 233)
+    private val todayRed = Color.rgb(168, 72, 67)
+    private val todayRedSoft = Color.rgb(249, 235, 233)
+    private val todayAmber = Color.rgb(154, 105, 43)
+    private val todayAmberSoft = Color.rgb(248, 240, 224)
     private val worker = Executors.newSingleThreadExecutor()
     private val modelWorker = Executors.newSingleThreadExecutor()
     private val webWorker = Executors.newSingleThreadExecutor()
@@ -305,6 +311,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         db = MasahatiDatabase(applicationContext)
+        worker.execute {
+            runCatching {
+                db.pruneTodayTaskStates(java.time.LocalDate.now().minusDays(90).toString())
+            }
+        }
         ReminderScheduler.ensureChannel(this)
         ReminderScheduler.enqueueReschedule(this)
         MorningBriefScheduler.ensureIfEnabled(this)
@@ -349,6 +360,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         performanceMonitor?.onResume()
+        if (::root.isInitialized && currentSpaceId == TODAY_SPACE_ID) {
+            showTodayTasksDashboard()
+        }
     }
 
     override fun onPause() {
@@ -471,14 +485,27 @@ class MainActivity : ComponentActivity() {
     private fun renderSpaceList() {
         val host = root.findViewById<LinearLayout>(SPACE_LIST_ID) ?: return
         host.removeAllViews()
+
+        if (!showArchived) {
+            addTodaySmartSpaceRow(host)
+        }
+
         val spaces = db.listSpaces(showArchived, homeSearch)
         if (spaces.isEmpty()) {
-            host.addView(text(if (showArchived) "لا توجد مساحات مؤرشفة" else "لا توجد نتائج", 17f, Color.GRAY, false).apply {
-                gravity = Gravity.CENTER
-                setPadding(0, dp(70), 0, 0)
-            })
+            if (showArchived) {
+                host.addView(text("لا توجد مساحات مؤرشفة", 17f, Color.GRAY, false).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(70), 0, 0)
+                })
+            } else if (homeSearch.isNotBlank()) {
+                host.addView(text("لا توجد نتائج أخرى", 15f, Color.GRAY, false).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(22), 0, dp(12))
+                })
+            }
             return
         }
+
         spaces.forEach { space ->
             val row = horizontal().apply {
                 gravity = Gravity.CENTER_VERTICAL
@@ -519,7 +546,63 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun addTodaySmartSpaceRow(host: LinearLayout) {
+        val now = ZonedDateTime.now()
+        val items = runCatching { TodayTasksEngine.build(db, now) }.getOrDefault(emptyList())
+        val summary = TodayTasksEngine.summary(items)
+
+        val row = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(paleTeal, 18f, Color.rgb(194, 215, 210), 1)
+            setOnClickListener { openTodayTasks() }
+        }
+
+        val badge = TextView(this).apply {
+            text = "✓"
+            textSize = 23f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = rounded(teal, 16f)
+            contentDescription = "مهام اليوم"
+        }
+
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, dp(12), 0)
+            addView(text("مهام اليوم", 21f, Color.rgb(25, 38, 37), true))
+            val preview = when {
+                summary.total == 0 -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • لا توجد مهام"
+                summary.open > 0 -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • ${summary.open} مفتوحة"
+                summary.skipped > 0 -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • ${summary.skipped} لم تتم"
+                else -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • اكتمل يومك"
+            }
+            addView(text(preview, 14f, Color.rgb(82, 101, 98), false).apply { maxLines = 1 })
+        }
+
+        val count = TextView(this).apply {
+            text = summary.open.toString()
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(if (summary.open > 0) Color.WHITE else teal)
+            background = rounded(if (summary.open > 0) teal else surfaceBg, 18f, teal, 1)
+            contentDescription = "${summary.open} مهمة مفتوحة"
+        }
+
+        row.addView(badge, LinearLayout.LayoutParams(dp(52), dp(52)))
+        row.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(count, LinearLayout.LayoutParams(dp(40), dp(40)))
+        host.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(10), dp(3), dp(10), dp(8))
+        })
+    }
+
+
     private fun openSpace(id: Long) {
+        if (id == TODAY_SPACE_ID) {
+            openTodayTasks()
+            return
+        }
         val space = db.getSpace(id) ?: return
         currentSpaceId = id
         currentSpaceTitle = space.title
@@ -1664,7 +1747,7 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             menu.add(if (showArchived) "المساحات النشطة" else "المؤرشفة")
             menu.add("بحث ذكي شامل")
-            menu.add("اليوم والإجراءات")
+            menu.add("مهام اليوم")
             menu.add("الملخص الصباحي")
             menu.add("سلة المهملات")
             menu.add("تصدير نسخة ZIP")
@@ -1677,7 +1760,7 @@ class MainActivity : ComponentActivity() {
             setOnMenuItemClickListener {
                 when (it.title.toString()) {
                     "بحث ذكي شامل" -> promptGlobalSearch()
-                    "اليوم والإجراءات" -> showTodayAndActions()
+                    "مهام اليوم" -> showTodayAndActions()
                     "الملخص الصباحي" -> showMorningBriefSettings()
                     "سلة المهملات" -> showTrash()
                     "تصدير نسخة ZIP" -> backupExportLauncher.launch("Masahati-alpha-backup.zip")
@@ -2236,53 +2319,335 @@ class MainActivity : ComponentActivity() {
         return lines.joinToString("\n").take(1800)
     }
 
-    private fun showTodayAndActions() {
-        val actions = db.listOpenActionItems(100)
-        val reminders = db.listActiveReminders()
-        val trackedDates = AlphaDateTracker.upcoming(db, horizonDays = 90)
-        if (actions.isEmpty() && reminders.isEmpty() && trackedDates.isEmpty()) {
-            Toast.makeText(this, "لا يوجد شيء يحتاج انتباهك حالياً", Toast.LENGTH_LONG).show()
+    private fun openTodayTasks() {
+        currentSpaceId = TODAY_SPACE_ID
+        currentSpaceTitle = "مهام اليوم"
+        messageDisplayLimit = 150
+        showTodayTasksDashboard()
+    }
+
+    private fun showTodayTasksDashboard() {
+        currentSpaceId = TODAY_SPACE_ID
+        currentSpaceTitle = "مهام اليوم"
+        composer = null
+        chatScroll = null
+        root.removeAllViews()
+
+        val now = ZonedDateTime.now()
+        val items = runCatching { TodayTasksEngine.build(db, now) }.getOrElse {
+            emptyList()
+        }
+        val summary = TodayTasksEngine.summary(items)
+
+        val top = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(8), dp(10), dp(5))
+            setBackgroundColor(surfaceBg)
+        }
+        val back = button("←", 26f).apply { setOnClickListener { showHome() } }
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            addView(text("مهام اليوم", 28f, Color.rgb(25, 30, 30), true).apply { gravity = Gravity.CENTER })
+            addView(text(TodayTasksEngine.dateLabel(now.toLocalDate()), 14f, Color.GRAY, false).apply { gravity = Gravity.CENTER })
+        }
+        val refresh = button("↻", 24f).apply {
+            contentDescription = "تحديث مهام اليوم"
+            setOnClickListener { showTodayTasksDashboard() }
+        }
+        top.addView(back, LinearLayout.LayoutParams(dp(56), dp(56)))
+        top.addView(titleBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(refresh, LinearLayout.LayoutParams(dp(52), dp(52)))
+        root.addView(top)
+
+        val summaryRow = horizontal().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(6))
+            addView(todaySummaryChip("مفتوحة", summary.open, teal, paleTeal), LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                setMargins(dp(4), 0, dp(4), 0)
+            })
+            addView(todaySummaryChip("لم تتم", summary.skipped, todayRed, todayRedSoft), LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                setMargins(dp(4), 0, dp(4), 0)
+            })
+            addView(todaySummaryChip("منجزة", summary.done, todayGreen, todayGreenSoft), LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                setMargins(dp(4), 0, dp(4), 0)
+            })
+        }
+        root.addView(summaryRow)
+
+        val listHost = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(4), dp(10), dp(22))
+        }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(listHost, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        if (items.isEmpty()) {
+            listHost.addView(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(24), dp(90), dp(24), dp(30))
+                    addView(text("كل شيء هادئ لليوم", 23f, teal, true).apply { gravity = Gravity.CENTER })
+                    addView(text("أي موعد أو تذكير أو مهمة لليوم سيظهر هنا تلقائياً.", 16f, Color.GRAY, false).apply {
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(10), 0, 0)
+                    })
+                }
+            )
             return
         }
 
-        val labels = mutableListOf<String>()
-        val handlers = mutableListOf<() -> Unit>()
+        var lastStatus: TodayTaskStatus? = null
+        items.forEach { item ->
+            if (item.status != lastStatus) {
+                listHost.addView(todaySectionHeader(item.status))
+                lastStatus = item.status
+            }
+            listHost.addView(
+                todayTaskCard(item, now),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, dp(4), 0, dp(4))
+                }
+            )
+        }
+    }
 
-        actions.forEach { action ->
-            val due = action.dueAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }
-            labels += listOfNotNull("⚑ ${action.title}", due?.let { "— $it" }).joinToString(" ")
-            handlers += {
-                AlertDialog.Builder(this)
-                    .setTitle("إنهاء هذا الإجراء؟")
-                    .setMessage(action.title)
-                    .setPositiveButton("تم") { _, _ ->
-                        val reminderIds = db.completeActionItem(action.id)
-                        reminderIds.forEach { ReminderScheduler.cancel(this@MainActivity, it) }
-                        showTodayAndActions()
-                    }
-                    .setNegativeButton("إلغاء", null)
-                    .show()
+    private fun todaySummaryChip(label: String, count: Int, accent: Int, fill: Int): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = rounded(fill, 16f, accent, 1)
+            addView(text(count.toString(), 18f, accent, true).apply { gravity = Gravity.CENTER })
+            addView(text("  $label", 14f, accent, true).apply { gravity = Gravity.CENTER })
+        }
+
+    private fun todaySectionHeader(status: TodayTaskStatus): View {
+        val (label, color) = when (status) {
+            TodayTaskStatus.OPEN -> "قيد التنفيذ" to teal
+            TodayTaskStatus.SKIPPED -> "لم تتم" to todayRed
+            TodayTaskStatus.DONE -> "تم إنجازها" to todayGreen
+        }
+        return text(label, 16f, color, true).apply {
+            setPadding(dp(8), dp(16), dp(8), dp(6))
+        }
+    }
+
+    private fun todayTaskCard(item: TodayTaskItem, now: ZonedDateTime): View {
+        val fill = when (item.status) {
+            TodayTaskStatus.OPEN -> if (item.overdue) todayAmberSoft else surfaceBg
+            TodayTaskStatus.SKIPPED -> todayRedSoft
+            TodayTaskStatus.DONE -> todayGreenSoft
+        }
+        val stroke = when (item.status) {
+            TodayTaskStatus.OPEN -> if (item.overdue) todayAmber else Color.rgb(208, 213, 210)
+            TodayTaskStatus.SKIPPED -> Color.rgb(225, 183, 179)
+            TodayTaskStatus.DONE -> Color.rgb(183, 217, 190)
+        }
+
+        val card = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(11), dp(10), dp(11))
+            background = rounded(fill, 16f, stroke, 1)
+            item.originSpaceId?.let { sourceId ->
+                setOnClickListener {
+                    if (sourceId > 0L) openSpace(sourceId)
+                }
             }
         }
 
-        reminders.forEach { reminder ->
-            val due = reminder.nextFireAt?.let { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it)) }.orEmpty()
-            labels += "⏰ ${reminder.body.take(70)} ${if (due.isBlank()) "" else "— $due"}"
-            handlers += { openSpace(reminder.spaceId) }
+        val statusButtons = horizontal().apply {
+            gravity = Gravity.CENTER
+        }
+        val reject = todayStatusButton(
+            label = "✕",
+            selected = item.status == TodayTaskStatus.SKIPPED,
+            accent = todayRed,
+            soft = todayRedSoft,
+            description = "لم تتم"
+        ).apply {
+            setOnClickListener {
+                if (item.status != TodayTaskStatus.SKIPPED) {
+                    updateTodayTaskStatus(item, TodayTaskStatus.SKIPPED, now)
+                }
+            }
+        }
+        val done = todayStatusButton(
+            label = "✓",
+            selected = item.status == TodayTaskStatus.DONE,
+            accent = todayGreen,
+            soft = todayGreenSoft,
+            description = "تم"
+        ).apply {
+            setOnClickListener {
+                if (item.status != TodayTaskStatus.DONE) {
+                    updateTodayTaskStatus(item, TodayTaskStatus.DONE, now)
+                }
+            }
+        }
+        statusButtons.addView(reject, LinearLayout.LayoutParams(dp(46), dp(46)).apply { setMargins(dp(3), 0, dp(3), 0) })
+        statusButtons.addView(done, LinearLayout.LayoutParams(dp(46), dp(46)).apply { setMargins(dp(3), 0, dp(3), 0) })
+
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), 0, dp(8), 0)
+
+            val titleColor = when (item.status) {
+                TodayTaskStatus.OPEN -> Color.rgb(31, 37, 37)
+                TodayTaskStatus.SKIPPED -> Color.rgb(118, 58, 55)
+                TodayTaskStatus.DONE -> Color.rgb(48, 92, 58)
+            }
+            addView(text(item.title, 18f, titleColor, true).apply {
+                maxLines = 2
+            })
+
+            item.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                addView(text(detail.take(150), 14f, Color.rgb(91, 96, 94), false).apply {
+                    maxLines = 2
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }
+
+            addView(text(todayTaskMeta(item, now), 13f, todayTaskMetaColor(item), false).apply {
+                maxLines = 1
+                setPadding(0, dp(5), 0, 0)
+            })
         }
 
-        trackedDates.forEach { notice ->
-            val prefix = if (notice.kind == "due") "📅" else "⏳"
-            labels += "$prefix ${AlphaDateTracker.label(notice)}"
-            handlers += { openSpace(notice.source.spaceId) }
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("اليوم والإجراءات")
-            .setItems(labels.toTypedArray()) { _, which -> handlers[which].invoke() }
-            .setPositiveButton("إغلاق", null)
-            .show()
+        card.addView(statusButtons, LinearLayout.LayoutParams(dp(104), ViewGroup.LayoutParams.WRAP_CONTENT))
+        card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        return card
     }
+
+    private fun todayStatusButton(
+        label: String,
+        selected: Boolean,
+        accent: Int,
+        soft: Int,
+        description: String
+    ): Button = button(label, 24f).apply {
+        contentDescription = description
+        setTextColor(if (selected) Color.WHITE else accent)
+        background = rounded(if (selected) accent else soft, 14f, accent, 1)
+    }
+
+    private fun todayTaskMeta(item: TodayTaskItem, now: ZonedDateTime): String {
+        val parts = mutableListOf<String>()
+        val kind = when (item.kind) {
+            TodayTaskKind.ACTION -> "مهمة"
+            TodayTaskKind.REMINDER -> "تذكير"
+            TodayTaskKind.DOCUMENT_DUE -> "موعد مستند"
+            TodayTaskKind.DOCUMENT_EXPIRY -> "انتهاء مستند"
+        }
+        parts += kind
+
+        if (item.overdue && item.scheduledAt != null) {
+            val due = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(item.scheduledAt))
+            parts += "متأخرة من $due"
+        } else if (item.scheduledAt != null) {
+            val time = SimpleDateFormat("HH:mm", Locale.GERMANY).format(Date(item.scheduledAt))
+            parts += time
+        }
+
+        item.originSpaceTitle?.takeIf { it.isNotBlank() }?.let { parts += it }
+
+        when (item.status) {
+            TodayTaskStatus.SKIPPED -> parts += "لم تتم"
+            TodayTaskStatus.DONE -> parts += "تم"
+            TodayTaskStatus.OPEN -> Unit
+        }
+        return parts.joinToString(" • ")
+    }
+
+    private fun todayTaskMetaColor(item: TodayTaskItem): Int = when {
+        item.status == TodayTaskStatus.DONE -> todayGreen
+        item.status == TodayTaskStatus.SKIPPED -> todayRed
+        item.overdue -> todayAmber
+        else -> Color.GRAY
+    }
+
+    private fun updateTodayTaskStatus(
+        item: TodayTaskItem,
+        newStatus: TodayTaskStatus,
+        displayedAt: ZonedDateTime
+    ) {
+        worker.execute {
+            runCatching {
+                when (item.kind) {
+                    TodayTaskKind.ACTION -> {
+                        val reminderIds = if (newStatus == TodayTaskStatus.DONE) {
+                            db.completeActionItem(item.sourceId)
+                        } else {
+                            db.skipActionItem(item.sourceId)
+                        }
+                        reminderIds.forEach { ReminderScheduler.cancel(this@MainActivity, it) }
+                    }
+
+                    TodayTaskKind.REMINDER -> {
+                        val dateKey = TodayTasksEngine.dateKey(displayedAt)
+                        db.setTodayTaskState(
+                            dateKey,
+                            TodayTaskKind.REMINDER.sourceType,
+                            item.sourceId,
+                            if (newStatus == TodayTaskStatus.DONE) "done" else "skipped"
+                        )
+                        val reminder = db.getReminder(item.sourceId)
+                        if (reminder != null) {
+                            val start = TodayTasksEngine.startOfDayMillis(displayedAt.toLocalDate(), displayedAt.zone)
+                            val end = TodayTasksEngine.endOfDayMillis(displayedAt.toLocalDate(), displayedAt.zone)
+                            val currentOccurrence = reminder.nextFireAt?.takeIf { it in start until end }
+                            if (currentOccurrence != null) {
+                                ReminderScheduler.cancel(this@MainActivity, reminder.id)
+                                if (reminder.repeatRule == "none") {
+                                    db.disableReminder(reminder.id)
+                                } else {
+                                    ReminderScheduler.schedule(
+                                        this@MainActivity,
+                                        db,
+                                        reminder,
+                                        fromMillis = end + 1_000L
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    TodayTaskKind.DOCUMENT_DUE,
+                    TodayTaskKind.DOCUMENT_EXPIRY -> {
+                        db.setTodayTaskState(
+                            TodayTasksEngine.dateKey(displayedAt),
+                            item.kind.sourceType,
+                            item.sourceId,
+                            if (newStatus == TodayTaskStatus.DONE) "done" else "skipped"
+                        )
+                    }
+                }
+            }.onFailure { error ->
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    Toast.makeText(
+                        this,
+                        "تعذر تحديث المهمة: ${error.localizedMessage ?: "خطأ"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                return@execute
+            }
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (currentSpaceId == TODAY_SPACE_ID) showTodayTasksDashboard()
+            }
+        }
+    }
+
+    private fun showTodayAndActions() {
+        openTodayTasks()
+    }
+
 
     private fun showMorningBriefSettings() {
         val enabled = MorningBriefScheduler.isEnabled(this)
@@ -2725,6 +3090,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val SPACE_LIST_ID = 4001
         private const val MESSAGE_LIST_ID = 4002
+        private const val TODAY_SPACE_ID = -9001001L
         private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-dev"
         private const val DOCUMENT_ALPHA_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-document-alpha-v2"
         private const val SUPABASE_PUBLISHABLE_KEY = "sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3"
