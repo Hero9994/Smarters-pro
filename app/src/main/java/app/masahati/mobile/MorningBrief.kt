@@ -108,6 +108,7 @@ class MorningBriefWorker(
         ReminderScheduler.ensureChannel(applicationContext)
         val openIntent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("open_today_tasks", true)
         }
         val pending = PendingIntent.getActivity(
             applicationContext,
