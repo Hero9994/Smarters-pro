@@ -31,7 +31,7 @@ object AlphaExporter {
                     .put("title", s.title)
                     .put("pinned", s.pinned)
                     .put("archived", s.archived)
-                    .put("created_at", s.updatedAt)
+                    .put("created_at", s.createdAt)
                     .put("updated_at", s.updatedAt))
             }
         })
