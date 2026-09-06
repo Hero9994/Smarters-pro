@@ -220,14 +220,23 @@ class MainActivity : ComponentActivity() {
         }
         Toast.makeText(this, "جاري فك التشفير والاستيراد…", Toast.LENGTH_LONG).show()
         worker.execute {
-            var summary: AlphaImportSummary? = null
+            val authenticatedZip = File(cacheDir, "masahati-authenticated-${java.util.UUID.randomUUID()}.zip")
             val result = runCatching {
-                contentResolver.openInputStream(uri)?.use { encrypted ->
-                    AlphaBackupCrypto.decrypt(password, encrypted) { plainZip ->
-                        summary = AlphaImporter.importZip(this@MainActivity, db, plainZip)
+                try {
+                    contentResolver.openInputStream(uri)?.use { encrypted ->
+                        authenticatedZip.outputStream().buffered().use { plainOutput ->
+                            AlphaBackupCrypto.decrypt(password, encrypted) { plainZip ->
+                                plainZip.copyTo(plainOutput)
+                            }
+                        }
+                    } ?: error("Cannot open encrypted backup")
+
+                    authenticatedZip.inputStream().buffered().use { plainZip ->
+                        AlphaImporter.importZip(this@MainActivity, db, plainZip)
                     }
-                } ?: error("Cannot open encrypted backup")
-                summary ?: error("لم تكتمل عملية الاستيراد")
+                } finally {
+                    authenticatedZip.delete()
+                }
             }
             password.fill('\u0000')
             result.onSuccess { imported ->
