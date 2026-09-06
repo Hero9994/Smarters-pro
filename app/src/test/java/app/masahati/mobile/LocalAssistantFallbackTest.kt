@@ -124,4 +124,50 @@ class LocalAssistantFallbackTest {
         )
     }
 
+
+    @Test
+    fun renameLastDocumentProducesExecutableAction() {
+        val result = LocalAssistantFallback.analyze(
+            "غير اسم آخر مستند إلى موافقة نقل طبي.pdf",
+            "أوراقي"
+        )
+        assertEquals("command", result.getString("classification"))
+        val action = result.getJSONArray("actions").getJSONObject(0)
+        assertEquals("rename_last_document", action.getString("type"))
+        assertEquals("موافقة نقل طبي.pdf", action.getJSONObject("args").getString("new_name"))
+    }
+
+    @Test
+    fun moveLastDocumentProducesExecutableAction() {
+        val result = LocalAssistantFallback.analyze(
+            "انقل آخر مستند إلى مساحة أوراق رضوان",
+            "عام"
+        )
+        val action = result.getJSONArray("actions").getJSONObject(0)
+        assertEquals("move_last_document", action.getString("type"))
+        assertEquals("أوراق رضوان", action.getJSONObject("args").getString("target_space"))
+    }
+
+    @Test
+    fun renameSpaceProducesExecutableAction() {
+        val result = LocalAssistantFallback.analyze(
+            "غير اسم هالمساحة إلى شغل مهم",
+            "قديم"
+        )
+        val action = result.getJSONArray("actions").getJSONObject(0)
+        assertEquals("rename_space", action.getString("type"))
+        assertEquals("شغل مهم", action.getJSONObject("args").getString("new_name"))
+    }
+
+    @Test
+    fun moveLastItemProducesExecutableAction() {
+        val result = LocalAssistantFallback.analyze(
+            "انقل آخر شي إلى مساحة يومي",
+            "عام"
+        )
+        val action = result.getJSONArray("actions").getJSONObject(0)
+        assertEquals("move_last_item", action.getString("type"))
+        assertEquals("يومي", action.getJSONObject("args").getString("target_space"))
+    }
+
 }
