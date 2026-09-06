@@ -333,6 +333,38 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return if (focused?.kind == "file") focused else null
     }
 
+    fun lastUserMessageBefore(spaceId: Long, beforeMessageId: Long): MessageRow? {
+        val c = readableDatabase.query(
+            "messages",
+            null,
+            "space_id=? AND role='user' AND id<?",
+            arrayOf(spaceId.toString(), beforeMessageId.toString()),
+            null,
+            null,
+            "created_at DESC, id DESC",
+            "1"
+        )
+        return c.use { if (it.moveToFirst()) messageFrom(it) else null }
+    }
+
+    fun renameMessageDisplayName(messageId: Long, newName: String) {
+        val message = getMessage(messageId) ?: return
+        val clean = newName.trim().take(180)
+        if (clean.isBlank()) return
+        writableDatabase.update(
+            "messages",
+            ContentValues().apply { put("display_name", clean) },
+            "id=?",
+            arrayOf(messageId.toString())
+        )
+        writableDatabase.update(
+            "spaces",
+            ContentValues().apply { put("updated_at", System.currentTimeMillis()) },
+            "id=?",
+            arrayOf(message.spaceId.toString())
+        )
+    }
+
     fun moveMessage(messageId: Long, targetSpaceId: Long) {
         val row = getMessage(messageId)
         if (row != null) {
