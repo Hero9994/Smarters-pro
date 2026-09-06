@@ -43,7 +43,7 @@ object NaturalReminderParser {
         val today = listOf("اليوم", "today", "heute").any(normalized::contains)
         val weekday = findWeekday(normalized)
         val explicitDate = parseDate(normalized, now.toLocalDate())
-        val daily = listOf("كل يوم", "يوميا", "يومياً", "daily", "every day", "jeden tag", "täglich", "taeglich").any(normalized::contains)
+        val daily = weekday == null && listOf("كل يوم", "يوميا", "يومياً", "daily", "every day", "jeden tag", "täglich", "taeglich").any(normalized::contains)
         val weekly = listOf("كل اسبوع", "كل أسبوع", "اسبوعيا", "أسبوعيا", "weekly", "every week", "wöchentlich", "woechentlich").any(normalized::contains) ||
             (weekday != null && listOf("كل ", "every ", "jeden ", "jede ").any(normalized::contains))
 
@@ -136,6 +136,7 @@ object NaturalReminderParser {
             return NaturalReminderResolution(
                 ready = true,
                 triggerAt = trigger,
+                dayOfWeek = weekday,
                 hour = hour,
                 minute = minute,
                 description = formatEpoch(trigger, now.zone)
