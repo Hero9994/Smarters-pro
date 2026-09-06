@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">مساحاتي alpha</string>
+    <string name="show_older_messages">عرض الأقدم (%1$d)</string>
+    <string name="semantic_download_start">بدء تنزيل EmbeddingGemma…</string>
+    <string name="semantic_download_indexing">تم التنزيل ✓\nجارِ بناء الفهرس الدلالي…</string>
+    <string name="semantic_index_progress">بناء الفهرس الدلالي… %1$d / %2$d</string>
+    <string name="semantic_index_ready">جاهزة ✓\nتمت فهرسة %1$d مقطع. البحث الشامل يفهم المعنى من الآن.</string>
 </resources>
