@@ -655,7 +655,32 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         ).use { cursor ->
             if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
         }
+        val actionIds = mutableListOf<Long>()
+        readableDatabase.query(
+            "action_items",
+            arrayOf("id"),
+            "message_id=?",
+            arrayOf(messageId.toString()),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) actionIds += cursor.getLong(0)
+        }
         writableDatabase.transaction {
+            actionIds.forEach { actionId ->
+                update(
+                    "reminders",
+                    ContentValues().apply {
+                        put("enabled", 0)
+                        putNull("next_fire_at")
+                        putNull("condition_action_id")
+                    },
+                    "condition_action_id=?",
+                    arrayOf(actionId.toString())
+                )
+            }
+            delete("action_items", "message_id=?", arrayOf(messageId.toString()))
             delete("messages", "id=?", arrayOf(messageId.toString()))
         }
         filePath?.let { path -> runCatching { java.io.File(path).delete() } }
@@ -839,11 +864,37 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun clearGeneratedActionItemsForMessage(messageId: Long) {
-        writableDatabase.delete(
+        val actionIds = mutableListOf<Long>()
+        readableDatabase.query(
             "action_items",
+            arrayOf("id"),
             "message_id=? AND status='open' AND kind IN ('deadline','document_action')",
-            arrayOf(messageId.toString())
-        )
+            arrayOf(messageId.toString()),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) actionIds += cursor.getLong(0)
+        }
+        writableDatabase.transaction {
+            actionIds.forEach { actionId ->
+                update(
+                    "reminders",
+                    ContentValues().apply {
+                        put("enabled", 0)
+                        putNull("next_fire_at")
+                        putNull("condition_action_id")
+                    },
+                    "condition_action_id=?",
+                    arrayOf(actionId.toString())
+                )
+            }
+            delete(
+                "action_items",
+                "message_id=? AND status='open' AND kind IN ('deadline','document_action')",
+                arrayOf(messageId.toString())
+            )
+        }
     }
 
     fun importActionItem(
