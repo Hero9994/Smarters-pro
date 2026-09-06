@@ -495,6 +495,26 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return c.use { cursor -> buildList { while (cursor.moveToNext()) add(messageFrom(cursor)) } }
     }
 
+    fun listRecentMessages(spaceId: Long, limit: Int = 150): List<MessageRow> {
+        val cursor = readableDatabase.query(
+            "messages",
+            null,
+            "space_id=? AND deleted_at IS NULL",
+            arrayOf(spaceId.toString()),
+            null,
+            null,
+            "created_at DESC, id DESC",
+            limit.coerceIn(1, 1000).toString()
+        )
+        return cursor.use { c -> buildList { while (c.moveToNext()) add(messageFrom(c)) } }.reversed()
+    }
+
+    fun countMessages(spaceId: Long): Int =
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM messages WHERE space_id=? AND deleted_at IS NULL",
+            arrayOf(spaceId.toString())
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
+
     fun recentForAi(spaceId: Long, limit: Int = 20): List<MessageRow> {
         val c = readableDatabase.query(
             "messages",
