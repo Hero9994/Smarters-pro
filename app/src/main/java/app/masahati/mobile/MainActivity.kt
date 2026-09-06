@@ -278,7 +278,7 @@ class MainActivity : ComponentActivity() {
 
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            ReminderScheduler.rescheduleAll(this)
+            ReminderScheduler.enqueueReschedule(this)
             Toast.makeText(this, "تم تفعيل إشعارات التذكير", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "لن تظهر التنبيهات حتى تسمح بالإشعارات من إعدادات أندرويد", Toast.LENGTH_LONG).show()
