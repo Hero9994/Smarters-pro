@@ -202,8 +202,11 @@ object DocumentImageEnhancer {
         correctedScore >= originalScore + 1.5f
 
     internal fun autoLevels(low: Int, high: Int): Pair<Float, Float>? {
-        val safeLow = low.coerceIn(0, 255)
-        val safeHigh = high.coerceIn(safeLow + 1, 255)
+        val rawLow = low.coerceIn(0, 255)
+        val rawHigh = high.coerceIn(0, 255)
+        if (rawLow >= 225 && rawHigh >= 238) return null
+        val safeLow = rawLow.coerceAtMost(254)
+        val safeHigh = rawHigh.coerceIn(safeLow + 1, 255)
         val span = safeHigh - safeLow
         val whiteEnough = safeHigh >= 238
         val contrastEnough = span >= 205
