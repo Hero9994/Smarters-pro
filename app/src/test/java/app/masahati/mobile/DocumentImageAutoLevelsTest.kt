@@ -25,4 +25,11 @@ class DocumentImageAutoLevelsTest {
         assertNotNull(levels)
         assertTrue(levels!!.first <= 1.16f)
     }
+
+    @Test
+    fun blankWhitePageIsUntouched() {
+        assertNull(DocumentImageEnhancer.autoLevels(250, 255))
+        assertNull(DocumentImageEnhancer.autoLevels(255, 255))
+    }
+
 }
