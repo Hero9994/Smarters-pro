@@ -597,7 +597,7 @@ class MainActivity : ComponentActivity() {
         if (total > messages.size) {
             val remaining = total - messages.size
             host.addView(Button(this).apply {
-                text = "عرض الأقدم ($remaining)"
+                text = getString(R.string.show_older_messages, remaining)
                 isAllCaps = false
                 setOnClickListener {
                     messageDisplayLimit = (messageDisplayLimit + 150).coerceAtMost(1000)
@@ -1534,7 +1534,7 @@ class MainActivity : ComponentActivity() {
         }
         val packs = SemanticModelPackManager(this)
         val status = TextView(this).apply {
-            text = "بدء تنزيل EmbeddingGemma…"
+            text = getString(R.string.semantic_download_start)
             textSize = 17f
             setPadding(dp(24), dp(16), dp(24), dp(16))
         }
@@ -1569,7 +1569,7 @@ class MainActivity : ComponentActivity() {
                     if (isFinishing || isDestroyed) {
                         return@runOnUiThread
                     }
-                    status.text = "تم التنزيل ✓\nجارِ بناء الفهرس الدلالي…"
+                    status.text = getString(R.string.semantic_download_indexing)
                 }
                 semanticSearchEngine?.close()
                 semanticSearchEngine = SemanticSearchEngine(this@MainActivity)
@@ -1578,14 +1578,14 @@ class MainActivity : ComponentActivity() {
                         if (isFinishing || isDestroyed) {
                             return@runOnUiThread
                         }
-                        status.text = "بناء الفهرس الدلالي… $done / $total"
+                        status.text = getString(R.string.semantic_index_progress, done, total)
                     }
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed) {
                         return@runOnUiThread
                     }
-                    status.text = "جاهزة ✓\nتمت فهرسة $indexed مقطع. البحث الشامل يفهم المعنى من الآن."
+                    status.text = getString(R.string.semantic_index_ready, indexed)
                     Toast.makeText(this, "تم تفعيل الذاكرة الدلالية", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
