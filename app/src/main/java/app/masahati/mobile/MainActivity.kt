@@ -54,12 +54,11 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.time.ZonedDateTime
 
 class MainActivity : ComponentActivity() {
@@ -71,7 +70,10 @@ class MainActivity : ComponentActivity() {
     private val controlBg = Color.rgb(230, 232, 228)
     private val worker = Executors.newSingleThreadExecutor()
     private val modelWorker = Executors.newSingleThreadExecutor()
-    private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    private val recognizerHolder = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+    private val recognizer by recognizerHolder
     private lateinit var db: MasahatiDatabase
     private lateinit var root: LinearLayout
     private var currentSpaceId: Long? = null
@@ -261,7 +263,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        db = MasahatiDatabase(this)
+        db = MasahatiDatabase(applicationContext)
         ReminderScheduler.ensureChannel(this)
         ReminderScheduler.rescheduleAll(this)
         MorningBriefScheduler.ensureIfEnabled(this)
@@ -314,16 +316,44 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        recognizer.close()
-        localAi?.close()
-        localAi = null
-        semanticSearchEngine?.close()
-        semanticSearchEngine = null
         performanceMonitor?.close()
         performanceMonitor = null
-        worker.shutdown()
+        pendingEncryptedExportPassword?.fill('\u0000')
+        pendingEncryptedExportPassword = null
+        pendingEncryptedImportPassword?.fill('\u0000')
+        pendingEncryptedImportPassword = null
+
+        worker.shutdownNow()
         modelWorker.shutdownNow()
-        db.close()
+
+        val cleanup = Thread {
+            var stopped = false
+            try {
+                while (!worker.awaitTermination(30, TimeUnit.SECONDS)) {
+                    // Wait until the current bounded operation exits before closing its resources.
+                }
+                while (!modelWorker.awaitTermination(30, TimeUnit.SECONDS)) {
+                    // Local model work can take longer; never close it underneath an active task.
+                }
+                stopped = true
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+            if (stopped) {
+                runCatching {
+                    if (recognizerHolder.isInitialized()) recognizer.close()
+                }
+                runCatching { localAi?.close() }
+                localAi = null
+                runCatching { semanticSearchEngine?.close() }
+                semanticSearchEngine = null
+                runCatching { db.close() }
+            }
+        }.apply {
+            name = "masahati-cleanup"
+            isDaemon = true
+        }
+        cleanup.start()
         super.onDestroy()
     }
 
