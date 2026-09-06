@@ -1121,7 +1121,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val now = System.currentTimeMillis()
                 val fileName = "Scan-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(now))}.pdf"
-                val target = File(filesDir, "documents").apply { mkdirs() }.resolve(fileName)
+                val target = newDocumentFile(fileName)
                 val ocrBuilder = StringBuilder()
                 val barcodeValues = linkedSetOf<String>()
                 val cleanedPageCount = if (pages.isNotEmpty()) {
@@ -1193,7 +1193,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val displayName = queryDisplayName(uri) ?: "ملف-${System.currentTimeMillis()}"
                 val mime = contentResolver.getType(uri) ?: guessMime(displayName)
-                val target = File(filesDir, "documents").apply { mkdirs() }.resolve(safeFileName(displayName))
+                val target = newDocumentFile(displayName)
                 copyUriToFileSafely(uri, target)
                 var ocr = ""
                 val barcodeValues = linkedSetOf<String>()
@@ -1674,8 +1674,7 @@ class MainActivity : ComponentActivity() {
             if (clip.text.length < 80) return@execute
 
             val displayName = safeFileName(clip.title).take(100).ifBlank { "صفحة ويب" } + ".txt"
-            val target = File(filesDir, "documents").apply { mkdirs() }
-                .resolve("web-${System.currentTimeMillis()}-$displayName")
+            val target = newDocumentFile("web-$displayName")
             val storedText = buildString {
                 append("الرابط: ").append(clip.url).append("\n")
                 clip.description?.let { append("الوصف: ").append(it).append("\n") }
@@ -2236,6 +2235,13 @@ class MainActivity : ComponentActivity() {
                 db.deleteMessage(m.id)
                 currentSpaceId?.let { renderMessages(it) }
             }.setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun newDocumentFile(displayName: String): File {
+        val dir = File(filesDir, "documents").apply { mkdirs() }
+        val safe = safeFileName(displayName)
+        val unique = java.util.UUID.randomUUID().toString().substring(0, 8)
+        return dir.resolve("${System.currentTimeMillis()}-$unique-$safe")
     }
 
     private fun copyUriToFileSafely(
