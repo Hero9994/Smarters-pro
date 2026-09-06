@@ -66,194 +66,203 @@ object AlphaImporter {
                 error("صيغة النسخة الاحتياطية غير مدعومة")
             }
 
-            val oldToNewSpace = mutableMapOf<Long, Long>()
-            val oldToNewMessage = mutableMapOf<Long, Long>()
-            val existingTitles = (db.listSpaces(false) + db.listSpaces(true)).map { it.title }.toMutableSet()
-            val importSuffix = java.text.SimpleDateFormat("dd.MM HHmm", java.util.Locale.GERMANY).format(java.util.Date())
+            val importedFiles = mutableListOf<File>()
+            return try {
+                db.runInTransaction {
+                val oldToNewSpace = mutableMapOf<Long, Long>()
+                val oldToNewMessage = mutableMapOf<Long, Long>()
+                val existingTitles = (db.listSpaces(false) + db.listSpaces(true)).map { it.title }.toMutableSet()
+                val importSuffix = java.text.SimpleDateFormat("dd.MM HHmm", java.util.Locale.GERMANY).format(java.util.Date())
 
-            val spaces = root.optJSONArray("spaces")
-            var spaceCount = 0
-            if (spaces != null) {
-                for (i in 0 until spaces.length()) {
-                    val item = spaces.optJSONObject(i) ?: continue
-                    val oldId = item.optLong("id", -1L)
-                    if (oldId <= 0L) continue
-                    val originalTitle = item.optString("title").trim().ifBlank { "مساحة مستوردة" }
-                    var title = originalTitle
-                    var counter = 1
-                    while (title in existingTitles) {
-                        title = if (counter == 1) "$originalTitle — مستورد $importSuffix"
-                        else "$originalTitle — مستورد $importSuffix ($counter)"
-                        counter++
-                    }
-                    existingTitles += title
-                    val createdAt = item.optLong("created_at", item.optLong("updated_at", System.currentTimeMillis()))
-                    val updatedAt = item.optLong("updated_at", createdAt)
-                    val newId = db.importSpace(
-                        title = title,
-                        pinned = item.optBoolean("pinned", false),
-                        archived = item.optBoolean("archived", false),
-                        createdAt = createdAt,
-                        updatedAt = updatedAt
-                    )
-                    if (newId > 0L) {
-                        oldToNewSpace[oldId] = newId
-                        spaceCount++
+                val spaces = root.optJSONArray("spaces")
+                var spaceCount = 0
+                if (spaces != null) {
+                    for (i in 0 until spaces.length()) {
+                        val item = spaces.optJSONObject(i) ?: continue
+                        val oldId = item.optLong("id", -1L)
+                        if (oldId <= 0L) continue
+                        val originalTitle = item.optString("title").trim().ifBlank { "مساحة مستوردة" }
+                        var title = originalTitle
+                        var counter = 1
+                        while (title in existingTitles) {
+                            title = if (counter == 1) "$originalTitle — مستورد $importSuffix"
+                            else "$originalTitle — مستورد $importSuffix ($counter)"
+                            counter++
+                        }
+                        existingTitles += title
+                        val createdAt = item.optLong("created_at", item.optLong("updated_at", System.currentTimeMillis()))
+                        val updatedAt = item.optLong("updated_at", createdAt)
+                        val newId = db.importSpace(
+                            title = title,
+                            pinned = item.optBoolean("pinned", false),
+                            archived = item.optBoolean("archived", false),
+                            createdAt = createdAt,
+                            updatedAt = updatedAt
+                        )
+                        if (newId > 0L) {
+                            oldToNewSpace[oldId] = newId
+                            spaceCount++
+                        }
                     }
                 }
-            }
 
-            val messages = root.optJSONArray("messages")
-            var messageCount = 0
-            var fileCount = 0
-            if (messages != null) {
-                for (i in 0 until messages.length()) {
-                    val item = messages.optJSONObject(i) ?: continue
-                    val oldId = item.optLong("id", -1L)
-                    val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
-                    val kind = item.optString("kind", "text")
-                    val displayName = item.optNullableString("display_name")
-                    val importedFile = if (kind == "file" && oldId > 0L) {
-                        findFileEntry(tempRoot, oldId)?.let { source ->
-                            val documents = File(context.filesDir, "documents").apply { mkdirs() }
-                            val safeName = safeFileName(displayName ?: source.name.substringAfter('-'))
-                            val target = File(documents, "import-${UUID.randomUUID()}-$safeName")
-                            source.copyTo(target, overwrite = false)
-                            fileCount++
-                            target.absolutePath
-                        }
-                    } else null
+                val messages = root.optJSONArray("messages")
+                var messageCount = 0
+                var fileCount = 0
+                if (messages != null) {
+                    for (i in 0 until messages.length()) {
+                        val item = messages.optJSONObject(i) ?: continue
+                        val oldId = item.optLong("id", -1L)
+                        val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
+                        val kind = item.optString("kind", "text")
+                        val displayName = item.optNullableString("display_name")
+                        val importedFile = if (kind == "file" && oldId > 0L) {
+                            findFileEntry(tempRoot, oldId)?.let { source ->
+                                val documents = File(context.filesDir, "documents").apply { mkdirs() }
+                                val safeName = safeFileName(displayName ?: source.name.substringAfter('-'))
+                                val target = File(documents, "import-${UUID.randomUUID()}-$safeName")
+                                source.copyTo(target, overwrite = false)
+                                importedFiles += target
+                                fileCount++
+                                target.absolutePath
+                            }
+                        } else null
 
-                    val newId = db.importMessage(
-                        spaceId = newSpaceId,
-                        role = item.optString("role", "user"),
-                        kind = kind,
-                        text = item.optString("text", ""),
-                        filePath = importedFile,
-                        mimeType = item.optNullableString("mime_type"),
-                        displayName = displayName,
-                        ocrText = item.optNullableString("ocr_text"),
-                        classification = item.optNullableString("classification"),
-                        tags = item.optNullableString("tags"),
-                        summary = item.optNullableString("summary"),
-                        starred = item.optBoolean("starred", false),
-                        createdAt = item.optLong("created_at", System.currentTimeMillis())
-                    )
-                    if (newId <= 0L) continue
-                    oldToNewMessage[oldId] = newId
-                    messageCount++
-
-                    item.optJSONObject("document_meta")?.let { meta ->
-                        db.upsertDocumentMeta(
-                            DocumentMetaRow(
-                                messageId = newId,
-                                smartTitle = meta.optNullableString("smart_title"),
-                                docType = meta.optNullableString("doc_type"),
-                                organization = meta.optNullableString("organization"),
-                                personNames = meta.optNullableString("person_names"),
-                                referenceNumber = meta.optNullableString("reference_number"),
-                                amountText = meta.optNullableString("amount_text"),
-                                currency = meta.optNullableString("currency"),
-                                issueDate = meta.optNullableString("issue_date"),
-                                dueDate = meta.optNullableString("due_date"),
-                                expiryDate = meta.optNullableString("expiry_date"),
-                                actionRequired = meta.optBoolean("action_required", false),
-                                actionText = meta.optNullableString("action_text"),
-                                confidence = meta.optDouble("confidence").takeIf { !it.isNaN() },
-                                evidenceJson = meta.optNullableString("evidence_json"),
-                                extractedJson = null,
-                                updatedAt = meta.optLong("updated_at", System.currentTimeMillis())
-                            )
+                        val newId = db.importMessage(
+                            spaceId = newSpaceId,
+                            role = item.optString("role", "user"),
+                            kind = kind,
+                            text = item.optString("text", ""),
+                            filePath = importedFile,
+                            mimeType = item.optNullableString("mime_type"),
+                            displayName = displayName,
+                            ocrText = item.optNullableString("ocr_text"),
+                            classification = item.optNullableString("classification"),
+                            tags = item.optNullableString("tags"),
+                            summary = item.optNullableString("summary"),
+                            starred = item.optBoolean("starred", false),
+                            createdAt = item.optLong("created_at", System.currentTimeMillis())
                         )
-                    }
+                        if (newId <= 0L) continue
+                        oldToNewMessage[oldId] = newId
+                        messageCount++
 
-                    val importedRow = db.getMessage(newId)
-                    if (importedRow?.kind == "file") {
-                        importedFile?.let { path ->
-                            runCatching {
-                                AlphaDocumentProcessor.indexNewFile(db, newId, File(path), importedRow.ocrText)
+                        item.optJSONObject("document_meta")?.let { meta ->
+                            db.upsertDocumentMeta(
+                                DocumentMetaRow(
+                                    messageId = newId,
+                                    smartTitle = meta.optNullableString("smart_title"),
+                                    docType = meta.optNullableString("doc_type"),
+                                    organization = meta.optNullableString("organization"),
+                                    personNames = meta.optNullableString("person_names"),
+                                    referenceNumber = meta.optNullableString("reference_number"),
+                                    amountText = meta.optNullableString("amount_text"),
+                                    currency = meta.optNullableString("currency"),
+                                    issueDate = meta.optNullableString("issue_date"),
+                                    dueDate = meta.optNullableString("due_date"),
+                                    expiryDate = meta.optNullableString("expiry_date"),
+                                    actionRequired = meta.optBoolean("action_required", false),
+                                    actionText = meta.optNullableString("action_text"),
+                                    confidence = meta.optDouble("confidence").takeIf { !it.isNaN() },
+                                    evidenceJson = meta.optNullableString("evidence_json"),
+                                    extractedJson = null,
+                                    updatedAt = meta.optLong("updated_at", System.currentTimeMillis())
+                                )
+                            )
+                        }
+
+                        val importedRow = db.getMessage(newId)
+                        if (importedRow?.kind == "file") {
+                            importedFile?.let { path ->
+                                runCatching {
+                                    AlphaDocumentProcessor.indexNewFile(db, newId, File(path), importedRow.ocrText)
+                                }
                             }
                         }
-                    }
-                    if (item.optBoolean("trashed", false)) db.deleteMessage(newId)
-                }
-            }
-
-            val oldToNewAction = mutableMapOf<Long, Long>()
-            val actions = root.optJSONArray("actions") ?: root.optJSONArray("open_actions")
-            var actionCount = 0
-            if (actions != null) {
-                for (i in 0 until actions.length()) {
-                    val item = actions.optJSONObject(i) ?: continue
-                    val oldActionId = item.optLong("id", -1L)
-                    val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
-                    val oldMessageId = item.optLong("message_id", -1L)
-                    val newMessageId = oldToNewMessage[oldMessageId]
-                    val createdAt = item.optLong("created_at", System.currentTimeMillis())
-                    val id = db.importActionItem(
-                        spaceId = newSpaceId,
-                        messageId = newMessageId,
-                        kind = item.optString("kind", "imported_action"),
-                        title = item.optString("title", "إجراء مستورد"),
-                        details = item.optNullableString("details"),
-                        dueAt = item.optLongOrNull("due_at"),
-                        status = item.optString("status", "open"),
-                        sourceExcerpt = item.optNullableString("source_excerpt"),
-                        createdAt = createdAt,
-                        updatedAt = item.optLong("updated_at", createdAt)
-                    )
-                    if (id > 0L) {
-                        if (oldActionId > 0L) oldToNewAction[oldActionId] = id
-                        actionCount++
+                        if (item.optBoolean("trashed", false)) db.deleteMessage(newId)
                     }
                 }
-            }
 
-            val versions = root.optJSONArray("message_versions")
-            if (versions != null) {
-                for (i in 0 until versions.length()) {
-                    val item = versions.optJSONObject(i) ?: continue
-                    val newMessageId = oldToNewMessage[item.optLong("message_id", -1L)] ?: continue
-                    db.importMessageVersion(
-                        messageId = newMessageId,
-                        reason = item.optString("reason", "imported"),
-                        text = item.optNullableString("text"),
-                        displayName = item.optNullableString("display_name"),
-                        ocrText = item.optNullableString("ocr_text"),
-                        classification = item.optNullableString("classification"),
-                        tags = item.optNullableString("tags"),
-                        summary = item.optNullableString("summary"),
-                        createdAt = item.optLong("created_at", System.currentTimeMillis())
-                    )
+                val oldToNewAction = mutableMapOf<Long, Long>()
+                val actions = root.optJSONArray("actions") ?: root.optJSONArray("open_actions")
+                var actionCount = 0
+                if (actions != null) {
+                    for (i in 0 until actions.length()) {
+                        val item = actions.optJSONObject(i) ?: continue
+                        val oldActionId = item.optLong("id", -1L)
+                        val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
+                        val oldMessageId = item.optLong("message_id", -1L)
+                        val newMessageId = oldToNewMessage[oldMessageId]
+                        val createdAt = item.optLong("created_at", System.currentTimeMillis())
+                        val id = db.importActionItem(
+                            spaceId = newSpaceId,
+                            messageId = newMessageId,
+                            kind = item.optString("kind", "imported_action"),
+                            title = item.optString("title", "إجراء مستورد"),
+                            details = item.optNullableString("details"),
+                            dueAt = item.optLongOrNull("due_at"),
+                            status = item.optString("status", "open"),
+                            sourceExcerpt = item.optNullableString("source_excerpt"),
+                            createdAt = createdAt,
+                            updatedAt = item.optLong("updated_at", createdAt)
+                        )
+                        if (id > 0L) {
+                            if (oldActionId > 0L) oldToNewAction[oldActionId] = id
+                            actionCount++
+                        }
+                    }
                 }
-            }
 
-            val reminders = root.optJSONArray("reminders") ?: root.optJSONArray("active_reminders")
-            var reminderCount = 0
-            if (reminders != null) {
-                for (i in 0 until reminders.length()) {
-                    val item = reminders.optJSONObject(i) ?: continue
-                    val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
-                    val oldConditionActionId = item.optLong("condition_action_id", -1L)
-                    val id = db.importReminder(
-                        spaceId = newSpaceId,
-                        title = item.optString("title", "تذكير مستورد"),
-                        body = item.optString("body", ""),
-                        repeatRule = item.optString("repeat_rule", "none"),
-                        dayOfWeek = item.optIntOrNull("day_of_week"),
-                        hour = item.optIntOrNull("hour"),
-                        minute = item.optIntOrNull("minute"),
-                        nextFireAt = item.optLongOrNull("next_fire_at"),
-                        enabled = item.optBoolean("enabled", true),
-                        deliveredAt = item.optLongOrNull("delivered_at"),
-                        conditionActionId = oldToNewAction[oldConditionActionId],
-                        createdAt = item.optLong("created_at", System.currentTimeMillis())
-                    )
-                    if (id > 0L) reminderCount++
+                val versions = root.optJSONArray("message_versions")
+                if (versions != null) {
+                    for (i in 0 until versions.length()) {
+                        val item = versions.optJSONObject(i) ?: continue
+                        val newMessageId = oldToNewMessage[item.optLong("message_id", -1L)] ?: continue
+                        db.importMessageVersion(
+                            messageId = newMessageId,
+                            reason = item.optString("reason", "imported"),
+                            text = item.optNullableString("text"),
+                            displayName = item.optNullableString("display_name"),
+                            ocrText = item.optNullableString("ocr_text"),
+                            classification = item.optNullableString("classification"),
+                            tags = item.optNullableString("tags"),
+                            summary = item.optNullableString("summary"),
+                            createdAt = item.optLong("created_at", System.currentTimeMillis())
+                        )
+                    }
                 }
-            }
 
-            return AlphaImportSummary(spaceCount, messageCount, fileCount, reminderCount, actionCount)
+                val reminders = root.optJSONArray("reminders") ?: root.optJSONArray("active_reminders")
+                var reminderCount = 0
+                if (reminders != null) {
+                    for (i in 0 until reminders.length()) {
+                        val item = reminders.optJSONObject(i) ?: continue
+                        val newSpaceId = oldToNewSpace[item.optLong("space_id", -1L)] ?: continue
+                        val oldConditionActionId = item.optLong("condition_action_id", -1L)
+                        val id = db.importReminder(
+                            spaceId = newSpaceId,
+                            title = item.optString("title", "تذكير مستورد"),
+                            body = item.optString("body", ""),
+                            repeatRule = item.optString("repeat_rule", "none"),
+                            dayOfWeek = item.optIntOrNull("day_of_week"),
+                            hour = item.optIntOrNull("hour"),
+                            minute = item.optIntOrNull("minute"),
+                            nextFireAt = item.optLongOrNull("next_fire_at"),
+                            enabled = item.optBoolean("enabled", true),
+                            deliveredAt = item.optLongOrNull("delivered_at"),
+                            conditionActionId = oldToNewAction[oldConditionActionId],
+                            createdAt = item.optLong("created_at", System.currentTimeMillis())
+                        )
+                        if (id > 0L) reminderCount++
+                    }
+                }
+
+                    AlphaImportSummary(spaceCount, messageCount, fileCount, reminderCount, actionCount)
+                }
+            } catch (error: Exception) {
+                importedFiles.forEach { file -> runCatching { file.delete() } }
+                throw error
+            }
         } finally {
             tempRoot.deleteRecursively()
         }
@@ -266,9 +275,16 @@ object AlphaImporter {
     }
 
     internal fun sanitizeEntry(name: String): String? {
-        val normalized = name.replace('\\', '/').trimStart('/')
-        if (normalized.isBlank() || normalized.contains("../") || normalized == "..") return null
-        if (!(normalized == "README.txt" || normalized == "data/masahati.json" || normalized == "data/masahati.md" || normalized.startsWith("files/"))) return null
+        if (name.isBlank() || name.length > 260 || '\u0000' in name) return null
+        if (name.startsWith('/') || name.startsWith('\\') || Regex("^[A-Za-z]:").containsMatchIn(name)) return null
+        val normalized = name.replace('\\', '/')
+        val parts = normalized.split('/')
+        if (parts.any { it.isBlank() || it == "." || it == ".." }) return null
+        if (!(normalized == "README.txt" ||
+                normalized == "data/masahati.json" ||
+                normalized == "data/masahati.md" ||
+                normalized.startsWith("files/"))
+        ) return null
         return normalized
     }
 
