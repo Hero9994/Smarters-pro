@@ -7,8 +7,8 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.OutputStream
 import java.time.ZonedDateTime
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 
 object AlphaExporter {
     fun export(context: Context, db: MasahatiDatabase, output: OutputStream) {
@@ -109,7 +109,7 @@ object AlphaExporter {
             }
         })
 
-        ZipOutputStream(BufferedOutputStream(output)).use { zip ->
+        ZipArchiveOutputStream(BufferedOutputStream(output)).use { zip ->
             putBytes(zip, "data/masahati.json", root.toString(2).toByteArray(Charsets.UTF_8))
             putBytes(
                 zip,
@@ -122,9 +122,9 @@ object AlphaExporter {
                 val safeName = (m.displayName ?: file.name)
                     .replace(Regex("[\\/:*?\"<>|]"), "_")
                     .take(140)
-                zip.putNextEntry(ZipEntry("files/${m.id}-$safeName"))
+                zip.putArchiveEntry(ZipArchiveEntry("files/${m.id}-$safeName"))
                 file.inputStream().use { it.copyTo(zip) }
-                zip.closeEntry()
+                zip.closeArchiveEntry()
             }
             val readme = """
 مساحاتي alpha backup
@@ -189,9 +189,9 @@ object AlphaExporter {
         .put("evidence_json", m.evidenceJson)
         .put("updated_at", m.updatedAt)
 
-    private fun putBytes(zip: ZipOutputStream, name: String, bytes: ByteArray) {
-        zip.putNextEntry(ZipEntry(name))
+    private fun putBytes(zip: ZipArchiveOutputStream, name: String, bytes: ByteArray) {
+        zip.putArchiveEntry(ZipArchiveEntry(name))
         zip.write(bytes)
-        zip.closeEntry()
+        zip.closeArchiveEntry()
     }
 }
