@@ -43,6 +43,15 @@ data class TodayTaskSummary(
     val total: Int get() = open + skipped + done
 }
 
+data class TodayHomeSnapshot(
+    val total: Int,
+    val open: Int,
+    val overdue: Int,
+    val skipped: Int,
+    val done: Int,
+    val nextTitle: String?
+)
+
 object TodayTasksEngine {
     fun build(
         db: MasahatiDatabase,
@@ -151,6 +160,19 @@ object TodayTasksEngine {
             skipped = items.count { it.status == TodayTaskStatus.SKIPPED },
             done = items.count { it.status == TodayTaskStatus.DONE }
         )
+
+    fun homeSnapshot(items: List<TodayTaskItem>): TodayHomeSnapshot {
+        val sorted = sort(items)
+        val summary = summary(sorted)
+        return TodayHomeSnapshot(
+            total = summary.total,
+            open = summary.open,
+            overdue = sorted.count { it.status == TodayTaskStatus.OPEN && it.overdue },
+            skipped = summary.skipped,
+            done = summary.done,
+            nextTitle = sorted.firstOrNull { it.status == TodayTaskStatus.OPEN }?.title
+        )
+    }
 
     fun sort(items: List<TodayTaskItem>): List<TodayTaskItem> =
         items.sortedWith(
