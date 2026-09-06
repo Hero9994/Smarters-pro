@@ -1,6 +1,7 @@
 package app.masahati.mobile
 
 import android.content.Context
+import android.os.storage.StorageManager
 import java.io.File
 import java.io.FileInputStream
 import java.io.RandomAccessFile
@@ -47,6 +48,7 @@ class SemanticModelPackManager(private val context: Context) {
             partial.delete()
             existing = 0L
         }
+        ensureFreeSpace((SemanticModelSpec.EXPECTED_BYTES - existing).coerceAtLeast(0L))
 
         val connection = (URL(SemanticModelSpec.URL).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
@@ -98,6 +100,18 @@ class SemanticModelPackManager(private val context: Context) {
             return finalFile
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun ensureFreeSpace(neededBytes: Long) {
+        if (neededBytes <= 0L) return
+        val reserve = 96L * 1024L * 1024L
+        val available = runCatching {
+            val storage = context.getSystemService(StorageManager::class.java)
+            storage.getAllocatableBytes(storage.getUuidForPath(directory))
+        }.getOrElse { directory.usableSpace }
+        if (available in 1 until (neededBytes + reserve)) {
+            throw IllegalStateException("مساحة التخزين غير كافية لتنزيل الذاكرة الدلالية")
         }
     }
 
