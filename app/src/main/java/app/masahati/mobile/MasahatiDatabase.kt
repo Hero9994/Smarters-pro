@@ -113,7 +113,12 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 9) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 10) {
+    override fun onConfigure(db: SQLiteDatabase) {
+        super.onConfigure(db)
+        db.setForeignKeyConstraintsEnabled(true)
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -184,6 +189,44 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         if (oldVersion < 9) {
             db.execSQL("ALTER TABLE messages ADD COLUMN text_fingerprint TEXT")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_text_fingerprint ON messages(text_fingerprint)")
+        }
+        if (oldVersion < 10) {
+            db.execSQL("DELETE FROM document_meta WHERE message_id NOT IN (SELECT id FROM messages)")
+            db.execSQL("DELETE FROM document_chunks WHERE message_id NOT IN (SELECT id FROM messages)")
+            db.execSQL("DELETE FROM action_items WHERE space_id NOT IN (SELECT id FROM spaces)")
+            db.execSQL("DELETE FROM action_items WHERE message_id IS NOT NULL AND message_id NOT IN (SELECT id FROM messages)")
+            db.execSQL("DELETE FROM reminders WHERE space_id NOT IN (SELECT id FROM spaces)")
+
+            db.execSQL(
+                """
+                CREATE TABLE message_versions_v10(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  message_id INTEGER NOT NULL,
+                  reason TEXT NOT NULL,
+                  text TEXT,
+                  display_name TEXT,
+                  ocr_text TEXT,
+                  classification TEXT,
+                  tags TEXT,
+                  summary TEXT,
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO message_versions_v10(
+                  id,message_id,reason,text,display_name,ocr_text,classification,tags,summary,created_at
+                )
+                SELECT id,message_id,reason,text,display_name,ocr_text,classification,tags,summary,created_at
+                FROM message_versions
+                WHERE message_id IN (SELECT id FROM messages)
+                """.trimIndent()
+            )
+            db.execSQL("DROP TABLE message_versions")
+            db.execSQL("ALTER TABLE message_versions_v10 RENAME TO message_versions")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_message_versions_message ON message_versions(message_id)")
         }
     }
 
@@ -281,7 +324,8 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               classification TEXT,
               tags TEXT,
               summary TEXT,
-              created_at INTEGER NOT NULL
+              created_at INTEGER NOT NULL,
+              FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
             )
             """.trimIndent()
         )
@@ -291,6 +335,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_action_items_due ON action_items(status, due_at)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_document_meta_expiry ON document_meta(expiry_date)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_chunks_message ON document_chunks(message_id, chunk_index)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_message_versions_message ON message_versions(message_id)")
     }
 
     fun listSpaces(archived: Boolean = false, query: String = ""): List<SpaceRow> {
@@ -351,8 +396,24 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun deleteSpace(id: Long) {
-        writableDatabase.delete("messages", "space_id=?", arrayOf(id.toString()))
-        writableDatabase.delete("spaces", "id=?", arrayOf(id.toString()))
+        val filePaths = mutableListOf<String>()
+        readableDatabase.query(
+            "messages",
+            arrayOf("file_path"),
+            "space_id=? AND file_path IS NOT NULL",
+            arrayOf(id.toString()),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (!cursor.isNull(0)) filePaths += cursor.getString(0)
+            }
+        }
+        writableDatabase.transaction {
+            delete("spaces", "id=?", arrayOf(id.toString()))
+        }
+        filePaths.forEach { path -> runCatching { java.io.File(path).delete() } }
     }
 
     fun insertText(spaceId: Long, role: String, text: String): Long = insertMessage(
@@ -561,10 +622,22 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
     }
 
     fun hardDeleteMessage(messageId: Long) {
-        writableDatabase.delete("message_versions", "message_id=?", arrayOf(messageId.toString()))
-        writableDatabase.delete("document_chunks", "message_id=?", arrayOf(messageId.toString()))
-        writableDatabase.delete("document_meta", "message_id=?", arrayOf(messageId.toString()))
-        writableDatabase.delete("messages", "id=?", arrayOf(messageId.toString()))
+        val filePath = readableDatabase.query(
+            "messages",
+            arrayOf("file_path"),
+            "id=?",
+            arrayOf(messageId.toString()),
+            null,
+            null,
+            null,
+            "1"
+        ).use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+        }
+        writableDatabase.transaction {
+            delete("messages", "id=?", arrayOf(messageId.toString()))
+        }
+        filePath?.let { path -> runCatching { java.io.File(path).delete() } }
     }
 
     fun listTrash(limit: Int = 100): List<MessageRow> {
@@ -1040,6 +1113,21 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         )
         return changed == 1
     }
+
+    fun <T> runInTransaction(block: () -> T): T =
+        writableDatabase.transaction { block() }
+
+    fun databaseIntegrityStatus(): String =
+        readableDatabase.rawQuery("PRAGMA integrity_check(1)", null).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else "unknown"
+        }
+
+    fun foreignKeyViolationCount(): Int =
+        readableDatabase.rawQuery("PRAGMA foreign_key_check", null).use { cursor ->
+            var count = 0
+            while (cursor.moveToNext()) count++
+            count
+        }
 
     fun importSpace(
         title: String,
