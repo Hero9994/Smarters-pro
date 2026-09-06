@@ -22,10 +22,20 @@ object LocalAssistantFallback {
         fun addLabel(value: String) { if (value.isNotBlank()) labels += value }
         fun addKeyword(value: String) { if (value.isNotBlank()) keywords += value }
 
-        val time = Regex("(?:[01]?\\d|2[0-3])[:.]\\d{2}").find(raw)?.value?.replace('.', ':')
-            ?: Regex("(?:[01]?\\d|2[0-3])\\s*(?:ص|م)").find(raw)?.value
-            ?: Regex("(?:[01]?\\d|2[0-3])[:.]\\d{2}").find(context)?.value?.replace('.', ':')
-            ?: Regex("(?:[01]?\\d|2[0-3])\\s*(?:ص|م)").find(context)?.value
+        fun extractClock(source: String): String? {
+            val normalized = source
+                .replace('٠', '0').replace('١', '1').replace('٢', '2').replace('٣', '3').replace('٤', '4')
+                .replace('٥', '5').replace('٦', '6').replace('٧', '7').replace('٨', '8').replace('٩', '9')
+            Regex("(?:[01]?\\d|2[0-3])[:.]\\d{2}").find(normalized)?.value?.let { return it.replace('.', ':') }
+            val clock = Regex("(?:الساعة|الساعه|at|um)\\s*(\\d{1,2})(?:\\s*(ص|م|صباح|مساء|am|pm))?", RegexOption.IGNORE_CASE)
+                .find(normalized) ?: return null
+            var hour = clock.groupValues[1].toIntOrNull() ?: return null
+            val period = clock.groupValues.getOrNull(2).orEmpty().lowercase()
+            if ((period == "م" || period.contains("مساء") || period == "pm") && hour in 1..11) hour += 12
+            if ((period == "ص" || period.contains("صباح") || period == "am") && hour == 12) hour = 0
+            return if (hour in 0..23) String.format(java.util.Locale.ROOT, "%02d:00", hour) else null
+        }
+        val time = extractClock(raw) ?: extractClock(context)
         val days = listOf("الاثنين", "الإثنين", "اثنين", "الثلاثاء", "ثلاثاء", "الأربعاء", "الاربعاء", "أربعاء", "اربعاء", "الخميس", "خميس", "الجمعة", "جمعة", "السبت", "سبت", "الأحد", "الاحد", "أحد", "احد")
         val day = days.firstOrNull { lower.contains(it) } ?: days.firstOrNull { context.contains(it) }
         if (time != null) addKeyword(time)
