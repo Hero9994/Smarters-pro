@@ -143,6 +143,33 @@ object LocalAssistantFallback {
                 reply = "فهمت أنك تريد تثبيت هذه المساحة."
                 addLabel("تثبيت")
             }
+            has("فكرة", "idea") -> {
+                classification = "idea"
+                addLabel("فكرة")
+                val idea = raw.replace(
+                    Regex("^(?:فكرة(?:\\s+للتطبيق|\\s+للمشروع)?\\s*[:：-]?\\s*)", RegexOption.IGNORE_CASE),
+                    ""
+                ).trim()
+                idea.split(Regex("[^\\p{L}\\p{N}]+"))
+                    .filter { it.length >= 3 }
+                    .take(8)
+                    .forEach(::addKeyword)
+                reply = "فهمت الفكرة: " + idea.take(260) + ". صنفتها كفكرة مشروع حتى لا تختلط بالتذكيرات أو المهام."
+            }
+            Regex("^(?:لازم|ضروري|مهمة|task|todo)(?:\\s|:|$)", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> {
+                classification = "task"
+                addLabel("مهمة")
+                if (has("تأمين", "التأمين", "التامين", "versicherung")) addLabel("تأمين")
+                val task = raw.replace(
+                    Regex("^(?:لازم|ضروري|مهمة|task|todo)\\s*", RegexOption.IGNORE_CASE),
+                    ""
+                ).trim()
+                task.split(Regex("[^\\p{L}\\p{N}]+"))
+                    .filter { it.length >= 3 }
+                    .take(8)
+                    .forEach(::addKeyword)
+                reply = "فهمت أنها مهمة: " + task.take(260) + ". صنفتها كمهمة حتى لا تضيع بين الملاحظات."
+            }
             Regex(
                 "(?:^|\\s)(?:ذكرني|ذكّرني|ذكريني|ذكّريني|اعمل(?:لي)?\\s+تذكير|أعمل(?:لي)?\\s+تذكير|سوي(?:لي)?\\s+تذكير|remind\\s+me|erinnere\\s+mich)(?:\\s|$)",
                 RegexOption.IGNORE_CASE
@@ -208,16 +235,6 @@ object LocalAssistantFallback {
                 addLabel("مستند")
                 listOf("جواز", "عقد", "فاتورة", "وثيقة").firstOrNull { lower.contains(it) }?.let(::addLabel)
                 reply = "فهمت أنه مستند. حفظت وصفه وكلمات البحث محلياً حتى يسهل العثور عليه لاحقاً."
-            }
-            has("فكرة", "مشروع", "idea") -> {
-                classification = "idea"
-                addLabel("فكرة")
-                reply = "حفظت الفكرة وسأبقيها مصنفة لتظهر بسهولة في البحث لاحقاً."
-            }
-            has("لازم", "مهمة", "اعمل", "أعمل", "task", "todo") -> {
-                classification = "task"
-                addLabel("مهمة")
-                reply = "فهمت أنها مهمة، وحفظتها بهذا التصنيف حتى لا تضيع بين الملاحظات."
             }
             else -> {
                 classification = "note"
