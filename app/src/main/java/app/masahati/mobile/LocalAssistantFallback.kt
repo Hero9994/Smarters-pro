@@ -34,7 +34,10 @@ object LocalAssistantFallback {
         val classification: String
         val reply: String
         when {
-            has("وين", "أين", "اين", "ابحث", "دور", "فتش", "find ", "suche", "wo ist") -> {
+            Regex(
+                "^(?:وين|أين|اين|ابحث(?:لي)?(?:\\s+عن)?|دور(?:لي)?(?:\\s+على)?|فتش(?:لي)?(?:\\s+عن)?|find(?:\\s+me)?|search(?:\\s+for)?|suche(?:\\s+nach)?|wo\\s+ist)(?:\\s+|$)",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(raw) -> {
                 classification = "search"
                 val q = raw
                     .replace(Regex("^(وين|أين|اين|ابحث عن|دور على|فتش عن)\\s*"), "")
@@ -72,7 +75,11 @@ object LocalAssistantFallback {
                     else -> "المستند السابق محفوظ، لكن النص المقروء منه غير كافٍ للإجابة."
                 }
             }
-            recentDocument != null && has("هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "نفس الورقة") -> {
+            recentDocument != null && (
+                has("هي ورقة", "هاي ورقة", "هاي الورقة", "هاد المستند", "هذا المستند", "هذه الورقة", "نفس الورقة", "موافقة نقل", "تصريح نقل") ||
+                    ((has("مو دوام", "مش دوام", "ليس دوام", "مو جدول دوام", "تصحيح", "قصدي")) &&
+                        has("ورقة", "مستند", "موافقة", "تصريح", "نقل", "طبيب"))
+            ) -> {
                 classification = "document"
                 addLabel("مستند")
                 val useful = raw.split(Regex("[^\\p{L}\\p{N}]+"))
@@ -93,7 +100,26 @@ object LocalAssistantFallback {
                         )
                         .put("requires_confirmation", false)
                 )
-                reply = "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
+                reply = if (has("مو دوام", "مش دوام", "ليس دوام", "مو جدول دوام")) {
+                    "فهمت التصحيح: المستند السابق ليس جدول دوام. ربطت وصفك الجديد به حتى يصبح البحث والتصنيف أدق."
+                } else {
+                    "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
+                }
+            }
+            Regex("(?:اعمل|أعمل|انشئ|أنشئ|سوي|سوّي|create)\\s*(?:لي)?\\s*(?:مساحة|space)", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> {
+                classification = "command"
+                addLabel("مساحة")
+                val name = raw.substringAfter("اسمها", "")
+                    .trim().trim('«', '»', '"', '\'')
+                    .ifBlank { raw.substringAfter("باسم", "").trim().trim('«', '»', '"', '\'') }
+                    .take(80)
+                if (name.isNotBlank()) {
+                    addKeyword(name)
+                    actions.put(JSONObject().put("type", "create_space").put("args", JSONObject().put("name", name)).put("requires_confirmation", false))
+                    reply = "فهمت: إنشاء مساحة جديدة باسم «" + name + "»."
+                } else {
+                    reply = "فهمت أنك تريد مساحة جديدة. ما الاسم الذي تريده لها؟"
+                }
             }
             has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
                 classification = "command"
@@ -107,7 +133,10 @@ object LocalAssistantFallback {
                 reply = "فهمت أنك تريد تثبيت هذه المساحة."
                 addLabel("تثبيت")
             }
-            has("ذكرني", "ذكّرني", "تذكير", "remind", "erinner") -> {
+            Regex(
+                "(?:^|\\s)(?:ذكرني|ذكّرني|ذكريني|ذكّريني|اعمل(?:لي)?\\s+تذكير|أعمل(?:لي)?\\s+تذكير|سوي(?:لي)?\\s+تذكير|remind\\s+me|erinnere\\s+mich)(?:\\s|$)",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(raw) -> {
                 classification = "reminder"
                 addLabel("تذكير")
                 if (day != null) addLabel(day)
@@ -130,7 +159,32 @@ object LocalAssistantFallback {
                     else -> "فهمت أنك تريد تذكيراً، لكن أحتاج اليوم أو الوقت حتى يكون محدداً."
                 }
             }
-            has("دوام", "شفت", "مناوبة", "arbeit", "schicht") -> {
+            has("مباراة", "ماتش", "تدريب", "بطولة", "spiel", "training", "turnier") -> {
+                classification = "note"
+                val eventType = if (has("تدريب", "training")) "تدريب" else "مباراة"
+                addLabel(eventType)
+                if (day != null) addLabel(day)
+                val details = listOfNotNull(day, time?.let { "الساعة " + it }).joinToString(" ")
+                reply = if (details.isNotBlank()) {
+                    "فهمت " + eventType + ": " + details + ". حفظت التفاصيل والأسماء المهمة للبحث."
+                } else {
+                    "فهمت أنها معلومة " + eventType + " وحفظت تفاصيلها للبحث."
+                }
+            }
+            has("موعد", "termin", "طبيب", "دكتور", "zahnarzt", "أسنان", "اسنان") && !has("مستند", "ورقة", "فاتورة", "عقد") -> {
+                classification = "note"
+                addLabel("موعد")
+                if (has("طبيب", "دكتور", "arzt", "zahnarzt", "أسنان", "اسنان")) addLabel("طبيب")
+                if (day != null) addLabel(day)
+                val details = listOfNotNull(day, time?.let { "الساعة " + it }).joinToString(" ")
+                reply = if (details.isNotBlank()) {
+                    "فهمت الموعد: " + details + ". حفظت نوع الموعد والتفاصيل للبحث."
+                } else {
+                    "فهمت أنها معلومة موعد وحفظت تفاصيلها للبحث."
+                }
+            }
+            has("دوام", "دوامي", "شفت", "مناوبة", "arbeit", "schicht", "dienstplan", "arbeitszeit") &&
+                !has("مو دوام", "مش دوام", "ليس دوام", "مو جدول دوام") -> {
                 classification = "work_schedule"
                 addLabel("دوام")
                 if (day != null) addLabel(day)
@@ -158,7 +212,18 @@ object LocalAssistantFallback {
             else -> {
                 classification = "note"
                 addLabel("ملاحظة")
-                reply = "فهمت المحتوى وحفظته كملاحظة قابلة للبحث."
+                val useful = raw.split(Regex("[^\\p{L}\\p{N}:+.-]+"))
+                    .map { it.trim() }
+                    .filter { it.length >= 2 }
+                    .filterNot { it.lowercase() in setOf("هذا", "هذه", "هاي", "هاد", "على", "الى", "إلى", "من", "في", "عن", "مع", "كل", "عندي", "عنده", "بدي", "لازم") }
+                    .distinct()
+                    .take(6)
+                useful.forEach(::addKeyword)
+                reply = if (useful.isNotEmpty()) {
+                    "حفظتها كملاحظة عن " + useful.take(3).joinToString("، ") + "، وفهرست الكلمات المهمة للبحث."
+                } else {
+                    "حفظت الملاحظة كما هي، ولم أجد فيها تصنيفاً أدق بدون تخمين."
+                }
             }
         }
 
