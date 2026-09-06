@@ -964,6 +964,21 @@ class AlphaInstrumentedReliabilityTest {
         }
     }
 
+    @Test
+    fun homeShowsScannerSearchVoiceBackupAndAllFeaturesDirectly() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertNotNull(findText(root, "أدوات مساحاتي Alpha"))
+                assertNotNull(findButton(root, "📄 سكانر"))
+                assertNotNull(findButton(root, "🔎 بحث ذكي"))
+                assertNotNull(findButton(root, "🎙 صوت"))
+                assertNotNull(findButton(root, "💾 نسخ"))
+                assertNotNull(findButton(root, "✨ 20 ميزة"))
+            }
+        }
+    }
+
     private fun collectTexts(root: View): List<String> {
         val result = mutableListOf<String>()
         fun walk(view: View) {
