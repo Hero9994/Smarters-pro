@@ -504,7 +504,13 @@ class MainActivity : ComponentActivity() {
                     put("recent", arr)
                 }
 
-                val directReminderText = content.takeIf { NaturalReminderParser.looksLikeReminder(it) }
+                val reminderNow = ZonedDateTime.now()
+                val contextualDirectReminder = ReminderContextResolver.resolve(
+                    currentText = content,
+                    recentUserTexts = recent.filter { it.role == "user" }.map { it.text },
+                    now = reminderNow
+                )
+                val directReminderText = contextualDirectReminder?.sourceText
                 val reminderFollowUpText = if (directReminderText == null && content.length <= 40) {
                     val lastAssistant = recent.lastOrNull { it.role == "assistant" }
                     val assistantAskedForReminderDetail = lastAssistant?.text?.let { answer ->
@@ -519,10 +525,10 @@ class MainActivity : ComponentActivity() {
                     } else null
                 } else null
                 val reminderSourceText = directReminderText ?: reminderFollowUpText
-                val reminderResolution = reminderSourceText?.let {
-                    NaturalReminderParser.parse(it, ZonedDateTime.now())
-                }
+                val reminderResolution = contextualDirectReminder?.resolution
+                    ?: reminderFollowUpText?.let { NaturalReminderParser.parse(it, reminderNow) }
                 val resolvedReminderText = reminderSourceText ?: content
+
                 val localReminderResult = reminderResolution?.let { resolution ->
                     val actionArgs = JSONObject()
                         .put("title", "تذكير مساحاتي")
