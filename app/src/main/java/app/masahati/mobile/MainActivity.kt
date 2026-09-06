@@ -583,7 +583,9 @@ class MainActivity : ComponentActivity() {
 
                 val directDocumentResult = if (localReminderResult == null) {
                     when {
-                        sourceMessage?.kind == "file" -> DocumentIntelligence.blankScanResult(sourceMessage)
+                        sourceMessage?.kind == "file" ->
+                            DocumentIntelligence.blankScanResult(sourceMessage)
+                                ?: DocumentIntelligence.knownDocumentResult(sourceMessage)
                         else -> DocumentIntelligence.directAnswer(content, focusedDocument)
                     }
                 } else null
