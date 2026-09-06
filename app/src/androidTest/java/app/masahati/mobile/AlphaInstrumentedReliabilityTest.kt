@@ -4,6 +4,8 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.graphics.Bitmap
 import android.graphics.Color
+import app.masahati.mobile.ai.LocalModelPackManager
+import app.masahati.mobile.ai.LocalModelSpec
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -786,6 +788,36 @@ class AlphaInstrumentedReliabilityTest {
             y += step
         }
         return if (count == 0L) 0.0 else sum.toDouble() / count.toDouble()
+    }
+
+
+    @Test
+    fun localModelPackRejectsTruncatedFilesEvenWithVerificationMarker() {
+        val spec = LocalModelSpec(
+            id = "tiny-test",
+            displayName = "Tiny test",
+            fileName = "tiny-test-model.bin",
+            downloadUrl = "https://example.invalid/model.bin",
+            expectedBytes = 4L,
+            sha256 = "test-checksum",
+            maxTokens = 32,
+            supportsVision = false
+        )
+        val manager = LocalModelPackManager(context)
+        val file = manager.modelFile(spec)
+        val marker = File(file.absolutePath + ".verified")
+        try {
+            file.parentFile?.mkdirs()
+            marker.writeText(spec.sha256)
+            file.writeBytes(byteArrayOf(1, 2))
+            assertFalse(manager.isInstalled(spec))
+
+            file.writeBytes(byteArrayOf(1, 2, 3, 4))
+            assertTrue(manager.isInstalled(spec))
+        } finally {
+            file.delete()
+            marker.delete()
+        }
     }
 
 }
