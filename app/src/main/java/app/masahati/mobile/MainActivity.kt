@@ -14,6 +14,7 @@ import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -1123,6 +1124,7 @@ class MainActivity : ComponentActivity() {
                 val fileName = "Scan-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(now))}.pdf"
                 val target = File(filesDir, "documents").apply { mkdirs() }.resolve(fileName)
                 val ocrBuilder = StringBuilder()
+                val barcodeValues = linkedSetOf<String>()
                 val cleanedPageCount = if (pages.isNotEmpty()) {
                     DocumentImageEnhancer.processPagesToPdf(
                         this@MainActivity,
@@ -1137,26 +1139,38 @@ class MainActivity : ComponentActivity() {
                                 ocrBuilder.append("صفحة ${index + 1}:\n")
                                 ocrBuilder.append(recognized)
                             }
+                            barcodeValues += OpenSourceDocumentTools.decodeBarcodes(cleanedBitmap)
                         } catch (_: Exception) { }
                     }
                 } else {
                     if (pdf == null) throw IllegalStateException("PDF result missing")
                     contentResolver.openInputStream(pdf.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
                         ?: throw IllegalStateException("Cannot read scanned PDF")
+                    val embeddedText = OpenSourceDocumentTools.extractPdfText(this@MainActivity, target)
+                    if (embeddedText.isNotBlank()) ocrBuilder.append(embeddedText)
                     pdf.pageCount
                 }
-                val ocr = ocrBuilder.toString()
+                val ocr = buildString {
+                    append(ocrBuilder.toString())
+                    if (barcodeValues.isNotEmpty()) {
+                        if (isNotEmpty()) append("\n\n")
+                        append("QR/Barcode:\n")
+                        append(barcodeValues.joinToString("\n"))
+                    }
+                }
                 val messageId = db.insertFile(spaceId, "user", fileName, target.absolutePath, "application/pdf", ocr)
                 val indexed = AlphaDocumentProcessor.indexNewFile(db, messageId, target, ocr)
                 val duplicateHint = indexed.duplicate?.let { existing ->
                     val match = if (indexed.matchType == "exact") "مطابق تماماً" else "يبدو مسحاً آخر لنفس المستند"
                     "\n\nملاحظة داخلية: هذا المسح $match لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). نبّه المستخدم للتكرار."
                 }.orEmpty()
+                val signals = OpenSourceDocumentTools.signals(this@MainActivity, ocr, barcodeValues.toList())
+                val signalHint = signals.asPromptHint().takeIf { it.isNotBlank() }?.let { "\n\nإشارات محلية موثوقة:\n$it" }.orEmpty()
                 val aiText = if (ocr.isBlank()) {
                     "مستند ممسوح ضوئياً باسم $fileName وعدد صفحاته $cleanedPageCount. صنفه ونظم كلمات البحث المناسبة بدون اختراع محتوى غير ظاهر."
                 } else {
                     "مستند ممسوح ضوئياً باسم $fileName بعد تنظيف الظلال تلقائياً. النص المستخرج محلياً:\n${ocr.take(4800)}"
-                } + duplicateHint
+                } + signalHint + duplicateHint
                 runOnUiThread {
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     if (currentSpaceId == spaceId) renderMessages(spaceId)
@@ -1185,11 +1199,38 @@ class MainActivity : ComponentActivity() {
                 contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
                     ?: throw IllegalStateException("Cannot read file")
                 var ocr = ""
-                if (mime.startsWith("image/")) {
-                    try {
-                        val image = InputImage.fromFilePath(this@MainActivity, uri)
-                        ocr = Tasks.await(recognizer.process(image)).text.trim()
-                    } catch (_: Exception) { }
+                val barcodeValues = linkedSetOf<String>()
+                when {
+                    mime.startsWith("image/") -> {
+                        try {
+                            val image = InputImage.fromFilePath(this@MainActivity, uri)
+                            ocr = Tasks.await(recognizer.process(image)).text.trim()
+                        } catch (_: Exception) { }
+                        runCatching {
+                            BitmapFactory.decodeFile(target.absolutePath)?.let { bitmap ->
+                                try {
+                                    barcodeValues += OpenSourceDocumentTools.decodeBarcodes(bitmap)
+                                } finally {
+                                    bitmap.recycle()
+                                }
+                            }
+                        }
+                    }
+                    mime == "application/pdf" || displayName.endsWith(".pdf", ignoreCase = true) -> {
+                        ocr = OpenSourceDocumentTools.extractPdfText(this@MainActivity, target)
+                    }
+                    mime.startsWith("text/") || displayName.substringAfterLast('.', "").lowercase() in
+                        setOf("txt", "md", "csv", "json", "xml", "log") -> {
+                        ocr = runCatching { target.readText(Charsets.UTF_8).take(24_000) }.getOrDefault("")
+                    }
+                }
+                if (barcodeValues.isNotEmpty()) {
+                    ocr = buildString {
+                        append(ocr)
+                        if (isNotEmpty()) append("\n\n")
+                        append("QR/Barcode:\n")
+                        append(barcodeValues.joinToString("\n"))
+                    }
                 }
                 val id = db.insertFile(spaceId, "user", displayName, target.absolutePath, mime, ocr)
                 val indexed = AlphaDocumentProcessor.indexNewFile(db, id, target, ocr)
@@ -1197,10 +1238,12 @@ class MainActivity : ComponentActivity() {
                     val match = if (indexed.matchType == "exact") "مطابق تماماً" else "يبدو نسخة أخرى من نفس المستند"
                     "\n\nملاحظة داخلية: هذا الملف $match لملف موجود سابقاً باسم ${existing.displayName ?: "ملف"} (messageId=${existing.id}). أخبر المستخدم عن التكرار باختصار."
                 }.orEmpty()
+                val signals = OpenSourceDocumentTools.signals(this@MainActivity, ocr, barcodeValues.toList())
+                val signalHint = signals.asPromptHint().takeIf { it.isNotBlank() }?.let { "\n\nإشارات محلية موثوقة:\n$it" }.orEmpty()
                 val aiText = when {
                     ocr.isNotBlank() -> "ملف مرفق باسم $displayName. النص المستخرج محلياً:\n${ocr.take(4800)}"
                     else -> "تم إرفاق ملف باسم $displayName ونوعه $mime. صنفه بالاعتماد فقط على الاسم والنوع ولا تخترع محتوى داخله."
-                } + duplicateHint
+                } + signalHint + duplicateHint
                 runOnUiThread {
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     renderMessages(spaceId)
@@ -1603,8 +1646,45 @@ class MainActivity : ComponentActivity() {
                 val id = db.insertText(spaceId, "user", textValue)
                 renderMessages(spaceId)
                 analyzeWithAgent(id, textValue, title)
+                OpenSourceDocumentTools.findFirstWebUrl(textValue)?.let { url ->
+                    ingestSharedWebUrl(spaceId, title, url)
+                }
             }
             streams.distinct().forEach { uri -> handlePickedFile(uri) }
+        }
+    }
+
+    private fun ingestSharedWebUrl(spaceId: Long, spaceTitle: String, url: String) {
+        worker.execute {
+            val clip = runCatching { OpenSourceDocumentTools.clipWebPage(url) }.getOrNull() ?: return@execute
+            if (clip.text.length < 80) return@execute
+
+            val displayName = safeFileName(clip.title).take(100).ifBlank { "صفحة ويب" } + ".txt"
+            val target = File(filesDir, "documents").apply { mkdirs() }
+                .resolve("web-${System.currentTimeMillis()}-$displayName")
+            val storedText = buildString {
+                append("الرابط: ").append(clip.url).append("\n")
+                clip.description?.let { append("الوصف: ").append(it).append("\n") }
+                append("\n").append(clip.text)
+            }.take(30_000)
+            runCatching { target.writeText(storedText, Charsets.UTF_8) }.getOrElse { return@execute }
+
+            val messageId = db.insertFile(
+                spaceId,
+                "user",
+                displayName,
+                target.absolutePath,
+                "text/plain",
+                storedText
+            )
+            AlphaDocumentProcessor.indexNewFile(db, messageId, target, storedText)
+            val signals = OpenSourceDocumentTools.signals(this@MainActivity, storedText)
+            val hint = signals.asPromptHint().takeIf { it.isNotBlank() }?.let { "\n\nإشارات محلية موثوقة:\n$it" }.orEmpty()
+            val aiText = "صفحة ويب محفوظة محلياً بعنوان «${clip.title}». الرابط: ${clip.url}\nالنص:\n${storedText.take(4800)}$hint"
+            runOnUiThread {
+                if (currentSpaceId == spaceId) renderMessages(spaceId)
+                confirmCloudDocumentAnalysis(messageId, aiText, spaceTitle)
+            }
         }
     }
 
