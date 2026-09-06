@@ -4,6 +4,10 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.TextView
 import app.masahati.mobile.ai.LocalModelPackManager
 import app.masahati.mobile.ai.LocalModelSpec
 import androidx.test.core.app.ActivityScenario
@@ -818,6 +822,180 @@ class AlphaInstrumentedReliabilityTest {
             file.delete()
             marker.delete()
         }
+    }
+
+
+    @Test
+    fun todaySmartConversationIsFirstAndGreenActionMovesTaskToCompletedSection() {
+        val db = MasahatiDatabase(context)
+        val actionId: Long
+        try {
+            val normalSpace = db.createSpace("محادثة عادية")
+            actionId = db.createActionItem(
+                spaceId = normalSpace,
+                messageId = null,
+                kind = "task",
+                title = "مهمة واجهة اليوم",
+                details = "اختبار عملي لزر الإنجاز",
+                dueAt = null,
+                sourceExcerpt = null
+            )
+        } finally {
+            db.close()
+        }
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                val texts = collectTexts(root)
+                val todayIndex = texts.indexOf("مهام اليوم")
+                val normalIndex = texts.indexOf("محادثة عادية")
+                assertTrue("Today smart conversation must be visible", todayIndex >= 0)
+                assertTrue("Normal conversation must be visible", normalIndex >= 0)
+                assertTrue("Today smart conversation must render first", todayIndex < normalIndex)
+
+                val todayLabel = findText(root, "مهام اليوم")
+                assertNotNull(todayLabel)
+                var clickable: View? = todayLabel
+                while (clickable != null && !clickable.isClickable) {
+                    clickable = clickable.parent as? View
+                }
+                assertNotNull("Today row must be clickable", clickable)
+                assertTrue(clickable!!.performClick())
+            }
+
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertNotNull(findText(root, "قيد التنفيذ"))
+                assertNotNull(findText(root, "مهمة واجهة اليوم"))
+                val done = findButton(root, "✓")
+                assertNotNull("Done button must be present", done)
+                done!!.performClick()
+            }
+
+            val deadline = System.currentTimeMillis() + 4_000L
+            var status: String? = null
+            while (System.currentTimeMillis() < deadline) {
+                val verify = MasahatiDatabase(context)
+                try {
+                    status = verify.getActionItem(actionId)?.status
+                } finally {
+                    verify.close()
+                }
+                if (status == "done") break
+                Thread.sleep(80L)
+            }
+            assertEquals("done", status)
+
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content)
+                assertNotNull(findText(root, "تم إنجازها"))
+                assertNotNull(findText(root, "مهمة واجهة اليوم"))
+            }
+        }
+    }
+
+    @Test
+    fun todayEngineUsesRealDatabaseAndKeepsSkippedAboveDone() {
+        val db = MasahatiDatabase(context)
+        try {
+            val spaceId = db.createSpace("اختبار ترتيب اليوم")
+            val openId = db.createActionItem(spaceId, null, "task", "مفتوحة", null, null, null)
+            val skippedId = db.createActionItem(spaceId, null, "task", "حمراء", null, null, null)
+            val doneId = db.createActionItem(spaceId, null, "task", "خضراء", null, null, null)
+
+            db.skipActionItem(skippedId)
+            db.completeActionItem(doneId)
+
+            val items = TodayTasksEngine.build(db, ZonedDateTime.now())
+                .filter { it.kind == TodayTaskKind.ACTION && it.sourceId in setOf(openId, skippedId, doneId) }
+
+            assertEquals(3, items.size)
+            assertEquals(TodayTaskStatus.OPEN, items[0].status)
+            assertEquals(TodayTaskStatus.SKIPPED, items[1].status)
+            assertEquals(TodayTaskStatus.DONE, items[2].status)
+            assertEquals("ok", db.databaseIntegrityStatus())
+            assertEquals(0, db.foreignKeyViolationCount())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun todayReminderStateSurvivesBackupAndIdRemapping() {
+        val dateKey = LocalDate.now().toString()
+        val sourceDb = MasahatiDatabase(context)
+        val archive = ByteArrayOutputStream()
+        try {
+            val spaceId = sourceDb.createSpace("تذكير اليوم")
+            val reminderId = sourceDb.createReminder(
+                spaceId = spaceId,
+                title = "ماء",
+                body = "اشرب ماء",
+                repeatRule = "none",
+                dayOfWeek = null,
+                hour = null,
+                minute = null,
+                nextFireAt = System.currentTimeMillis() + 30 * 60 * 1000L
+            )
+            sourceDb.setTodayTaskState(dateKey, "reminder", reminderId, "skipped")
+            AlphaExporter.export(context, sourceDb, archive)
+        } finally {
+            sourceDb.close()
+        }
+
+        context.deleteDatabase("masahati_v05.db")
+        File(context.filesDir, "documents").deleteRecursively()
+
+        val restored = MasahatiDatabase(context)
+        try {
+            val summary = AlphaImporter.importZip(context, restored, ByteArrayInputStream(archive.toByteArray()))
+            assertEquals(1, summary.spaces)
+            assertEquals(1, summary.reminders)
+            val restoredReminder = restored.listAllReminders().single()
+            val state = restored.listTodayTaskStates(dateKey).single()
+            assertEquals("reminder", state.sourceType)
+            assertEquals(restoredReminder.id, state.sourceId)
+            assertEquals("skipped", state.status)
+            assertEquals("ok", restored.databaseIntegrityStatus())
+            assertEquals(0, restored.foreignKeyViolationCount())
+        } finally {
+            restored.close()
+        }
+    }
+
+    private fun collectTexts(root: View): List<String> {
+        val result = mutableListOf<String>()
+        fun walk(view: View) {
+            if (view is TextView) result += view.text?.toString().orEmpty()
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) walk(view.getChildAt(i))
+            }
+        }
+        walk(root)
+        return result
+    }
+
+    private fun findText(root: View, value: String): TextView? {
+        if (root is TextView && root.text?.toString() == value) return root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                val found = findText(root.getChildAt(i), value)
+                if (found != null) return found
+            }
+        }
+        return null
+    }
+
+    private fun findButton(root: View, value: String): Button? {
+        if (root is Button && root.text?.toString() == value) return root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                val found = findButton(root.getChildAt(i), value)
+                if (found != null) return found
+            }
+        }
+        return null
     }
 
 }
