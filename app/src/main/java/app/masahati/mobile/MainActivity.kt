@@ -143,10 +143,14 @@ class MainActivity : ComponentActivity() {
                     ?: error("Cannot open export destination")
             }.onSuccess {
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread Toast.makeText(this, "تم تصدير نسخة ZIP كاملة", Toast.LENGTH_LONG).show() }
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    Toast.makeText(this, "تم تصدير نسخة ZIP كاملة", Toast.LENGTH_LONG).show()
+                }
             }.onFailure { error ->
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread Toast.makeText(this, "تعذر التصدير: ${error.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show() }
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    Toast.makeText(this, "تعذر التصدير: ${error.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -207,7 +211,9 @@ class MainActivity : ComponentActivity() {
                 } ?: error("Cannot open encrypted backup destination")
             }.onSuccess {
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread Toast.makeText(this, "تم إنشاء نسخة مساحاتي مشفرة", Toast.LENGTH_LONG).show() }
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    Toast.makeText(this, "تم إنشاء نسخة مساحاتي مشفرة", Toast.LENGTH_LONG).show()
+                }
             }.onFailure { error ->
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1505,7 +1511,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread status.text = "تم التنزيل ✓\nجارِ بناء الفهرس الدلالي…" }
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    status.text = "تم التنزيل ✓\nجارِ بناء الفهرس الدلالي…"
+                }
                 semanticSearchEngine?.close()
                 semanticSearchEngine = SemanticSearchEngine(this@MainActivity)
                 val indexed = semanticSearchEngine!!.indexMissing(db) { done, total ->
@@ -2090,7 +2098,9 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread showSearchHits(query, hits, semantic = true) }
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            showSearchHits(query, hits, semantic = true)
+                        }
                     }
                 } else {
                     Toast.makeText(this, "جاري البحث…", Toast.LENGTH_SHORT).show()
