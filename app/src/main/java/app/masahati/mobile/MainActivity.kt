@@ -2093,14 +2093,20 @@ class MainActivity : ComponentActivity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread showSearchHits(query, hits, semantic = true) }
                     }
                 } else {
-                    val hits = db.search(query, 20).mapIndexed { index, message ->
-                        SemanticSearchHit(
-                            message = message,
-                            score = 1.0 - index * 0.02,
-                            excerpt = message.summary ?: message.ocrText?.take(500) ?: message.text.take(500)
-                        )
+                    Toast.makeText(this, "جاري البحث…", Toast.LENGTH_SHORT).show()
+                    modelWorker.execute {
+                        val hits = db.search(query, 20).mapIndexed { index, message ->
+                            SemanticSearchHit(
+                                message = message,
+                                score = 1.0 - index * 0.02,
+                                excerpt = message.summary ?: message.ocrText?.take(500) ?: message.text.take(500)
+                            )
+                        }
+                        runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                            showSearchHits(query, hits, semantic = false)
+                        }
                     }
-                    showSearchHits(query, hits, semantic = false)
                 }
             }
             .setNegativeButton("إلغاء", null)
