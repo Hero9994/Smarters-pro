@@ -174,9 +174,9 @@ class MainActivity : ComponentActivity() {
                     }.onSuccess { summary ->
                         ReminderScheduler.enqueueReschedule(this@MainActivity)
                         runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                            if (isFinishing || isDestroyed) {
+                                return@runOnUiThread
+                            }
                             Toast.makeText(
                                 this,
                                 "تم الاستيراد: ${summary.spaces} مساحة، ${summary.messages} عنصر، ${summary.files} ملف",
@@ -186,9 +186,9 @@ class MainActivity : ComponentActivity() {
                         }
                     }.onFailure { error ->
                         runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                            if (isFinishing || isDestroyed) {
+                                return@runOnUiThread
+                            }
                             Toast.makeText(
                                 this,
                                 "تعذر استيراد النسخة: ${error.localizedMessage ?: "خطأ"}",
@@ -821,9 +821,9 @@ class MainActivity : ComponentActivity() {
                         val reminder = db.getReminder(reminderId)
                         val exact = reminder?.let { ReminderScheduler.schedule(this@MainActivity, db, it) } ?: false
                         runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                            if (isFinishing || isDestroyed) {
+                                return@runOnUiThread
+                            }
                             maybeRequestNotificationPermission()
                             if (!exact) maybeRequestExactAlarmPermission()
                         }
@@ -1059,9 +1059,9 @@ class MainActivity : ComponentActivity() {
                         val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
                         notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
                         runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                            if (isFinishing || isDestroyed) {
+                                return@runOnUiThread
+                            }
                             maybeRequestNotificationPermission()
                             if (!created.exact) maybeRequestExactAlarmPermission()
                         }
@@ -1502,9 +1502,9 @@ class MainActivity : ComponentActivity() {
                         semanticSearchEngine = null
                         val deleted = packs.delete()
                         runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                            if (isFinishing || isDestroyed) {
+                                return@runOnUiThread
+                            }
                             Toast.makeText(
                                 this,
                                 if (deleted) "تم حذف نموذج الذاكرة الدلالية" else "تعذر حذف النموذج",
@@ -1555,9 +1555,9 @@ class MainActivity : ComponentActivity() {
                     lastPercent = percent
                     val mb = downloaded / (1024L * 1024L)
                     runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                        if (isFinishing || isDestroyed) {
+                            return@runOnUiThread
+                        }
                         status.text = if (percent >= 0) {
                             String.format(Locale.ROOT, "جارِ التنزيل… %d%% (%d MB)", percent, mb)
                         } else {
@@ -1575,9 +1575,9 @@ class MainActivity : ComponentActivity() {
                 semanticSearchEngine = SemanticSearchEngine(this@MainActivity)
                 val indexed = semanticSearchEngine!!.indexMissing(db) { done, total ->
                     runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                        if (isFinishing || isDestroyed) {
+                            return@runOnUiThread
+                        }
                         status.text = "بناء الفهرس الدلالي… $done / $total"
                     }
                 }
@@ -1615,9 +1615,9 @@ class MainActivity : ComponentActivity() {
                 engine.indexMissing(db)
             }.getOrDefault(0)
             runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                if (isFinishing || isDestroyed) {
+                    return@runOnUiThread
+                }
                 Toast.makeText(this, "تمت فهرسة $indexed مقطع", Toast.LENGTH_LONG).show()
             }
         }
@@ -1643,9 +1643,9 @@ class MainActivity : ComponentActivity() {
                                 localAi = null
                                 val deleted = packs.delete(spec)
                                 runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                                    if (isFinishing || isDestroyed) {
+                                        return@runOnUiThread
+                                    }
                                     Toast.makeText(
                                         this,
                                         if (deleted) "تم حذف النموذج المحلي" else "تعذر حذف النموذج",
@@ -1706,9 +1706,9 @@ class MainActivity : ComponentActivity() {
                     lastPercent = percent
                     val mb = downloaded / (1024L * 1024L)
                     runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                        if (isFinishing || isDestroyed) {
+                            return@runOnUiThread
+                        }
                         status.text = if (percent >= 0) {
                             String.format(Locale.ROOT, "جارِ التنزيل… %d%%  (%d MB)", percent, mb)
                         } else {
@@ -1846,9 +1846,9 @@ class MainActivity : ComponentActivity() {
             val hint = signals.asPromptHint().takeIf { it.isNotBlank() }?.let { "\n\nإشارات محلية موثوقة:\n$it" }.orEmpty()
             val aiText = "صفحة ويب محفوظة محلياً بعنوان «${clip.title}». الرابط: ${clip.url}\nالنص:\n${storedText.take(4800)}$hint"
             runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                if (isFinishing || isDestroyed) {
+                    return@runOnUiThread
+                }
                 if (currentSpaceId == spaceId) renderMessages(spaceId)
                 confirmCloudDocumentAnalysis(messageId, aiText, spaceTitle)
             }
@@ -2174,8 +2174,8 @@ class MainActivity : ComponentActivity() {
                         }
                         runOnUiThread {
                             if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                                return@runOnUiThread
+                            }
                             showSearchHits(query, hits, semantic = true)
                         }
                     }
@@ -2190,9 +2190,9 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         runOnUiThread {
-                    if (isFinishing || isDestroyed) {
-                        return@runOnUiThread
-                    }
+                            if (isFinishing || isDestroyed) {
+                                return@runOnUiThread
+                            }
                             showSearchHits(query, hits, semantic = false)
                         }
                     }
