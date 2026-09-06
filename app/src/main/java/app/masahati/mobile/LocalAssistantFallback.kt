@@ -91,29 +91,42 @@ object LocalAssistantFallback {
                         has("ورقة", "مستند", "موافقة", "تصريح", "نقل", "طبيب"))
             ) -> {
                 classification = "document"
-                addLabel("مستند")
-                val useful = raw.split(Regex("[^\\p{L}\\p{N}]+"))
+                val medicalTransport = Regex(
+                    "(نقل|موافقة|تصريح).*(طبيب|دكتور)|krankenbeförder|krankentransport|\\bArzt\\b",
+                    RegexOption.IGNORE_CASE
+                ).containsMatchIn(raw + " " + documentContext)
+                val cleanDescription = raw
+                    .replace(Regex("^(?:لا\\s+)?(?:مو|مش|ليس)\\s+(?:جدول\\s+)?دوام\\s*[,،:-]*\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("^(?:هاي|هذه|هي|هاد|هذا)\\s*", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                val docSummary = if (medicalTransport) {
+                    "موافقة/تصريح لنقل المريض من المنزل إلى الطبيب"
+                } else cleanDescription.take(500)
+                val docLabels = if (medicalTransport) listOf("مستند", "نقل مرضى", "طبيب") else listOf("مستند")
+                docLabels.forEach(::addLabel)
+                val useful = cleanDescription.split(Regex("[^\\p{L}\\p{N}]+"))
                     .map { it.trim() }
                     .filter { it.length >= 3 }
                     .distinct()
-                    .take(10)
-                useful.forEach(::addKeyword)
+                    .toMutableList()
+                if (medicalTransport) useful += listOf("Krankenbeförderung", "Arzt", "Wohnung")
+                useful.distinct().take(12).forEach(::addKeyword)
                 actions.put(
                     JSONObject()
                         .put("type", "enrich_previous_document")
                         .put(
                             "args",
                             JSONObject()
-                                .put("summary", raw.take(500))
-                                .put("labels", JSONArray(listOf("مستند")))
-                                .put("keywords", JSONArray(useful))
+                                .put("summary", docSummary)
+                                .put("labels", JSONArray(docLabels))
+                                .put("keywords", JSONArray(keywords.toList()))
                         )
                         .put("requires_confirmation", false)
                 )
                 reply = if (has("مو دوام", "مش دوام", "ليس دوام", "مو جدول دوام")) {
-                    "فهمت التصحيح: المستند السابق ليس جدول دوام. ربطت وصفك الجديد به حتى يصبح البحث والتصنيف أدق."
+                    "فهمت التصحيح: المستند السابق ليس جدول دوام؛ هو " + docSummary + ". ربطت الوصف الصحيح بالملف."
                 } else {
-                    "ربطت وصفك بالمستند السابق حتى يفهمه البحث لاحقاً."
+                    "ربطت وصفك بالمستند السابق: " + docSummary + "."
                 }
             }
             Regex("(?:اعمل|أعمل|انشئ|أنشئ|سوي|سوّي|create)\\s*(?:لي)?\\s*(?:مساحة|space)", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> {
