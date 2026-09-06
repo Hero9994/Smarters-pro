@@ -52,7 +52,9 @@ dependencies {
     implementation("org.apache.commons:commons-text:1.15.0")
     implementation("org.apache.commons:commons-compress:1.28.0")
     implementation("com.github.pemistahl:lingua:1.2.2")
-    implementation("com.tom-roush:pdfbox-android:2.0.27.0") {\n        exclude(group = "org.bouncycastle")\n    }
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0") {
+        exclude(group = "org.bouncycastle")
+    }
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("com.github.anrwatchdog:anrwatchdog:1.4.0")
     testImplementation("junit:junit:4.13.2")
