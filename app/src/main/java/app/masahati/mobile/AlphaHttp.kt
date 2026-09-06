@@ -64,9 +64,11 @@ object AlphaHttp {
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val stream = response.body?.byteStream() ?: return ""
+            val body = response.body ?: return ""
+            val stream = body.byteStream()
             val bytes = stream.readAtMost(maxBytes.coerceIn(1024, 4_000_000))
-            return bytes.toString(Charsets.UTF_8)
+            val charset = body.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
+            return String(bytes, charset)
         }
     }
 
