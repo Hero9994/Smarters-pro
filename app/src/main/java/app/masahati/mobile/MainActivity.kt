@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
     private val controlBg = Color.rgb(230, 232, 228)
     private val worker = Executors.newSingleThreadExecutor()
     private val modelWorker = Executors.newSingleThreadExecutor()
+    private val webWorker = Executors.newSingleThreadExecutor()
     private val recognizerHolder = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
@@ -334,6 +335,7 @@ class MainActivity : ComponentActivity() {
 
         worker.shutdownNow()
         modelWorker.shutdownNow()
+        webWorker.shutdownNow()
 
         val cleanup = Thread {
             var stopped = false
@@ -343,6 +345,9 @@ class MainActivity : ComponentActivity() {
                 }
                 while (!modelWorker.awaitTermination(30, TimeUnit.SECONDS)) {
                     // Local model work can take longer; never close it underneath an active task.
+                }
+                while (!webWorker.awaitTermination(30, TimeUnit.SECONDS)) {
+                    // Web clipping is bounded by OkHttp timeouts.
                 }
                 stopped = true
             } catch (_: InterruptedException) {
@@ -1708,7 +1713,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ingestSharedWebUrl(spaceId: Long, spaceTitle: String, url: String) {
-        worker.execute {
+        webWorker.execute {
             val clip = runCatching { OpenSourceDocumentTools.clipWebPage(url) }.getOrNull() ?: return@execute
             if (clip.text.length < 80) return@execute
 
