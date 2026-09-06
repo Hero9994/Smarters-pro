@@ -1,10 +1,14 @@
 package app.masahati.mobile
 
+import android.Manifest
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -119,7 +123,16 @@ class MorningBriefWorker(
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pending)
             .build()
-        NotificationManagerCompat.from(applicationContext).notify(90217, notification)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return Result.success()
+        }
+        try {
+            NotificationManagerCompat.from(applicationContext).notify(90217, notification)
+        } catch (_: SecurityException) {
+            return Result.success()
+        }
         return Result.success()
     }
 }
