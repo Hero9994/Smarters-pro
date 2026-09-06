@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
     private var chatScroll: ScrollView? = null
     private var composer: EditText? = null
     private var busyCount = 0
+    private var messageDisplayLimit = 150
     private var localAi: HybridLocalAi? = null
     private var semanticSearchEngine: SemanticSearchEngine? = null
     private var performanceMonitor: AlphaPerformanceMonitor? = null
@@ -167,7 +168,7 @@ class MainActivity : ComponentActivity() {
                         contentResolver.openInputStream(uri)?.use { AlphaImporter.importZip(this@MainActivity, db, it) }
                             ?: error("Cannot open backup")
                     }.onSuccess { summary ->
-                        ReminderScheduler.rescheduleAll(this@MainActivity)
+                        ReminderScheduler.enqueueReschedule(this@MainActivity)
                         runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                             Toast.makeText(
@@ -253,7 +254,7 @@ class MainActivity : ComponentActivity() {
             }
             password.fill('\u0000')
             result.onSuccess { imported ->
-                ReminderScheduler.rescheduleAll(this@MainActivity)
+                ReminderScheduler.enqueueReschedule(this@MainActivity)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     Toast.makeText(
@@ -289,7 +290,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         db = MasahatiDatabase(applicationContext)
         ReminderScheduler.ensureChannel(this)
-        ReminderScheduler.rescheduleAll(this)
+        ReminderScheduler.enqueueReschedule(this)
         MorningBriefScheduler.ensureIfEnabled(this)
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -500,6 +501,7 @@ class MainActivity : ComponentActivity() {
         val space = db.getSpace(id) ?: return
         currentSpaceId = id
         currentSpaceTitle = space.title
+        messageDisplayLimit = 150
         showChat()
     }
 
@@ -571,10 +573,27 @@ class MainActivity : ComponentActivity() {
         renderMessages(spaceId)
     }
 
-    private fun renderMessages(spaceId: Long) {
+    private fun renderMessages(spaceId: Long, scrollToBottom: Boolean = true) {
         val host = root.findViewById<LinearLayout>(MESSAGE_LIST_ID) ?: return
         host.removeAllViews()
-        val messages = db.listMessages(spaceId)
+        val total = db.countMessages(spaceId)
+        val messages = db.listRecentMessages(spaceId, messageDisplayLimit)
+        if (total > messages.size) {
+            val remaining = total - messages.size
+            host.addView(Button(this).apply {
+                text = "عرض الأقدم ($remaining)"
+                isAllCaps = false
+                setOnClickListener {
+                    messageDisplayLimit = (messageDisplayLimit + 150).coerceAtMost(1000)
+                    renderMessages(spaceId, scrollToBottom = false)
+                }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(dp(18), dp(10), dp(18), dp(10))
+            })
+        }
         if (messages.isEmpty()) {
             host.addView(text("اكتب ملاحظة أو امسح مستنداً. مساعد مساحاتي سيفهمه ويصنفه تلقائياً.", 16f, Color.GRAY, false).apply {
                 gravity = Gravity.CENTER
@@ -587,7 +606,9 @@ class MainActivity : ComponentActivity() {
             val waiting = MessageRow(-1, spaceId, "assistant", "text", "جاري الفهم والترتيب…", null, null, null, null, null, null, null, false, System.currentTimeMillis())
             host.addView(messageBubble(waiting, temporary = true))
         }
-        chatScroll?.post { chatScroll?.fullScroll(View.FOCUS_DOWN) }
+        if (scrollToBottom) {
+            chatScroll?.post { chatScroll?.fullScroll(View.FOCUS_DOWN) }
+        }
     }
 
     private fun messageBubble(m: MessageRow, temporary: Boolean = false): View {
