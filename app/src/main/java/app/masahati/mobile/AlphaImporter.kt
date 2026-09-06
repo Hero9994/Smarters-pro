@@ -22,7 +22,11 @@ object AlphaImporter {
         val tempRoot = File(context.cacheDir, "masahati-import-${UUID.randomUUID()}").apply { mkdirs() }
         try {
             val reserveBytes = 96L * 1024L * 1024L
-            val storageBudget = (tempRoot.usableSpace - reserveBytes).coerceAtLeast(0L)
+            val storageManager = context.getSystemService(StorageManager::class.java)
+            val storageBudget = runCatching {
+                val storageUuid = storageManager.getUuidForPath(tempRoot)
+                (storageManager.getAllocatableBytes(storageUuid) - reserveBytes).coerceAtLeast(0L)
+            }.getOrDefault(256L * 1024L * 1024L)
             val importLimit = minOf(MAX_UNCOMPRESSED_BYTES, storageBudget)
             if (importLimit < 8L * 1024L * 1024L) {
                 error("مساحة التخزين غير كافية لاستيراد النسخة")
