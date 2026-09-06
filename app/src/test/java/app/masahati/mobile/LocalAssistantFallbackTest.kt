@@ -89,4 +89,39 @@ class LocalAssistantFallbackTest {
         assertTrue(result.getString("reply").contains("الثلاثاء"))
         assertTrue(result.getString("reply").contains("16:20"))
     }
+
+    @Test
+    fun opponentFollowUpUsesRecentMatchContext() {
+        val prior = MessageRow(
+            id = 2,
+            spaceId = 4,
+            role = "user",
+            kind = "text",
+            text = "رضوان عنده مباراة الأحد الساعة 11 ضد ماينز",
+            filePath = null,
+            mimeType = null,
+            displayName = null,
+            ocrText = null,
+            classification = "note",
+            tags = "مباراة، الأحد",
+            summary = "مباراة رضوان ضد ماينز الأحد الساعة 11",
+            starred = false,
+            createdAt = 1
+        )
+        val result = LocalAssistantFallback.analyze("ضد مين؟", "مباريات رضوان", listOf(prior))
+        assertEquals("note", result.getString("classification"))
+        assertTrue(result.getString("reply").contains("ماينز"))
+        assertFalse(result.getString("reply").contains("سأبحث"))
+    }
+
+    @Test
+    fun archiveSpaceProducesExecutableAction() {
+        val result = LocalAssistantFallback.analyze("أرشف هالمساحة", "قديم")
+        assertEquals("command", result.getString("classification"))
+        assertEquals(
+            "archive_space",
+            result.getJSONArray("actions").getJSONObject(0).getString("type")
+        )
+    }
+
 }
