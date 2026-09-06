@@ -590,15 +590,10 @@ class MainActivity : ComponentActivity() {
                     }
                 } else null
 
-                // Quality first: deterministic truth -> cloud reasoning -> local model only as offline fallback.
-                val remote = if (localReminderResult == null && directDocumentResult == null) {
-                    runCatching { postAgent(body) }.getOrNull()
-                } else null
-
+                // Quality first: grounded truth -> strong on-device model -> cloud fallback -> deterministic fallback.
                 val localModelResult = if (
                     localReminderResult == null &&
-                    directDocumentResult == null &&
-                    remote?.optBoolean("ok", false) != true
+                    directDocumentResult == null
                 ) {
                     runCatching {
                         val engine = localAi ?: HybridLocalAi(this@MainActivity).also { localAi = it }
@@ -615,11 +610,19 @@ class MainActivity : ComponentActivity() {
                     }.getOrNull()
                 } else null
 
+                val remote = if (
+                    localReminderResult == null &&
+                    directDocumentResult == null &&
+                    localModelResult?.optBoolean("ok", false) != true
+                ) {
+                    runCatching { postAgent(body) }.getOrNull()
+                } else null
+
                 val result = localReminderResult
                     ?: directDocumentResult
-                    ?: if (remote?.optBoolean("ok", false) == true) remote
-                    else localModelResult
-                        ?: DocumentIntelligence.offlineDocumentFallback(content, focusedDocument)
+                    ?: if (localModelResult?.optBoolean("ok", false) == true) localModelResult
+                    else if (remote?.optBoolean("ok", false) == true) remote
+                    else DocumentIntelligence.offlineDocumentFallback(content, focusedDocument)
                         ?: LocalAssistantFallback.analyze(content, spaceTitle, recent)
 
                 if (reminderResolution != null) {
@@ -1108,10 +1111,11 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        val sizeGb = String.format(Locale.ROOT, "%.1f", spec.expectedBytes / 1_000_000_000.0)
         AlertDialog.Builder(this)
-            .setTitle("الذكاء المحلي")
+            .setTitle("الذكاء المحلي الذكي")
             .setMessage(
-                "المرحلة الأولى تستخدم ${spec.displayName}.\n\nالحجم قرابة 1 GB، يُنزّل مرة واحدة ثم يعمل أوفلاين. الميزات الحالية لن تتغير."
+                "النموذج المقترح: ${spec.displayName}.\n\nالحجم قرابة ${sizeGb} GB، يُنزّل مرة واحدة ثم يعمل على الجهاز. بعد التنزيل سيأخذ أولوية قبل الخدمة السحابية."
             )
             .setPositiveButton("تنزيل") { _, _ -> startLocalModelDownload() }
             .setNegativeButton("إلغاء", null)
@@ -1145,7 +1149,8 @@ class MainActivity : ComponentActivity() {
                 val storageManager = getSystemService(StorageManager::class.java)
                 val allocatable = storageManager.getAllocatableBytes(StorageManager.UUID_DEFAULT)
                 if (allocatable < required) {
-                    throw IllegalStateException("لا توجد مساحة تخزين كافية. نحتاج تقريباً 1.2 GB فارغة.")
+                    val neededGb = String.format(Locale.ROOT, "%.1f", required / 1_000_000_000.0)
+                    throw IllegalStateException("لا توجد مساحة تخزين كافية. نحتاج تقريباً $neededGb GB فارغة.")
                 }
                 packs.download(spec) { downloaded, total ->
                     val percent = if (total > 0L) ((downloaded * 100L) / total).toInt().coerceIn(0, 100) else -1
