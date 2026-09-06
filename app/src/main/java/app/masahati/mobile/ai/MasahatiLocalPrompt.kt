@@ -45,7 +45,7 @@ object MasahatiLocalPrompt {
 {"reply":"جواب محدد","classification":"document|search|reminder|work_schedule|task|idea|note|command|other","labels":[],"keywords":[],"summary":"ملخص","confidence":0.0,"actions":[]}
 
 قواعد:
-- المستند الحالي هو مرجع: هاد/هاي/الورقة/فيها/شو سميتها. استخدم name/summary/ocr فقط ولا تخترع.
+- المستند الحالي هو المرجع الأول لـ: هاد/هاي/الورقة/فيها/شو سميتها. استخدم name/summary/ocr فقط ولا تخترع.
 - استخدم المحادثة السابقة لحل «فيها، نفس الموعد، يلي قبل».
 - إذا تعرف الجواب من السياق جاوب مباشرة وبالتفصيل اللازم، لا تقل فقط «حفظتها».
 - إذا غير واثق اسأل سؤالاً واحداً موجهاً.
