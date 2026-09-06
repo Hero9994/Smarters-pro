@@ -292,9 +292,9 @@ object DocumentImageEnhancer {
         val contrastEnough = span >= 205
         if (whiteEnough && contrastEnough) return null
 
-        val scale = (238f / span.coerceAtLeast(80)).coerceIn(1.0f, 1.19f)
-        val desiredHigh = if (safeHigh < 220) 246f else 249f
-        val offset = (desiredHigh - safeHigh * scale).coerceIn(-10f, 26f)
+        val scale = (235f / span.coerceAtLeast(80)).coerceIn(1.0f, 1.16f)
+        val desiredHigh = if (safeHigh < 220) 242f else 247f
+        val offset = (desiredHigh - safeHigh * scale).coerceIn(-10f, 22f)
         if (scale < 1.025f && kotlin.math.abs(offset) < 4f) return null
         return scale to offset
     }
