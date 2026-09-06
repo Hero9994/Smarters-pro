@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val modelWorker = Executors.newSingleThreadExecutor()
     private val webWorker = Executors.newSingleThreadExecutor()
+    private val todayWorker = Executors.newSingleThreadExecutor()
     private val recognizerHolder = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
     private var localAi: HybridLocalAi? = null
     private var semanticSearchEngine: SemanticSearchEngine? = null
     private var performanceMonitor: AlphaPerformanceMonitor? = null
+    @Volatile private var todaySummaryRequestId = 0L
     @Volatile private var modelDownloadRunning = false
     @Volatile private var semanticModelDownloadRunning = false
     private var pendingEncryptedExportPassword: CharArray? = null
@@ -368,8 +370,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         performanceMonitor?.onResume()
-        if (::root.isInitialized && currentSpaceId == TODAY_SPACE_ID) {
-            showTodayTasksDashboard()
+        if (!::root.isInitialized) return
+        when (currentSpaceId) {
+            TODAY_SPACE_ID -> showTodayTasksDashboard()
+            null -> refreshFixedTodaySummary()
         }
     }
 
@@ -389,6 +393,7 @@ class MainActivity : ComponentActivity() {
         worker.shutdownNow()
         modelWorker.shutdownNow()
         webWorker.shutdownNow()
+        todayWorker.shutdownNow()
 
         val cleanup = Thread {
             var stopped = false
@@ -401,6 +406,9 @@ class MainActivity : ComponentActivity() {
                 }
                 while (!webWorker.awaitTermination(30, TimeUnit.SECONDS)) {
                     // Web clipping is bounded by OkHttp timeouts.
+                }
+                while (!todayWorker.awaitTermination(30, TimeUnit.SECONDS)) {
+                    // Today dashboard reads are local and bounded.
                 }
                 stopped = true
             } catch (_: InterruptedException) {
@@ -462,8 +470,16 @@ class MainActivity : ComponentActivity() {
             })
         }
         root.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply {
-            setMargins(dp(16), 0, dp(16), dp(10))
+            setMargins(dp(16), 0, dp(16), dp(8))
         })
+
+        val todayHost = FrameLayout(this).apply {
+            id = TODAY_SUMMARY_HOST_ID
+        }
+        root.addView(todayHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(12), 0, dp(12), dp(8))
+        })
+        refreshFixedTodaySummary()
 
         addHomeToolsSection()
 
@@ -493,10 +509,6 @@ class MainActivity : ComponentActivity() {
     private fun renderSpaceList() {
         val host = root.findViewById<LinearLayout>(SPACE_LIST_ID) ?: return
         host.removeAllViews()
-
-        if (!showArchived) {
-            addTodaySmartSpaceRow(host)
-        }
 
         val spaces = db.listSpaces(showArchived, homeSearch)
         if (spaces.isEmpty()) {
@@ -554,55 +566,157 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun addTodaySmartSpaceRow(host: LinearLayout) {
-        val now = ZonedDateTime.now()
-        val items = runCatching { TodayTasksEngine.build(db, now) }.getOrDefault(emptyList())
-        val summary = TodayTasksEngine.summary(items)
+    private fun refreshFixedTodaySummary() {
+        if (!::root.isInitialized || currentSpaceId != null) return
+        val requestId = ++todaySummaryRequestId
+        val host = root.findViewById<FrameLayout>(TODAY_SUMMARY_HOST_ID) ?: return
 
-        val row = horizontal().apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            background = rounded(paleTeal, 18f, Color.rgb(194, 215, 210), 1)
-            setOnClickListener { openTodayTasks() }
+        if (host.childCount == 0) {
+            host.addView(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(16), dp(13), dp(16), dp(13))
+                    background = rounded(surfaceBg, 18f, Color.rgb(216, 220, 217), 1)
+                    addView(text("اليوم", 20f, Color.rgb(38, 46, 44), true))
+                    addView(text("جارٍ تحديث مهامك وتذكيراتك…", 14f, Color.GRAY, false).apply {
+                        setPadding(0, dp(3), 0, 0)
+                    })
+                },
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            )
         }
 
-        val badge = TextView(this).apply {
-            text = "✓"
-            textSize = 23f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = rounded(teal, 16f)
-            contentDescription = "مهام اليوم"
-        }
-
-        val info = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), 0, dp(12), 0)
-            addView(text("مهام اليوم", 21f, Color.rgb(25, 38, 37), true))
-            val preview = when {
-                summary.total == 0 -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • لا توجد مهام"
-                summary.open > 0 -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • ${summary.open} مفتوحة"
-                summary.skipped > 0 -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • ${summary.skipped} لم تتم"
-                else -> "${TodayTasksEngine.dateLabel(now.toLocalDate())} • اكتمل يومك"
+        todayWorker.execute {
+            val now = ZonedDateTime.now()
+            val result = runCatching {
+                val items = TodayTasksEngine.build(db, now)
+                Triple(items, TodayTasksEngine.homeSnapshot(items), now)
             }
-            addView(text(preview, 14f, Color.rgb(82, 101, 98), false).apply { maxLines = 1 })
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed || currentSpaceId != null || requestId != todaySummaryRequestId) {
+                    return@runOnUiThread
+                }
+                val currentHost = root.findViewById<FrameLayout>(TODAY_SUMMARY_HOST_ID) ?: return@runOnUiThread
+                result.onSuccess { (items, snapshot, displayedAt) ->
+                    currentHost.removeAllViews()
+                    currentHost.addView(
+                        fixedTodaySummaryCard(items, snapshot, displayedAt),
+                        FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    )
+                }.onFailure {
+                    currentHost.removeAllViews()
+                    currentHost.addView(
+                        LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(16), dp(13), dp(16), dp(13))
+                            background = rounded(surfaceBg, 18f, todayRedSoft, 1)
+                            addView(text("اليوم", 20f, Color.rgb(38, 46, 44), true))
+                            addView(text("تعذر تحديث الملخص الآن. اضغط لإعادة المحاولة.", 14f, todayRed, false).apply {
+                                setPadding(0, dp(3), 0, 0)
+                            })
+                            setOnClickListener { refreshFixedTodaySummary() }
+                        },
+                        FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    )
+                }
+            }
+        }
+    }
+
+    private fun fixedTodaySummaryCard(
+        items: List<TodayTaskItem>,
+        snapshot: TodayHomeSnapshot,
+        now: ZonedDateTime
+    ): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(15), dp(13), dp(15), dp(12))
+            background = rounded(paleTeal, 20f, Color.rgb(185, 211, 205), 1)
+            setOnClickListener { openTodayTasks() }
+            isClickable = true
+            isFocusable = true
+            contentDescription = "ملخص مهام وتذكيرات اليوم"
         }
 
-        val count = TextView(this).apply {
-            text = String.format(Locale.getDefault(), "%d", summary.open)
-            textSize = 16f
+        val topRow = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(
+                text(
+                    when {
+                        snapshot.total == 0 -> "اليوم: لا توجد مهام"
+                        snapshot.open == 0 -> "اكتملت مهام اليوم"
+                        snapshot.open == 1 -> "لديك اليوم مهمة واحدة"
+                        else -> "لديك اليوم ${snapshot.open} مهام"
+                    },
+                    20f,
+                    Color.rgb(27, 42, 40),
+                    true
+                )
+            )
+            addView(text(TodayTasksEngine.dateLabel(now.toLocalDate()), 13.5f, Color.rgb(79, 98, 95), false).apply {
+                setPadding(0, dp(2), 0, 0)
+            })
+        }
+
+        val arrow = TextView(this).apply {
+            text = "›"
+            textSize = 29f
             gravity = Gravity.CENTER
-            setTextColor(if (summary.open > 0) Color.WHITE else teal)
-            background = rounded(if (summary.open > 0) teal else surfaceBg, 18f, teal, 1)
-            contentDescription = "${summary.open} مهمة مفتوحة"
+            setTextColor(teal)
+            contentDescription = "فتح التفاصيل"
         }
 
-        row.addView(badge, LinearLayout.LayoutParams(dp(52), dp(52)))
-        row.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(count, LinearLayout.LayoutParams(dp(40), dp(40)))
-        host.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(dp(10), dp(3), dp(10), dp(8))
+        topRow.addView(titleBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        topRow.addView(arrow, LinearLayout.LayoutParams(dp(34), dp(42)))
+        card.addView(topRow)
+
+        val chips = horizontal().apply {
+            gravity = Gravity.START
+            setPadding(0, dp(9), 0, 0)
+        }
+
+        fun addChip(label: String, count: Int, accent: Int, fill: Int) {
+            val chip = TextView(this).apply {
+                text = "$label $count"
+                textSize = 13.5f
+                gravity = Gravity.CENTER
+                setTextColor(accent)
+                background = rounded(fill, 14f, accent, 1)
+                setPadding(dp(9), 0, dp(9), 0)
+            }
+            chips.addView(chip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply {
+                marginEnd = dp(6)
+            })
+        }
+
+        addChip("متبقي", snapshot.open, teal, surfaceBg)
+        if (snapshot.overdue > 0) addChip("متأخر", snapshot.overdue, todayRed, todayRedSoft)
+        if (snapshot.done > 0) addChip("✓", snapshot.done, todayGreen, todayGreenSoft)
+        if (snapshot.skipped > 0) addChip("✕", snapshot.skipped, todayRed, todayRedSoft)
+        card.addView(chips)
+
+        val next = snapshot.nextTitle
+        val footerText = when {
+            snapshot.total == 0 -> "أي تذكير أو مهمة أو موعد مستند لليوم سيظهر هنا تلقائياً."
+            next != null -> "التالي: ${next.take(90)}"
+            snapshot.skipped > 0 -> "يوجد ${snapshot.skipped} عنصر تم وضعه كـ «لم تتم»."
+            else -> "كل عناصر اليوم منجزة ✓"
+        }
+        card.addView(text(footerText, 14f, Color.rgb(74, 88, 86), false).apply {
+            maxLines = 2
+            setPadding(0, dp(8), 0, 0)
         })
+
+        if (snapshot.total > 0 && items.any { it.status == TodayTaskStatus.OPEN && it.overdue }) {
+            card.setBackgroundColor(Color.TRANSPARENT)
+            card.background = rounded(todayRedSoft, 20f, Color.rgb(222, 178, 174), 1)
+        }
+
+        return card
     }
 
 
@@ -3098,6 +3212,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val SPACE_LIST_ID = 4001
         private const val MESSAGE_LIST_ID = 4002
+        private const val TODAY_SUMMARY_HOST_ID = 4003
         private const val TODAY_SPACE_ID = -9001001L
         private const val AGENT_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-agent-dev"
         private const val DOCUMENT_ALPHA_URL = "https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-document-alpha-v2"
