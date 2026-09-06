@@ -169,28 +169,22 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         if (oldVersion < 2) {
             db.execSQL("DELETE FROM spaces WHERE title IN ('ملاحظات','يومي','أوراقي','أفكار المشروع') AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.space_id = spaces.id)")
         }
+
+        // Migration steps must be idempotent because createReminderTable/createAlphaTables
+        // always describe the newest schema. This also makes interrupted/very-old upgrades safe.
         if (oldVersion < 3) createReminderTable(db)
-        if (oldVersion < 4) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
-        }
-        if (oldVersion < 5) {
-            db.execSQL("ALTER TABLE spaces ADD COLUMN focus_message_id INTEGER")
-        }
-        if (oldVersion < 6) {
-            db.execSQL("ALTER TABLE reminders ADD COLUMN delivered_at INTEGER")
-        }
-        if (oldVersion < 7) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN content_hash TEXT")
-            db.execSQL("ALTER TABLE messages ADD COLUMN deleted_at INTEGER")
-            createAlphaTables(db)
-        }
-        if (oldVersion < 8) {
-            db.execSQL("ALTER TABLE reminders ADD COLUMN condition_action_id INTEGER")
-        }
-        if (oldVersion < 9) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN text_fingerprint TEXT")
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_text_fingerprint ON messages(text_fingerprint)")
-        }
+        addColumnIfMissing(db, "messages", "starred", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, "spaces", "focus_message_id", "INTEGER")
+        createReminderTable(db)
+        addColumnIfMissing(db, "reminders", "delivered_at", "INTEGER")
+        addColumnIfMissing(db, "messages", "content_hash", "TEXT")
+        addColumnIfMissing(db, "messages", "deleted_at", "INTEGER")
+        addColumnIfMissing(db, "reminders", "condition_action_id", "INTEGER")
+        addColumnIfMissing(db, "messages", "text_fingerprint", "TEXT")
+
+        // Only create indexes/tables after all referenced message/reminder columns exist.
+        createAlphaTables(db)
+
         if (oldVersion < 10) {
             db.execSQL("DELETE FROM document_meta WHERE message_id NOT IN (SELECT id FROM messages)")
             db.execSQL("DELETE FROM document_chunks WHERE message_id NOT IN (SELECT id FROM messages)")
@@ -229,6 +223,38 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             db.execSQL("ALTER TABLE message_versions_v10 RENAME TO message_versions")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_message_versions_message ON message_versions(message_id)")
         }
+    }
+
+    private fun addColumnIfMissing(
+        db: SQLiteDatabase,
+        table: String,
+        column: String,
+        definition: String
+    ) {
+        if (columnExists(db, table, column)) return
+        val safeTable = requireIdentifier(table)
+        val safeColumn = requireIdentifier(column)
+        db.execSQL("ALTER TABLE $safeTable ADD COLUMN $safeColumn $definition")
+    }
+
+    private fun columnExists(db: SQLiteDatabase, table: String, column: String): Boolean {
+        val safeTable = requireIdentifier(table)
+        return db.rawQuery("PRAGMA table_info($safeTable)", null).use { cursor ->
+            val nameIndex = cursor.getColumnIndexOrThrow("name")
+            var found = false
+            while (cursor.moveToNext()) {
+                if (cursor.getString(nameIndex) == column) {
+                    found = true
+                    break
+                }
+            }
+            found
+        }
+    }
+
+    private fun requireIdentifier(value: String): String {
+        require(value.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "Invalid SQL identifier" }
+        return value
     }
 
     private fun createReminderTable(db: SQLiteDatabase) {
