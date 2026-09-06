@@ -169,6 +169,69 @@ object LocalAssistantFallback {
                     reply = "فهمت أنك تريد مساحة جديدة. ما الاسم الذي تريده لها؟"
                 }
             }
+            Regex(
+                "(?:غيّر|غير)\\s+اسم\\s+(?:آخر|اخر)\\s+(?:ورقة|مستند|ملف)(?:\\s+(?:إلى|الى|لـ|ل|باسم))?\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                RegexOption.IGNORE_CASE
+            ).find(raw)?.let { it.groupValues.getOrNull(1)?.trim()?.trim('«', '»', '\"', '\'') }.orEmpty().isNotBlank() -> {
+                classification = "command"
+                addLabel("مستند")
+                addLabel("إعادة تسمية")
+                val match = Regex(
+                    "(?:غيّر|غير)\\s+اسم\\s+(?:آخر|اخر)\\s+(?:ورقة|مستند|ملف)(?:\\s+(?:إلى|الى|لـ|ل|باسم))?\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                    RegexOption.IGNORE_CASE
+                ).find(raw)
+                val newName = match?.groupValues?.getOrNull(1).orEmpty().trim().trim('«', '»', '\"', '\'').take(180)
+                addKeyword(newName)
+                actions.put(JSONObject().put("type", "rename_last_document").put("args", JSONObject().put("new_name", newName)).put("requires_confirmation", false))
+                reply = "فهمت: تغيير اسم آخر مستند إلى «$newName»."
+            }
+            Regex(
+                "(?:انقل|نقل)\\s+(?:آخر|اخر)\\s+(?:ورقة|مستند|ملف)(?:\\s+(?:إلى|الى|لـ|ل))?\\s*(?:مساحة)\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                RegexOption.IGNORE_CASE
+            ).find(raw)?.let { it.groupValues.getOrNull(1)?.trim()?.trim('«', '»', '\"', '\'') }.orEmpty().isNotBlank() -> {
+                classification = "command"
+                addLabel("مستند")
+                addLabel("نقل")
+                val match = Regex(
+                    "(?:انقل|نقل)\\s+(?:آخر|اخر)\\s+(?:ورقة|مستند|ملف)(?:\\s+(?:إلى|الى|لـ|ل))?\\s*(?:مساحة)\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                    RegexOption.IGNORE_CASE
+                ).find(raw)
+                val target = match?.groupValues?.getOrNull(1).orEmpty().trim().trim('«', '»', '\"', '\'').take(120)
+                addKeyword(target)
+                actions.put(JSONObject().put("type", "move_last_document").put("args", JSONObject().put("target_space", target)).put("requires_confirmation", false))
+                reply = "فهمت: نقل آخر مستند إلى مساحة «$target»."
+            }
+            Regex(
+                "(?:غيّر|غير)\\s+اسم\\s+(?:هالمساحة|هذه\\s+المساحة|المساحة)(?:\\s+(?:إلى|الى|لـ|ل|باسم))?\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                RegexOption.IGNORE_CASE
+            ).find(raw)?.let { it.groupValues.getOrNull(1)?.trim()?.trim('«', '»', '\"', '\'') }.orEmpty().isNotBlank() -> {
+                classification = "command"
+                addLabel("مساحة")
+                addLabel("إعادة تسمية")
+                val match = Regex(
+                    "(?:غيّر|غير)\\s+اسم\\s+(?:هالمساحة|هذه\\s+المساحة|المساحة)(?:\\s+(?:إلى|الى|لـ|ل|باسم))?\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                    RegexOption.IGNORE_CASE
+                ).find(raw)
+                val newName = match?.groupValues?.getOrNull(1).orEmpty().trim().trim('«', '»', '\"', '\'').take(120)
+                addKeyword(newName)
+                actions.put(JSONObject().put("type", "rename_space").put("args", JSONObject().put("new_name", newName)).put("requires_confirmation", false))
+                reply = "فهمت: تغيير اسم هذه المساحة إلى «$newName»."
+            }
+            Regex(
+                "(?:انقل|نقل)\\s+(?:آخر|اخر)\\s+(?:شي|شيء|عنصر|ملاحظة)(?:\\s+(?:إلى|الى|لـ|ل))?\\s*(?:مساحة)\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                RegexOption.IGNORE_CASE
+            ).find(raw)?.let { it.groupValues.getOrNull(1)?.trim()?.trim('«', '»', '\"', '\'') }.orEmpty().isNotBlank() -> {
+                classification = "command"
+                addLabel("نقل")
+                val match = Regex(
+                    "(?:انقل|نقل)\\s+(?:آخر|اخر)\\s+(?:شي|شيء|عنصر|ملاحظة)(?:\\s+(?:إلى|الى|لـ|ل))?\\s*(?:مساحة)\\s*[«\"']?(.+?)[»\"']?\\s*[؟?]?$",
+                    RegexOption.IGNORE_CASE
+                ).find(raw)
+                val target = match?.groupValues?.getOrNull(1).orEmpty().trim().trim('«', '»', '\"', '\'').take(120)
+                addKeyword(target)
+                actions.put(JSONObject().put("type", "move_last_item").put("args", JSONObject().put("target_space", target)).put("requires_confirmation", false))
+                reply = "فهمت: نقل آخر عنصر محفوظ إلى مساحة «$target»."
+            }
             has("أرشف", "ارشف", "أرشفة", "ارشفة") -> {
                 classification = "command"
                 actions.put(JSONObject().put("type", "archive_space").put("args", JSONObject().put("space_name", spaceTitle)).put("requires_confirmation", false))
