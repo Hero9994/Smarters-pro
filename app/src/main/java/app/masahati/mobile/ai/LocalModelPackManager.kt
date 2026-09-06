@@ -44,9 +44,31 @@ class LocalModelPackManager(private val context: Context) {
         val finalFile = modelFile(spec)
         if (isInstalled(spec)) return finalFile
 
+        // Recover safely from an interrupted rename/marker write instead of redownloading.
+        if (finalFile.isFile && finalFile.length() == spec.expectedBytes) {
+            if (sha256(finalFile).equals(spec.sha256, ignoreCase = true)) {
+                markerFile(spec).writeText(spec.sha256)
+                return finalFile
+            }
+            finalFile.delete()
+            markerFile(spec).delete()
+        }
+
         val partial = File(finalFile.absolutePath + ".part")
         var existing = if (partial.exists()) partial.length() else 0L
         if (existing > spec.expectedBytes) {
+            partial.delete()
+            existing = 0L
+        } else if (existing == spec.expectedBytes) {
+            if (sha256(partial).equals(spec.sha256, ignoreCase = true)) {
+                if (finalFile.exists()) finalFile.delete()
+                if (!partial.renameTo(finalFile)) {
+                    partial.copyTo(finalFile, overwrite = true)
+                    partial.delete()
+                }
+                markerFile(spec).writeText(spec.sha256)
+                return finalFile
+            }
             partial.delete()
             existing = 0L
         }
@@ -89,10 +111,13 @@ class LocalModelPackManager(private val context: Context) {
             }
 
             if (partial.length() != spec.expectedBytes) {
+                if (partial.length() > spec.expectedBytes) partial.delete()
                 throw IllegalStateException("Model download size mismatch")
             }
             val digest = sha256(partial)
             if (!digest.equals(spec.sha256, ignoreCase = true)) {
+                partial.delete()
+                markerFile(spec).delete()
                 throw IllegalStateException("Model checksum mismatch")
             }
             if (finalFile.exists()) finalFile.delete()
@@ -114,7 +139,7 @@ class LocalModelPackManager(private val context: Context) {
             val storage = context.getSystemService(StorageManager::class.java)
             storage.getAllocatableBytes(storage.getUuidForPath(directory))
         }.getOrElse { directory.usableSpace }
-        if (available in 1 until (neededBytes + reserve)) {
+        if (available < neededBytes + reserve) {
             throw IllegalStateException("مساحة التخزين غير كافية لتنزيل نموذج الذكاء المحلي")
         }
     }
