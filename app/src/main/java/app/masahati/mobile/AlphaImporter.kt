@@ -5,7 +5,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
-import java.util.zip.ZipInputStream
+import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream
 
 data class AlphaImportSummary(
     val spaces: Int,
@@ -22,10 +22,13 @@ object AlphaImporter {
         val tempRoot = File(context.cacheDir, "masahati-import-${UUID.randomUUID()}").apply { mkdirs() }
         try {
             var totalBytes = 0L
-            ZipInputStream(input.buffered()).use { zip ->
+            val seenEntries = mutableSetOf<String>()
+            ZipArchiveInputStream(input.buffered()).use { zip ->
                 while (true) {
                     val entry = zip.nextEntry ?: break
+                    if (!zip.canReadEntryData(entry)) error("يوجد ملف داخل النسخة لا يمكن قراءته")
                     val safe = sanitizeEntry(entry.name) ?: error("نسخة احتياطية غير صالحة")
+                    if (!seenEntries.add(safe)) error("النسخة الاحتياطية تحتوي مساراً مكرراً")
                     if (!entry.isDirectory) {
                         val out = File(tempRoot, safe)
                         out.parentFile?.mkdirs()
@@ -40,7 +43,6 @@ object AlphaImporter {
                             }
                         }
                     }
-                    zip.closeEntry()
                 }
             }
 
