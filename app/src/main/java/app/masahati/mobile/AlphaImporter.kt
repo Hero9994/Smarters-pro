@@ -237,6 +237,7 @@ object AlphaImporter {
                     }
                 }
 
+                val oldToNewReminder = mutableMapOf<Long, Long>()
                 val reminders = root.optJSONArray("reminders") ?: root.optJSONArray("active_reminders")
                 var reminderCount = 0
                 if (reminders != null) {
@@ -258,7 +259,34 @@ object AlphaImporter {
                             conditionActionId = oldToNewAction[oldConditionActionId],
                             createdAt = item.optLong("created_at", System.currentTimeMillis())
                         )
-                        if (id > 0L) reminderCount++
+                        if (id > 0L) {
+                            val oldReminderId = item.optLong("id", -1L)
+                            if (oldReminderId > 0L) oldToNewReminder[oldReminderId] = id
+                            reminderCount++
+                        }
+                    }
+                }
+
+                val todayStates = root.optJSONArray("today_task_states")
+                if (todayStates != null) {
+                    for (i in 0 until todayStates.length()) {
+                        val item = todayStates.optJSONObject(i) ?: continue
+                        val sourceType = item.optString("source_type").trim()
+                        val oldSourceId = item.optLong("source_id", -1L)
+                        if (oldSourceId <= 0L) continue
+                        val newSourceId = when (sourceType) {
+                            "action" -> oldToNewAction[oldSourceId]
+                            "reminder" -> oldToNewReminder[oldSourceId]
+                            "document_due", "document_expiry" -> oldToNewMessage[oldSourceId]
+                            else -> null
+                        } ?: continue
+                        db.importTodayTaskState(
+                            dateKey = item.optString("date_key"),
+                            sourceType = sourceType,
+                            sourceId = newSourceId,
+                            status = item.optString("status"),
+                            updatedAt = item.optLong("updated_at", System.currentTimeMillis())
+                        )
                     }
                 }
 
