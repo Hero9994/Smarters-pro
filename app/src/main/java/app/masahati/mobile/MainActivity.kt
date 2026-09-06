@@ -737,6 +737,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                "create_space" -> {
+                    val name = args.optString("name").ifBlank { args.optString("title") }.trim().take(120)
+                    if (name.isNotBlank()) {
+                        val existing = db.findSpaceByTitle(name)
+                        if (existing != null) {
+                            notes += "مساحة «" + existing.title + "» موجودة أصلاً."
+                        } else if (needsConfirm) {
+                            notes += "إنشاء مساحة «" + name + "» جاهز وينتظر التأكيد."
+                        } else {
+                            db.createSpace(name)
+                            notes += "تم إنشاء مساحة «" + name + "»."
+                        }
+                    }
+                }
                 "archive_space" -> {
                     val target = args.optString("space_name").ifBlank { db.getSpace(spaceId)?.title.orEmpty() }
                     val space = db.findSpaceByTitle(target) ?: db.getSpace(spaceId)
