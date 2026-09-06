@@ -2,6 +2,7 @@ package app.masahati.mobile
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.github.pemistahl.lingua.api.Language
 import com.github.pemistahl.lingua.api.LanguageDetectorBuilder
 import com.google.zxing.BinaryBitmap
@@ -75,6 +76,27 @@ object OpenSourceDocumentTools {
         }.getOrDefault(emptyList())
     }
 
+    fun decodeBarcodes(file: File, maxSide: Int = 1800): List<String> {
+        if (!file.isFile || file.length() <= 0L) return emptyList()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return emptyList()
+        var sample = 1
+        while (max(bounds.outWidth / sample, bounds.outHeight / sample) > maxSide) sample *= 2
+        val bitmap = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+        ) ?: return emptyList()
+        return try {
+            decodeBarcodes(bitmap)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     fun decodeBarcodes(bitmap: Bitmap): List<String> {
         if (bitmap.width < 40 || bitmap.height < 40) return emptyList()
         val maxSide = 1600
@@ -111,7 +133,7 @@ object OpenSourceDocumentTools {
     }
 
     fun extractPdfText(context: Context, file: File, maxChars: Int = 24_000): String {
-        if (!file.isFile || file.length() <= 0L) return ""
+        if (!file.isFile || file.length() <= 0L || file.length() > 96L * 1024L * 1024L) return ""
         return runCatching {
             PDFBoxResourceLoader.init(context.applicationContext)
             PDDocument.load(file).use { document ->
