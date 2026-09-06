@@ -1,6 +1,8 @@
 package app.masahati.mobile
 
 import java.util.Locale
+import org.apache.commons.text.similarity.JaroWinklerSimilarity
+import org.apache.commons.text.similarity.LevenshteinDistance
 import kotlin.math.abs
 
 internal object SmartSearch {
@@ -78,32 +80,17 @@ internal object SmartSearch {
         return total
     }
 
+    private val levenshteinOne = LevenshteinDistance(1)
+    private val jaroWinkler = JaroWinklerSimilarity()
+
     private fun nearMatch(a: String, b: String): Boolean {
-        if (abs(a.length - b.length) > 1) return false
         if (a == b) return true
-        if (a.length == b.length) {
-            var differences = 0
-            for (i in a.indices) {
-                if (a[i] != b[i] && ++differences > 1) return false
-            }
-            return true
+        if (abs(a.length - b.length) > 2) return false
+        if (levenshteinOne.apply(a, b) in 0..1) return true
+        if (a.length >= 5 && b.length >= 5) {
+            return (jaroWinkler.apply(a, b) ?: 0.0) >= 0.93
         }
-        val shorter = if (a.length < b.length) a else b
-        val longer = if (a.length < b.length) b else a
-        var i = 0
-        var j = 0
-        var skipped = false
-        while (i < shorter.length && j < longer.length) {
-            if (shorter[i] == longer[j]) {
-                i++
-                j++
-            } else {
-                if (skipped) return false
-                skipped = true
-                j++
-            }
-        }
-        return true
+        return false
     }
 
     private data class Field(val value: String?, val exactWeight: Int, val termWeight: Int)
