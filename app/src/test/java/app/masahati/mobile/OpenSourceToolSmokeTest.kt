@@ -29,9 +29,10 @@ class OpenSourceToolSmokeTest {
     @Test
     fun allTenLibrariesLoadAndCorePureFunctionsWork() {
         // 1 OkHttp
-        OkHttpClient().use { client ->
-            assertNotNull(client.dispatcher)
-        }
+        val httpClient = OkHttpClient()
+        assertNotNull(httpClient.dispatcher)
+        httpClient.dispatcher.executorService.shutdown()
+        httpClient.connectionPool.evictAll()
 
         // 2 jsoup
         val document = Jsoup.parse("<html><head><title>Masahati</title></head><body><p>Hello</p></body></html>")
