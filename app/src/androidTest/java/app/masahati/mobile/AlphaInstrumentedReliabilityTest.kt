@@ -1,7 +1,9 @@
 package app.masahati.mobile
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import android.graphics.Bitmap
+import android.graphics.Color
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -23,6 +26,9 @@ import org.junit.runner.RunWith
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 @RunWith(AndroidJUnit4::class)
 class AlphaInstrumentedReliabilityTest {
@@ -365,6 +371,421 @@ class AlphaInstrumentedReliabilityTest {
         } finally {
             db.close()
         }
+    }
+
+
+    @Test
+    fun upgradeFromV6PreservesRealUserDataAndBuildsAlphaSchema() {
+        context.deleteDatabase("masahati_v05.db")
+        val dbFile = context.getDatabasePath("masahati_v05.db").apply { parentFile?.mkdirs() }
+
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { old ->
+            old.execSQL(
+                """
+                CREATE TABLE spaces(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  title TEXT NOT NULL,
+                  pinned INTEGER NOT NULL DEFAULT 0,
+                  archived INTEGER NOT NULL DEFAULT 0,
+                  focus_message_id INTEGER,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            old.execSQL(
+                """
+                CREATE TABLE messages(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  space_id INTEGER NOT NULL,
+                  role TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  text TEXT NOT NULL DEFAULT '',
+                  file_path TEXT,
+                  mime_type TEXT,
+                  display_name TEXT,
+                  ocr_text TEXT,
+                  classification TEXT,
+                  tags TEXT,
+                  summary TEXT,
+                  starred INTEGER NOT NULL DEFAULT 0,
+                  ai_json TEXT,
+                  created_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            old.execSQL(
+                """
+                CREATE TABLE reminders(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  space_id INTEGER NOT NULL,
+                  title TEXT NOT NULL,
+                  body TEXT NOT NULL,
+                  repeat_rule TEXT NOT NULL DEFAULT 'none',
+                  day_of_week INTEGER,
+                  hour INTEGER,
+                  minute INTEGER,
+                  next_fire_at INTEGER,
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  delivered_at INTEGER,
+                  created_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            val now = System.currentTimeMillis()
+            old.execSQL(
+                "INSERT INTO spaces(id,title,pinned,archived,created_at,updated_at) VALUES(1,'عقودي',1,0,?,?)",
+                arrayOf(now, now)
+            )
+            old.execSQL(
+                "INSERT INTO messages(id,space_id,role,kind,text,ocr_text,display_name,starred,created_at) VALUES(7,1,'user','file','',?,'vertrag.pdf',1,?)",
+                arrayOf("Mietvertrag MV-4488 Vertragsende 30.09.2027", now)
+            )
+            old.execSQL(
+                "INSERT INTO reminders(id,space_id,title,body,repeat_rule,next_fire_at,enabled,created_at) VALUES(3,1,'عقد','راجع العقد','none',?,1,?)",
+                arrayOf(now + 86_400_000L, now)
+            )
+            old.version = 6
+        }
+
+        val upgraded = MasahatiDatabase(context)
+        try {
+            val spaces = upgraded.listSpaces(false)
+            assertEquals(1, spaces.size)
+            assertEquals("عقودي", spaces.single().title)
+            val messages = upgraded.listMessages(spaces.single().id)
+            assertEquals(1, messages.size)
+            assertEquals("vertrag.pdf", messages.single().displayName)
+            assertTrue(messages.single().starred)
+            assertTrue(messages.single().ocrText.orEmpty().contains("MV-4488"))
+            assertEquals(1, upgraded.listAllReminders().size)
+
+            // Exercise columns/tables added after v6, not just opening the DB.
+            AlphaDocumentProcessor.indexNewFile(
+                upgraded,
+                messages.single().id,
+                File(context.cacheDir, "alpha-test/migrated.txt").apply {
+                    parentFile?.mkdirs()
+                    writeText("Mietvertrag MV-4488 Vertragsende 30.09.2027")
+                },
+                messages.single().ocrText
+            )
+            upgraded.upsertDocumentMeta(
+                DocumentMetaRow(
+                    messageId = messages.single().id,
+                    smartTitle = "Mietvertrag MV-4488",
+                    docType = "contract",
+                    organization = null,
+                    personNames = null,
+                    referenceNumber = "MV-4488",
+                    amountText = null,
+                    currency = null,
+                    issueDate = null,
+                    dueDate = null,
+                    expiryDate = "2027-09-30",
+                    actionRequired = false,
+                    actionText = null,
+                    confidence = 0.99,
+                    evidenceJson = null,
+                    extractedJson = null,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            upgraded.updateAi(messages.single().id, "document", "vertrag", "Vertrag", "{}")
+            assertNotNull(upgraded.getDocumentMeta(messages.single().id))
+            assertTrue(upgraded.listMessageVersions(messages.single().id).isNotEmpty())
+            assertEquals("ok", upgraded.databaseIntegrityStatus())
+            assertEquals(0, upgraded.foreignKeyViolationCount())
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun upgradeFromV2AlsoSucceedsWithoutDuplicateColumnCrashes() {
+        context.deleteDatabase("masahati_v05.db")
+        val dbFile = context.getDatabasePath("masahati_v05.db").apply { parentFile?.mkdirs() }
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { old ->
+            old.execSQL(
+                """
+                CREATE TABLE spaces(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  title TEXT NOT NULL,
+                  pinned INTEGER NOT NULL DEFAULT 0,
+                  archived INTEGER NOT NULL DEFAULT 0,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            old.execSQL(
+                """
+                CREATE TABLE messages(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  space_id INTEGER NOT NULL,
+                  role TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  text TEXT NOT NULL DEFAULT '',
+                  file_path TEXT,
+                  mime_type TEXT,
+                  display_name TEXT,
+                  ocr_text TEXT,
+                  classification TEXT,
+                  tags TEXT,
+                  summary TEXT,
+                  ai_json TEXT,
+                  created_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            val now = System.currentTimeMillis()
+            old.execSQL(
+                "INSERT INTO spaces(id,title,pinned,archived,created_at,updated_at) VALUES(1,'قديم',0,0,?,?)",
+                arrayOf(now, now)
+            )
+            old.execSQL(
+                "INSERT INTO messages(id,space_id,role,kind,text,created_at) VALUES(1,1,'user','text','بيانات قديمة مهمة',?)",
+                arrayOf(now)
+            )
+            old.version = 2
+        }
+
+        val upgraded = MasahatiDatabase(context)
+        try {
+            assertEquals("قديم", upgraded.listSpaces(false).single().title)
+            assertEquals("بيانات قديمة مهمة", upgraded.listMessages(1).single().text)
+            assertEquals("ok", upgraded.databaseIntegrityStatus())
+            assertEquals(0, upgraded.foreignKeyViolationCount())
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun trashRestoreHistoryAndHardDeleteRemainConsistent() {
+        val db = MasahatiDatabase(context)
+        try {
+            val spaceId = db.createSpace("ملفات")
+            val file = File(context.filesDir, "documents/history.txt").apply {
+                parentFile?.mkdirs()
+                writeText("original contract text")
+            }
+            val messageId = db.insertFile(
+                spaceId, "user", "Scan-1.txt", file.absolutePath, "text/plain", file.readText()
+            )
+
+            db.renameMessageDisplayName(messageId, "عقد-ذكي.txt")
+            val renameVersions = db.listMessageVersions(messageId)
+            assertTrue(renameVersions.any { it.reason == "smart_rename" })
+            assertEquals("عقد-ذكي.txt", db.getMessage(messageId)?.displayName)
+
+            db.deleteMessage(messageId)
+            assertTrue(file.exists())
+            assertTrue(db.listTrash().any { it.id == messageId })
+            assertTrue(db.listMessages(spaceId).none { it.id == messageId })
+
+            db.restoreMessage(messageId)
+            assertTrue(db.listMessages(spaceId).any { it.id == messageId })
+            assertTrue(file.exists())
+
+            val originalVersion = db.listMessageVersions(messageId)
+                .firstOrNull { it.displayName == "Scan-1.txt" }
+            assertNotNull(originalVersion)
+            assertTrue(db.restoreMessageVersion(originalVersion!!.id))
+            assertEquals("Scan-1.txt", db.getMessage(messageId)?.displayName)
+
+            db.hardDeleteMessage(messageId)
+            assertFalse(file.exists())
+            assertTrue(db.allMessagesIncludingTrash().none { it.id == messageId })
+            assertTrue(db.listMessageVersions(messageId).isEmpty())
+            assertEquals("ok", db.databaseIntegrityStatus())
+            assertEquals(0, db.foreignKeyViolationCount())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun sixHundredMessageSpaceSearchPagingAndIntegrityStayCorrect() {
+        val db = MasahatiDatabase(context)
+        try {
+            val spaceId = db.createSpace("أرشيف كبير")
+            repeat(600) { index ->
+                val text = if (index == 437) {
+                    "وثيقة خاصة رقم ZX-UNIQUE-437 تتعلق بتأمين السيارة Versicherung"
+                } else {
+                    "ملاحظة يومية رقم $index عن العمل والمهام"
+                }
+                db.insertText(spaceId, "user", text)
+            }
+            assertEquals(600, db.countMessages(spaceId))
+            assertEquals(150, db.listRecentMessages(spaceId, 150).size)
+            assertEquals(600, db.listRecentMessages(spaceId, 1000).size)
+
+            val hit = db.search("ZX UNIQUE 437 تأمين", 20)
+            assertTrue(hit.any { it.text.contains("ZX-UNIQUE-437") })
+            val germanHit = db.search("Versicherung", 20)
+            assertTrue(germanHit.any { it.text.contains("ZX-UNIQUE-437") })
+
+            assertEquals("ok", db.databaseIntegrityStatus())
+            assertEquals(0, db.foreignKeyViolationCount())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun scannerShadowCorrectionImprovesSyntheticShadowAndLeavesCleanPageUntouched() {
+        val clean = Bitmap.createBitmap(600, 800, Bitmap.Config.ARGB_8888)
+        clean.eraseColor(Color.rgb(240, 240, 240))
+        val cleanResult = DocumentImageEnhancer.flattenDocumentShadows(clean)
+        assertSame(clean, cleanResult)
+
+        val shadow = Bitmap.createBitmap(600, 800, Bitmap.Config.ARGB_8888)
+        for (y in 0 until shadow.height) {
+            for (x in 0 until shadow.width) {
+                val base = if (x < 300) 150 else 240
+                shadow.setPixel(x, y, Color.rgb(base, base, base))
+            }
+        }
+        val before = averageLuminance(shadow, 40, 40, 250, 700)
+        val corrected = DocumentImageEnhancer.flattenDocumentShadows(shadow)
+        try {
+            assertFalse(corrected === shadow)
+            val after = averageLuminance(corrected, 40, 40, 250, 700)
+            assertTrue("shadow region should brighten: before=$before after=$after", after > before + 8.0)
+            val brightSide = averageLuminance(corrected, 350, 40, 200, 700)
+            assertTrue(brightSide <= 253.0)
+        } finally {
+            if (corrected !== shadow) corrected.recycle()
+            shadow.recycle()
+            clean.recycle()
+        }
+    }
+
+    @Test
+    fun encryptedBackupAuthenticatesThenRoundTripsRealDatabase() {
+        val db = MasahatiDatabase(context)
+        val encrypted = ByteArrayOutputStream()
+        try {
+            val spaceId = db.createSpace("نسخة مشفرة")
+            db.insertText(spaceId, "user", "بيانات لا يجب فقدانها")
+            AlphaBackupCrypto.encrypt("StrongPass123".toCharArray(), encrypted) { out ->
+                AlphaExporter.export(context, db, out)
+            }
+        } finally {
+            db.close()
+        }
+
+        context.deleteDatabase("masahati_v05.db")
+        val plain = ByteArrayOutputStream()
+        AlphaBackupCrypto.decrypt(
+            "StrongPass123".toCharArray(),
+            ByteArrayInputStream(encrypted.toByteArray())
+        ) { input -> input.copyTo(plain) }
+
+        val restored = MasahatiDatabase(context)
+        try {
+            val summary = AlphaImporter.importZip(context, restored, ByteArrayInputStream(plain.toByteArray()))
+            assertEquals(1, summary.spaces)
+            assertEquals(1, summary.messages)
+            val space = restored.listSpaces(false).single()
+            assertEquals("نسخة مشفرة", space.title)
+            assertEquals("بيانات لا يجب فقدانها", restored.listMessages(space.id).single().text)
+            assertEquals("ok", restored.databaseIntegrityStatus())
+        } finally {
+            restored.close()
+        }
+    }
+
+    @Test
+    fun morningBriefCombinesActionsRemindersAndUpcomingExpiry() {
+        val db = MasahatiDatabase(context)
+        try {
+            val zone = ZoneId.of("Europe/Berlin")
+            val now = ZonedDateTime.of(2026, 9, 6, 7, 30, 0, 0, zone)
+            val nowMs = now.toInstant().toEpochMilli()
+            val spaceId = db.createSpace("اليوم")
+            val messageId = db.insertText(spaceId, "user", "عقد")
+            db.createActionItem(
+                spaceId, messageId, "deadline", "أرسل الاعتراض", null,
+                now.plusHours(5).toInstant().toEpochMilli(), "Frist"
+            )
+            db.createReminder(
+                spaceId, "ديزل", "اعبي ديزل", "none", null, null, null,
+                now.plusHours(2).toInstant().toEpochMilli()
+            )
+            db.upsertDocumentMeta(
+                DocumentMetaRow(
+                    messageId = messageId,
+                    smartTitle = "عقد التأمين",
+                    docType = "contract",
+                    organization = null,
+                    personNames = null,
+                    referenceNumber = null,
+                    amountText = null,
+                    currency = null,
+                    issueDate = null,
+                    dueDate = null,
+                    expiryDate = LocalDate.of(2026, 9, 16).toString(),
+                    actionRequired = false,
+                    actionText = null,
+                    confidence = 0.9,
+                    evidenceJson = null,
+                    extractedJson = null,
+                    updatedAt = nowMs
+                )
+            )
+            val brief = MorningBriefBuilder.build(db, now)
+            assertNotNull(brief)
+            assertTrue(brief!!.contains("أرسل الاعتراض"))
+            assertTrue(brief.contains("اعبي ديزل"))
+            assertTrue(brief.contains("عقد التأمين"))
+            assertTrue(brief.contains("بعد 10 يوم"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun repeatedActivityLaunchAndCloseDoesNotSeedOrCorruptDatabase() {
+        repeat(3) {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> assertFalse(activity.isFinishing) }
+            }
+        }
+        val db = MasahatiDatabase(context)
+        try {
+            assertTrue(db.listSpaces(false).isEmpty())
+            assertEquals("ok", db.databaseIntegrityStatus())
+            assertEquals(0, db.foreignKeyViolationCount())
+        } finally {
+            db.close()
+        }
+    }
+
+    private fun averageLuminance(
+        bitmap: Bitmap,
+        startX: Int,
+        startY: Int,
+        width: Int,
+        height: Int
+    ): Double {
+        var sum = 0L
+        var count = 0L
+        val step = 8
+        var y = startY
+        while (y < (startY + height).coerceAtMost(bitmap.height)) {
+            var x = startX
+            while (x < (startX + width).coerceAtMost(bitmap.width)) {
+                val color = bitmap.getPixel(x, y)
+                sum += (Color.red(color) * 299L + Color.green(color) * 587L + Color.blue(color) * 114L) / 1000L
+                count++
+                x += step
+            }
+            y += step
+        }
+        return if (count == 0L) 0.0 else sum.toDouble() / count.toDouble()
     }
 
 }
