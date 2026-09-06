@@ -295,4 +295,76 @@ class AlphaInstrumentedReliabilityTest {
         val extracted = OpenSourceDocumentTools.extractPdfText(context, pdfFile)
         assertTrue(extracted.contains("30.09.2027"))
     }
+
+    @Test
+    fun reminderDeliveryWritesWhatsappStyleMessageExactlyOnce() {
+        val db = MasahatiDatabase(context)
+        val spaceId: Long
+        val reminderId: Long
+        val scheduled = System.currentTimeMillis() - 1_000L
+        try {
+            spaceId = db.createSpace("تذكيرات")
+            reminderId = db.createReminder(
+                spaceId = spaceId,
+                title = "ديزل",
+                body = "ذكرني اعبي ديزل اليوم الساعة 20.30",
+                repeatRule = "none",
+                dayOfWeek = null,
+                hour = null,
+                minute = null,
+                nextFireAt = scheduled
+            )
+        } finally {
+            db.close()
+        }
+
+        ReminderDelivery.deliver(context, reminderId)
+        ReminderDelivery.deliver(context, reminderId)
+
+        val verify = MasahatiDatabase(context)
+        try {
+            val assistant = verify.listMessages(spaceId).filter { it.role == "assistant" }
+            assertEquals(1, assistant.size)
+            assertTrue(assistant.single().text.startsWith("تذكير: اليوم الساعة"))
+            assertTrue(assistant.single().text.contains("اعبي ديزل"))
+            assertFalse(verify.getReminder(reminderId)?.enabled ?: true)
+            assertEquals("ok", verify.databaseIntegrityStatus())
+        } finally {
+            verify.close()
+        }
+    }
+
+    @Test
+    fun removingGeneratedActionRetiresItsConditionalReminder() {
+        val db = MasahatiDatabase(context)
+        try {
+            val spaceId = db.createSpace("عقد")
+            val file = File(context.filesDir, "documents/action.txt").apply {
+                parentFile?.mkdirs()
+                writeText("Contract action")
+            }
+            val messageId = db.insertFile(spaceId, "user", "action.txt", file.absolutePath, "text/plain", file.readText())
+            val actionId = db.createActionItem(
+                spaceId, messageId, "deadline", "أرسل الورقة", null,
+                System.currentTimeMillis() + 86_400_000L, "deadline"
+            )
+            val reminderId = db.createReminder(
+                spaceId, "شرطي", "ذكرني إذا بقي الإجراء مفتوحاً", "none",
+                null, null, null, System.currentTimeMillis() + 86_400_000L, actionId
+            )
+            assertTrue(db.getReminder(reminderId)?.enabled == true)
+
+            db.clearGeneratedActionItemsForMessage(messageId)
+
+            assertTrue(db.getActionItem(actionId) == null)
+            val reminder = db.getReminder(reminderId)
+            assertNotNull(reminder)
+            assertFalse(reminder?.enabled ?: true)
+            assertTrue(reminder?.conditionActionId == null)
+            assertEquals(0, db.foreignKeyViolationCount())
+        } finally {
+            db.close()
+        }
+    }
+
 }
