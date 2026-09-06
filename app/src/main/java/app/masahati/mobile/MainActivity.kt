@@ -1061,19 +1061,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun postAgent(body: JSONObject): JSONObject {
-        val conn = (URL(AGENT_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 5_000
-            readTimeout = 28_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("apikey", SUPABASE_PUBLISHABLE_KEY)
-        }
-        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
-        val raw = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        conn.disconnect()
+        val raw = AlphaHttp.postJson(
+            url = AGENT_URL,
+            json = body.toString(),
+            apiKey = SUPABASE_PUBLISHABLE_KEY,
+            readTimeoutSeconds = 28
+        )
         return if (raw.isBlank()) JSONObject().put("ok", false) else JSONObject(raw)
     }
 
@@ -1085,19 +1078,12 @@ class MainActivity : ComponentActivity() {
             .put("ocrText", message.ocrText.orEmpty().take(14_000))
             .put("existingSummary", meta?.smartTitle ?: message.summary.orEmpty())
 
-        val conn = (URL(DOCUMENT_ALPHA_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 5_000
-            readTimeout = 32_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("apikey", SUPABASE_PUBLISHABLE_KEY)
-        }
-        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
-        val raw = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        conn.disconnect()
+        val raw = AlphaHttp.postJson(
+            url = DOCUMENT_ALPHA_URL,
+            json = body.toString(),
+            apiKey = SUPABASE_PUBLISHABLE_KEY,
+            readTimeoutSeconds = 32
+        )
         return if (raw.isBlank()) JSONObject().put("ok", false) else JSONObject(raw)
     }
 
