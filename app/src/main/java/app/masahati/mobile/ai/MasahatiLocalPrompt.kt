@@ -65,7 +65,7 @@ now=${request.nowIso.take(70)}
 timezone=${request.timezone.take(50)}
 SPACES=$spaces
 
-CURRENT_DOCUMENT:
+CURRENT_FOCUSED_DOCUMENT:
 $focused
 
 RECENT:
