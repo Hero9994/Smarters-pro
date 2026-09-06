@@ -43,8 +43,10 @@ object DocumentImageEnhancer {
                         source
                     }
                 }
-                val enhanced = autoEnhanceReadability(shadowCleaned)
-                if (enhanced !== shadowCleaned) shadowCleaned.recycle()
+                val balanced = neutralizePaperCast(shadowCleaned)
+                if (balanced !== shadowCleaned) shadowCleaned.recycle()
+                val enhanced = autoEnhanceReadability(balanced)
+                if (enhanced !== balanced) balanced.recycle()
                 val cleaned = enhanced
                 try {
                     onPageReady(index, cleaned)
@@ -201,6 +203,84 @@ object DocumentImageEnhancer {
     internal fun preferCorrected(originalScore: Float, correctedScore: Float): Boolean =
         correctedScore >= originalScore + 1.5f
 
+    internal fun paperWhiteBalanceGains(
+        averageRed: Float,
+        averageGreen: Float,
+        averageBlue: Float,
+        brightFraction: Float
+    ): Triple<Float, Float, Float>? {
+        if (brightFraction < 0.34f) return null
+        val channels = floatArrayOf(averageRed, averageGreen, averageBlue)
+        val minChannel = channels.minOrNull() ?: return null
+        val maxChannel = channels.maxOrNull() ?: return null
+        val spread = maxChannel - minChannel
+        if (minChannel < 120f || spread < 7f || spread > 42f) return null
+
+        val target = channels.average().toFloat().coerceIn(190f, 245f)
+        val r = (target / averageRed.coerceAtLeast(1f)).coerceIn(0.94f, 1.08f)
+        val g = (target / averageGreen.coerceAtLeast(1f)).coerceIn(0.94f, 1.08f)
+        val b = (target / averageBlue.coerceAtLeast(1f)).coerceIn(0.94f, 1.08f)
+        if (kotlin.math.abs(r - 1f) < 0.012f &&
+            kotlin.math.abs(g - 1f) < 0.012f &&
+            kotlin.math.abs(b - 1f) < 0.012f
+        ) return null
+        return Triple(r, g, b)
+    }
+
+    private fun neutralizePaperCast(source: Bitmap): Bitmap {
+        val width = source.width
+        val height = source.height
+        if (width < 120 || height < 120) return source
+
+        val step = max(5, min(width, height) / 160)
+        var samples = 0
+        var bright = 0
+        var sumR = 0L
+        var sumG = 0L
+        var sumB = 0L
+
+        var y = 0
+        while (y < height) {
+            var x = 0
+            while (x < width) {
+                val color = source.getPixel(x, y)
+                samples++
+                if (luminance(color) >= 180) {
+                    bright++
+                    sumR += Color.red(color)
+                    sumG += Color.green(color)
+                    sumB += Color.blue(color)
+                }
+                x += step
+            }
+            y += step
+        }
+        if (samples < 120 || bright < 80) return source
+
+        val fraction = bright.toFloat() / samples.toFloat()
+        val gains = paperWhiteBalanceGains(
+            sumR.toFloat() / bright,
+            sumG.toFloat() / bright,
+            sumB.toFloat() / bright,
+            fraction
+        ) ?: return source
+
+        val matrix = ColorMatrix(
+            floatArrayOf(
+                gains.first, 0f, 0f, 0f, 0f,
+                0f, gains.second, 0f, 0f, 0f,
+                0f, 0f, gains.third, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(matrix)
+        }
+        Canvas(output).drawBitmap(source, 0f, 0f, paint)
+        return output
+    }
+
     internal fun autoLevels(low: Int, high: Int): Pair<Float, Float>? {
         val rawLow = low.coerceIn(0, 255)
         val rawHigh = high.coerceIn(0, 255)
@@ -212,9 +292,9 @@ object DocumentImageEnhancer {
         val contrastEnough = span >= 205
         if (whiteEnough && contrastEnough) return null
 
-        val scale = (235f / span.coerceAtLeast(80)).coerceIn(1.0f, 1.16f)
-        val desiredHigh = if (safeHigh < 220) 242f else 247f
-        val offset = (desiredHigh - safeHigh * scale).coerceIn(-10f, 22f)
+        val scale = (238f / span.coerceAtLeast(80)).coerceIn(1.0f, 1.19f)
+        val desiredHigh = if (safeHigh < 220) 246f else 249f
+        val offset = (desiredHigh - safeHigh * scale).coerceIn(-10f, 26f)
         if (scale < 1.025f && kotlin.math.abs(offset) < 4f) return null
         return scale to offset
     }
