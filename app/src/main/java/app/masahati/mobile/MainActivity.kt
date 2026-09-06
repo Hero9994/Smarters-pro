@@ -14,7 +14,6 @@ import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -1144,8 +1143,7 @@ class MainActivity : ComponentActivity() {
                     }
                 } else {
                     if (pdf == null) throw IllegalStateException("PDF result missing")
-                    contentResolver.openInputStream(pdf.uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
-                        ?: throw IllegalStateException("Cannot read scanned PDF")
+                    copyUriToFileSafely(pdf.uri, target, 160L * 1024L * 1024L)
                     val embeddedText = OpenSourceDocumentTools.extractPdfText(this@MainActivity, target)
                     if (embeddedText.isNotBlank()) ocrBuilder.append(embeddedText)
                     pdf.pageCount
@@ -1196,8 +1194,7 @@ class MainActivity : ComponentActivity() {
                 val displayName = queryDisplayName(uri) ?: "ملف-${System.currentTimeMillis()}"
                 val mime = contentResolver.getType(uri) ?: guessMime(displayName)
                 val target = File(filesDir, "documents").apply { mkdirs() }.resolve(safeFileName(displayName))
-                contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
-                    ?: throw IllegalStateException("Cannot read file")
+                copyUriToFileSafely(uri, target)
                 var ocr = ""
                 val barcodeValues = linkedSetOf<String>()
                 when {
@@ -1207,13 +1204,7 @@ class MainActivity : ComponentActivity() {
                             ocr = Tasks.await(recognizer.process(image)).text.trim()
                         } catch (_: Exception) { }
                         runCatching {
-                            BitmapFactory.decodeFile(target.absolutePath)?.let { bitmap ->
-                                try {
-                                    barcodeValues += OpenSourceDocumentTools.decodeBarcodes(bitmap)
-                                } finally {
-                                    bitmap.recycle()
-                                }
-                            }
+                            barcodeValues += OpenSourceDocumentTools.decodeBarcodes(target)
                         }
                     }
                     mime == "application/pdf" || displayName.endsWith(".pdf", ignoreCase = true) -> {
@@ -2222,6 +2213,48 @@ class MainActivity : ComponentActivity() {
                 db.deleteMessage(m.id)
                 currentSpaceId?.let { renderMessages(it) }
             }.setNegativeButton("إلغاء", null).show()
+    }
+
+    private fun copyUriToFileSafely(
+        uri: Uri,
+        target: File,
+        maxBytes: Long = 256L * 1024L * 1024L
+    ) {
+        val declaredSize = runCatching {
+            contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize }
+        }.getOrNull()?.takeIf { it >= 0L }
+
+        if (declaredSize != null && declaredSize > maxBytes) {
+            throw IllegalStateException("الملف أكبر من الحد المسموح")
+        }
+        val parent = target.parentFile?.apply { mkdirs() }
+        if (declaredSize != null && parent != null) {
+            val reserve = 64L * 1024L * 1024L
+            if (parent.usableSpace in 1 until (declaredSize + reserve)) {
+                throw IllegalStateException("مساحة التخزين غير كافية لحفظ الملف")
+            }
+        }
+
+        var total = 0L
+        try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                target.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(128 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > maxBytes) {
+                            throw IllegalStateException("الملف أكبر من الحد المسموح")
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                }
+            } ?: throw IllegalStateException("Cannot read file")
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
     }
 
     private fun queryDisplayName(uri: Uri): String? {
