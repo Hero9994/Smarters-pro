@@ -59,6 +59,32 @@ class TodayTasksEngineTest {
         assertEquals(4, summary.total)
     }
 
+    @Test
+    fun homeSnapshotCountsOverdueAndChoosesNextOpen() {
+        val snapshot = TodayTasksEngine.homeSnapshot(
+            listOf(
+                item(1, TodayTaskStatus.OPEN, 200, overdue = false),
+                item(2, TodayTaskStatus.DONE, 300),
+                item(3, TodayTaskStatus.OPEN, 100, overdue = true),
+                item(4, TodayTaskStatus.SKIPPED, 400)
+            )
+        )
+        assertEquals(4, snapshot.total)
+        assertEquals(2, snapshot.open)
+        assertEquals(1, snapshot.overdue)
+        assertEquals(1, snapshot.done)
+        assertEquals(1, snapshot.skipped)
+        assertEquals("Task 3", snapshot.nextTitle)
+    }
+
+    @Test
+    fun homeSnapshotIsCalmWhenDayIsEmpty() {
+        val snapshot = TodayTasksEngine.homeSnapshot(emptyList())
+        assertEquals(0, snapshot.total)
+        assertEquals(0, snapshot.open)
+        assertEquals(null, snapshot.nextTitle)
+    }
+
     private fun item(
         id: Long,
         status: TodayTaskStatus,
