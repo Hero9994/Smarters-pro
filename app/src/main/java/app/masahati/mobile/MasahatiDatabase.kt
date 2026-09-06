@@ -12,6 +12,7 @@ data class SpaceRow(
     val title: String,
     val pinned: Boolean,
     val archived: Boolean,
+    val createdAt: Long,
     val updatedAt: Long
 )
 
@@ -1355,6 +1356,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         title = c.getString(c.getColumnIndexOrThrow("title")),
         pinned = c.getInt(c.getColumnIndexOrThrow("pinned")) == 1,
         archived = c.getInt(c.getColumnIndexOrThrow("archived")) == 1,
+        createdAt = c.getLong(c.getColumnIndexOrThrow("created_at")),
         updatedAt = c.getLong(c.getColumnIndexOrThrow("updated_at"))
     )
 
