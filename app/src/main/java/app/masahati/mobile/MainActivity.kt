@@ -651,7 +651,7 @@ class MainActivity : ComponentActivity() {
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
                 db.updateAi(messageId, classification, labels, summary, result.toString())
-                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
+                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content, messageId)
                 val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
@@ -677,7 +677,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun executeAgentActions(spaceId: Long, actions: JSONArray?, sourceText: String): String {
+    private fun executeAgentActions(spaceId: Long, actions: JSONArray?, sourceText: String, sourceMessageId: Long): String {
         if (actions == null) return ""
         val notes = mutableListOf<String>()
         for (i in 0 until actions.length()) {
@@ -783,10 +783,39 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                "rename_last_document" -> {
+                    val newName = args.optString("new_name").ifBlank { args.optString("name") }.trim().take(180)
+                    val document = db.lastFileMessage(spaceId)
+                    if (document != null && newName.isNotBlank()) {
+                        if (needsConfirm) {
+                            notes += "إعادة تسمية آخر مستند جاهزة وتنتظر التأكيد."
+                        } else {
+                            db.renameMessageDisplayName(document.id, newName)
+                            notes += "تم تغيير اسم آخر مستند إلى «" + newName + "»."
+                        }
+                    } else if (document == null) {
+                        notes += "لا يوجد مستند أخير في هذه المساحة لإعادة تسميته."
+                    }
+                }
+                "move_last_document" -> {
+                    val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
+                    val target = db.findSpaceByTitle(targetName)
+                    val document = db.lastFileMessage(spaceId)
+                    when {
+                        targetName.isBlank() -> notes += "لم يتحدد اسم المساحة التي تريد نقل المستند إليها."
+                        target == null -> notes += "لم أجد مساحة باسم «" + targetName + "»."
+                        document == null -> notes += "لا يوجد مستند أخير في هذه المساحة لنقله."
+                        needsConfirm -> notes += "نقل آخر مستند إلى «" + target.title + "» جاهز وينتظر التأكيد."
+                        else -> {
+                            db.moveMessage(document.id, target.id)
+                            notes += "تم نقل آخر مستند إلى «" + target.title + "»."
+                        }
+                    }
+                }
                 "move_last_item" -> {
                     val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
                     val target = db.findSpaceByTitle(targetName)
-                    val last = db.lastUserMessage(spaceId)
+                    val last = db.lastUserMessageBefore(spaceId, sourceMessageId)
                     if (target != null && last != null) {
                         if (needsConfirm) notes += "النقل جاهز وينتظر التأكيد."
                         else {
