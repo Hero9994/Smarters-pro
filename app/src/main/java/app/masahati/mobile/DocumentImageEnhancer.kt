@@ -10,6 +10,8 @@ import android.graphics.ColorMatrix
 import android.graphics.Canvas
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.get
 import java.io.File
 import kotlin.math.ceil
 import kotlin.math.max
@@ -243,7 +245,7 @@ object DocumentImageEnhancer {
         while (y < height) {
             var x = 0
             while (x < width) {
-                val color = source.getPixel(x, y)
+                val color = source[x, y]
                 samples++
                 if (luminance(color) >= 180) {
                     bright++
@@ -273,7 +275,7 @@ object DocumentImageEnhancer {
                 0f, 0f, 0f, 1f, 0f
             )
         )
-        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val output = createBitmap(width, height)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
             colorFilter = ColorMatrixColorFilter(matrix)
         }
@@ -311,7 +313,7 @@ object DocumentImageEnhancer {
         while (y < height) {
             var x = 0
             while (x < width) {
-                histogram[luminance(source.getPixel(x, y))]++
+                histogram[luminance(source[x, y])]++
                 samples++
                 x += step
             }
@@ -335,7 +337,7 @@ object DocumentImageEnhancer {
         val scale = levels.first
         val offset = levels.second
 
-        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val output = createBitmap(width, height)
         val matrix = ColorMatrix(
             floatArrayOf(
                 scale, 0f, 0f, 0f, offset,
