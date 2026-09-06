@@ -18,6 +18,7 @@ object AlphaExporter {
         val reminders = db.listAllReminders()
         val actions = db.listAllActionItems()
         val versions = db.listAllMessageVersions()
+        val todayStates = db.listAllTodayTaskStates()
 
         val root = JSONObject()
             .put("format", "masahati-alpha-backup-v1")
@@ -107,6 +108,17 @@ object AlphaExporter {
                     .put("tags", v.tags)
                     .put("summary", v.summary)
                     .put("created_at", v.createdAt))
+            }
+        })
+
+        root.put("today_task_states", JSONArray().apply {
+            todayStates.forEach { s ->
+                put(JSONObject()
+                    .put("date_key", s.dateKey)
+                    .put("source_type", s.sourceType)
+                    .put("source_id", s.sourceId)
+                    .put("status", s.status)
+                    .put("updated_at", s.updatedAt))
             }
         })
 
