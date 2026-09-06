@@ -1184,7 +1184,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handlePickedFile(uri: Uri) {
+    private fun handlePickedFile(uri: Uri, cloudDecision: Boolean? = null) {
         val spaceId = currentSpaceId ?: return
         try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
         busyCount++
@@ -1238,7 +1238,14 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     renderMessages(spaceId)
-                    confirmCloudDocumentAnalysis(id, aiText, currentSpaceTitle)
+                    when (cloudDecision) {
+                        true -> analyzeWithAgent(id, aiText, currentSpaceTitle)
+                        false -> {
+                            db.insertText(spaceId, "assistant", "تم حفظ «$displayName» محلياً بدون إرساله للتحليل السحابي.")
+                            renderMessages(spaceId)
+                        }
+                        null -> confirmCloudDocumentAnalysis(id, aiText, currentSpaceTitle)
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -1627,6 +1634,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (textValue.isBlank() && streams.isEmpty()) return
+        incoming.action = null
 
         chooseSpaceForIncoming { spaceId, title ->
             currentSpaceId = spaceId
@@ -1641,7 +1649,22 @@ class MainActivity : ComponentActivity() {
                     ingestSharedWebUrl(spaceId, title, url)
                 }
             }
-            streams.distinct().forEach { uri -> handlePickedFile(uri) }
+
+            val uniqueStreams = streams.distinct()
+            if (uniqueStreams.size <= 1) {
+                uniqueStreams.firstOrNull()?.let { handlePickedFile(it) }
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle("تحليل ${uniqueStreams.size} ملفات بالذكاء؟")
+                    .setMessage("سيتم حفظ جميع الملفات محلياً. إذا اخترت التحليل الذكي، سيُرسل النص المستخرج أو بيانات الملف فقط، وليس الملفات الأصلية.")
+                    .setPositiveButton("تحليل ذكي") { _, _ ->
+                        uniqueStreams.forEach { handlePickedFile(it, cloudDecision = true) }
+                    }
+                    .setNegativeButton("محلي فقط") { _, _ ->
+                        uniqueStreams.forEach { handlePickedFile(it, cloudDecision = false) }
+                    }
+                    .show()
+            }
         }
     }
 
