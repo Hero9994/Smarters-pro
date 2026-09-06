@@ -127,3 +127,29 @@ jobs:
             app/build/outputs/androidTest-results/
           if-no-files-found: warn
           retention-days: 14
+
+
+  backend-regression:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate document intelligence and contextual agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY='sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3'
+          BASE='https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1'
+
+          CONTRACT=$(curl --fail --silent --show-error --retry 3 --retry-delay 1 --max-time 15             -H 'Content-Type: application/json' -H "apikey: $KEY"             -d '{"displayName":"Mietvertrag-MV4488.pdf","mimeType":"application/pdf","ocrText":"MIETVERTRAG. Vermieter: Beispiel GmbH. Mieter: Max Mustermann. Vertragsnummer MV-4488. Vertragsende 30.09.2027. Der Mieter muss spätestens bis 15.09.2027 schriftlich kündigen."}'             "$BASE/masahati-document-alpha-v2")
+          jq -e '.ok == true and .document.doc_type == "contract" and .document.reference_number == "MV-4488" and .document.expiry_date == "2027-09-30" and .document.due_date == "2027-09-15" and .document.action_required == true' <<<"$CONTRACT"
+
+          ARABIC=$(curl --fail --silent --show-error --retry 3 --retry-delay 1 --max-time 15             -H 'Content-Type: application/json' -H "apikey: $KEY"             -d '{"displayName":"عقد.pdf","mimeType":"application/pdf","ocrText":"عقد إيجار. الشركة: شركة المثال. رقم العقد: AR-991. تاريخ الانتهاء: 30.09.2027. آخر موعد: 15.09.2027. يجب إرسال طلب الإلغاء قبل الموعد."}'             "$BASE/masahati-document-alpha-v2")
+          jq -e '.ok == true and .document.doc_type == "contract" and .document.reference_number == "AR-991" and .document.expiry_date == "2027-09-30" and .document.action_required == true' <<<"$ARABIC"
+
+          SEARCH=$(curl --fail --silent --show-error --retry 3 --retry-delay 1 --max-time 15             -H 'Content-Type: application/json' -H "apikey: $KEY"             -d '{"text":"وين حطيت عقد الإيجار؟","spaceTitle":"تجربة","mode":"chat","now":"2026-09-06T08:00:00+02:00","timezone":"Europe/Berlin","appState":{"currentSpaceId":1,"currentSpaceTitle":"تجربة","spaces":[{"id":1,"title":"تجربة"}],"memory":[]},"recent":[]}'             "$BASE/masahati-agent-dev")
+          jq -e '.ok == true and .classification == "search" and (.actions | any(.type == "search" and .args.query == "عقد الإيجار"))' <<<"$SEARCH"
+
+          CONTEXT=$(curl --fail --silent --show-error --retry 3 --retry-delay 1 --max-time 15             -H 'Content-Type: application/json' -H "apikey: $KEY"             -d '{"text":"متى بينتهي هاد العقد؟","spaceTitle":"عقودي","mode":"chat","now":"2026-09-06T08:00:00+02:00","timezone":"Europe/Berlin","appState":{"currentSpaceId":1,"currentSpaceTitle":"عقودي","spaces":[{"id":1,"title":"عقودي"}],"memory":[],"currentDocument":{"id":22,"displayName":"Mietvertrag.pdf","classification":"document","tags":"عقد","summary":"Mietvertrag","ocrText":"MIETVERTRAG. Vertragsnummer MV-4488. Vertragsende 30.09.2027.","createdAt":1788670000000}},"recent":[{"role":"user","kind":"file","displayName":"Mietvertrag.pdf","classification":"document","tags":"عقد","summary":"Mietvertrag","text":"","ocrText":"MIETVERTRAG. Vertragsnummer MV-4488. Vertragsende 30.09.2027.","createdAt":1788670000000}]}'             "$BASE/masahati-agent-dev")
+          jq -e '.ok == true and (.reply | contains("30.09.2027"))' <<<"$CONTEXT"
