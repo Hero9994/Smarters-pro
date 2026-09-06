@@ -57,10 +57,13 @@ class AlphaPerformanceMonitor(private val activity: Activity) : AutoCloseable {
 
     private fun writeAsync(message: String) {
         if (closed.get()) return
-        writer.execute {
-            runCatching {
-                rotateIfNeeded()
-                file.appendText("${Instant.now()} $message\n")
+        runCatching {
+            writer.execute {
+                if (closed.get()) return@execute
+                runCatching {
+                    rotateIfNeeded()
+                    file.appendText("${Instant.now()} $message\n")
+                }
             }
         }
     }
