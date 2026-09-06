@@ -59,6 +59,31 @@ object LocalAssistantFallback {
                 addLabel("بحث")
                 addKeyword(q.take(80))
             }
+            Regex(
+                "^(?:طيب\\s*)?(?:ضد\\s+(?:مين|من)|مين\\s+الخصم|من\\s+الخصم|gegen\\s+wen)\\s*[؟?]?$",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(raw) && recent.isNotEmpty() -> {
+                classification = "note"
+                addLabel("مباراة")
+                val source = recent.asReversed()
+                    .map { it.text }
+                    .firstOrNull { Regex("(?:ضد|gegen)\\s+", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+                val candidate = source?.let {
+                    Regex("(?:ضد|gegen)\\s+([^،,.!؟?\\n]{2,90})", RegexOption.IGNORE_CASE)
+                        .find(it)?.groupValues?.getOrNull(1)
+                }.orEmpty()
+                    .replace(
+                        Regex("\\s+(?:يوم|الساعة|الأحد|الاحد|الاثنين|الإثنين|الثلاثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)\\b.*$", RegexOption.IGNORE_CASE),
+                        ""
+                    )
+                    .trim()
+                reply = if (candidate.isNotBlank()) {
+                    addKeyword(candidate)
+                    "حسب آخر معلومة عندي: المباراة ضد $candidate."
+                } else {
+                    "ما لقيت اسم الخصم بشكل واضح في آخر معلومات المباراة."
+                }
+            }
             recentDocument != null && has("متى", "تاريخ", "انتهاء", "ينتهي", "بينتهي", "تنتهي", "ende", "ablauf", "gültig bis") -> {
                 classification = "document"
                 addLabel("مستند")
