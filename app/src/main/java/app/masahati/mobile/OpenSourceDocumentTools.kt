@@ -103,11 +103,9 @@ object OpenSourceDocumentTools {
         val largest = max(bitmap.width, bitmap.height)
         val working = if (largest > maxSide) {
             val scale = maxSide.toFloat() / largest
-            Bitmap.createScaledBitmap(
-                bitmap,
+            bitmap.scale(
                 (bitmap.width * scale).toInt().coerceAtLeast(1),
-                (bitmap.height * scale).toInt().coerceAtLeast(1),
-                true
+                (bitmap.height * scale).toInt().coerceAtLeast(1)
             )
         } else bitmap
 
