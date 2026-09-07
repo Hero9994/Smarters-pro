@@ -146,12 +146,12 @@ object OpenCvDocumentRectifier {
             val candidate = best ?: return source
             val orderedDetection = candidate.map { ScanPoint(it.x, it.y) }
             val areaCoverage = polygonArea(orderedDetection) / imageArea
-            if (areaCoverage >= 0.93 && borderTouchPenalty(
-                    orderedDetection,
-                    detection.width().toDouble(),
-                    detection.height().toDouble()
-                ) < 0.12
-            ) {
+            val tightBorderPenalty = borderTouchPenalty(
+                orderedDetection,
+                detection.width().toDouble(),
+                detection.height().toDouble()
+            )
+            if (shouldSkipAlreadyTightCrop(areaCoverage, tightBorderPenalty)) {
                 // ML Kit already produced a tight crop. Avoid a second destructive crop.
                 return source
             }
@@ -228,6 +228,9 @@ object OpenCvDocumentRectifier {
             warped?.release()
         }
     }
+
+    internal fun shouldSkipAlreadyTightCrop(coverage: Double, borderTouchPenalty: Double): Boolean =
+        coverage >= 0.91 && borderTouchPenalty >= 0.50
 
     internal fun shouldRectify(
         coverage: Double,
