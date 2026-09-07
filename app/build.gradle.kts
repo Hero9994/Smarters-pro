@@ -57,6 +57,7 @@ dependencies {
     }
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("com.github.anrwatchdog:anrwatchdog:1.4.0")
+    implementation("org.opencv:opencv:4.12.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
