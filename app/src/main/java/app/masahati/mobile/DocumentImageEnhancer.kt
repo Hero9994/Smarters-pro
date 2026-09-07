@@ -31,18 +31,21 @@ object DocumentImageEnhancer {
             pageUris.forEachIndexed { index, uri ->
                 val source = decodeSampled(context, uri, 2200)
                     ?: throw IllegalStateException("Cannot decode scanned page ${index + 1}")
-                val candidate = flattenDocumentShadows(source)
-                val shadowCleaned = if (candidate === source) {
-                    source
+                val rectified = OpenCvDocumentRectifier.rectifyIfHelpful(source)
+                val geometryReady = if (rectified === source) source else rectified.also { source.recycle() }
+
+                val candidate = flattenDocumentShadows(geometryReady)
+                val shadowCleaned = if (candidate === geometryReady) {
+                    geometryReady
                 } else {
-                    val originalScore = pageQualityScore(source)
+                    val originalScore = pageQualityScore(geometryReady)
                     val correctedScore = pageQualityScore(candidate)
                     if (preferCorrected(originalScore, correctedScore)) {
-                        source.recycle()
+                        geometryReady.recycle()
                         candidate
                     } else {
                         candidate.recycle()
-                        source
+                        geometryReady
                     }
                 }
                 val balanced = neutralizePaperCast(shadowCleaned)
