@@ -1697,7 +1697,7 @@ class MainActivity : ComponentActivity() {
             setMargins(dp(18), dp(2), dp(18), dp(2))
         })
         val subtitle = text(
-            "السكانر الذكي • البحث بالمعنى • التذكيرات • فهم المستندات • AI • النسخ الاحتياطي",
+            "السكانر الذكي: كشف الورقة + قص المنظور + تنظيف الظلال • بحث بالمعنى • تذكيرات • AI",
             13.5f,
             Color.rgb(95, 101, 99),
             false
@@ -1734,7 +1734,7 @@ class MainActivity : ComponentActivity() {
         }
 
         addRow(
-            "📄 سكانر" to { chooseSpaceForTool("اختر مساحة لحفظ المسح") { openSpace(it); startSmartScanner() } },
+            "📷 سكانر ذكي" to { chooseSpaceForTool("اختر مساحة لحفظ المسح") { openSpace(it); startSmartScanner() } },
             "🔎 بحث ذكي" to { promptGlobalSearch() },
             "⏰ اليوم" to { showTodayAndActions() }
         )
@@ -1811,7 +1811,7 @@ class MainActivity : ComponentActivity() {
             "14. 🔁 تذكيرات شرطية",
             "15. 🌅 الملخص الصباحي",
             "16. 🎙 Voice Inbox",
-            "17. 📷 Scanner Intelligence 2.0",
+            "17. 📷 Scanner Intelligence 3.0 — ML Kit FULL + OpenCV",
             "18. ♻ كشف الملفات المكررة",
             "19. 🗑 السلة + سجل التعديلات",
             "20. 💾 Backup/Restore + نسخة مشفرة"
