@@ -43,6 +43,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
+import androidx.core.view.isEmpty
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
@@ -571,7 +572,7 @@ class MainActivity : ComponentActivity() {
         val requestId = ++todaySummaryRequestId
         val host = root.findViewById<FrameLayout>(TODAY_SUMMARY_HOST_ID) ?: return
 
-        if (host.childCount == 0) {
+        if (host.isEmpty()) {
             host.addView(
                 LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
