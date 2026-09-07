@@ -29,4 +29,12 @@ class OpenCvDocumentRectifierTest {
         assertEquals(ScanPoint(890.0, 1150.0), ordered[2])
         assertEquals(ScanPoint(80.0, 1080.0), ordered[3])
     }
+
+    @Test
+    fun tightMlKitCropIsSkipped() {
+        assertTrue(OpenCvDocumentRectifier.shouldSkipAlreadyTightCrop(0.95, 1.0))
+        assertFalse(OpenCvDocumentRectifier.shouldSkipAlreadyTightCrop(0.80, 1.0))
+        assertFalse(OpenCvDocumentRectifier.shouldSkipAlreadyTightCrop(0.95, 0.25))
+    }
+
 }
