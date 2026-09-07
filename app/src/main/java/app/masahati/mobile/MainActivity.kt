@@ -682,7 +682,7 @@ class MainActivity : ComponentActivity() {
 
         fun addChip(label: String, count: Int, accent: Int, fill: Int) {
             val chip = TextView(this).apply {
-                text = "$label $count"
+                text = getString(R.string.home_chip_count, label, count)
                 textSize = 13.5f
                 gravity = Gravity.CENTER
                 setTextColor(accent)
