@@ -785,10 +785,10 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(17), dp(9), dp(17), dp(9))
             background = rounded(Color.rgb(244, 244, 240), 28f)
             setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) chatScroll?.postDelayed({ chatScroll?.fullScroll(View.FOCUS_DOWN) }, 180L)
+                if (hasFocus) chatScroll?.postDelayed({ scrollChatToBottom() }, 180L)
             }
             setOnClickListener {
-                chatScroll?.postDelayed({ chatScroll?.fullScroll(View.FOCUS_DOWN) }, 120L)
+                chatScroll?.postDelayed({ scrollChatToBottom() }, 120L)
             }
         }
         val send = Button(this).apply {
@@ -842,8 +842,16 @@ class MainActivity : ComponentActivity() {
             host.addView(messageBubble(waiting, temporary = true))
         }
         if (scrollToBottom) {
-            chatScroll?.post { chatScroll?.fullScroll(View.FOCUS_DOWN) }
+            chatScroll?.post { scrollChatToBottom() }
         }
+    }
+
+    private fun scrollChatToBottom() {
+        val scroll = chatScroll ?: return
+        val content = scroll.getChildAt(0) ?: return
+        // fullScroll performs keyboard focus navigation on older Android versions.
+        // Scrolling by coordinates leaves the composer and its input connection alone.
+        scroll.smoothScrollTo(0, content.height)
     }
 
     private fun messageBubble(m: MessageRow, temporary: Boolean = false): View {

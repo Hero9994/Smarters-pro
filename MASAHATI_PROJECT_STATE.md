@@ -18,7 +18,7 @@ This section supersedes older branch/status information below.
 5. A server rule fallback with `ok=true` no longer prevents trying an installed local LLM.
 6. Update the two obsolete UI tests without changing the layout, and wait for the asynchronous Today summary before asserting it.
 7. Correct the local Qwen model's exact size from 977,000,000 to 977,184,032 bytes and pin its download revision. The old rounded value rejected valid completed downloads. Verified against Hugging Face LFS metadata on 2026-09-17; existing SHA-256 matches.
-8. Refresh the message list and title in place when an assistant reply arrives, preserving the live composer, unsent draft, selection and focus.
+8. Refresh the message list and title in place when an assistant reply arrives, preserving the live composer, unsent draft and selection. Use coordinate-based scrolling instead of `fullScroll`, which steals composer focus on Android 8.
 9. Explicitly install `platform-tools` in Android CI. The default setup action tried the retired SDK `tools` package and failed before compilation.
 
 ## Validation status
@@ -29,6 +29,7 @@ This section supersedes older branch/status information below.
 - Record final API 26/36 instrumentation results before distributing an APK. The earlier local build was interrupted by an environment restart and is not evidence of a pass.
 - Supabase project was INACTIVE on 2026-09-17. Restored the existing project and confirmed ACTIVE_HEALTHY. Live agent quality is being checked separately from project health.
 - Local physical-device testing has not occurred.
+- Source commit `8a863f6fdb7e54cfde76810635ddee46bba5aed2`, CI run `35194736934`: verify and backend-regression passed; API 36 passed all 28 tests, API 26 passed 27/28. The sole failure was composer focus after automatic scrolling (draft and selection were preserved). The subsequent coordinate-scrolling repair needs a fresh run. Generated APK signer SHA-256 is `ebca0ecf1452943460a18fc636bdaf6c89e3c0d4ea60d6a7e03690ab6706c58a`, different from the recovered installed APK. This build is not an in-place update for that APK. No matching signing/keystore secret was found by relevant Vault secret names.
 
 ## Live backend findings — 2026-09-17
 

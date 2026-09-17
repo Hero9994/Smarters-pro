@@ -134,7 +134,7 @@ class RecoveryReliabilityTest {
                 ).apply { isAccessible = true }.invoke(activity, question, "متى بينتهي العقد؟", "مسودة")
                 input = composerField.get(activity) as android.widget.EditText
                 input.setText("مسودة لم أرسلها بعد")
-                input.requestFocus()
+                assertTrue("Composer must accept focus before the reply", input.requestFocus())
                 input.setSelection(5)
             }
             val deadline = System.currentTimeMillis() + 5_000L
