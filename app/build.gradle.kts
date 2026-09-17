@@ -1,3 +1,7 @@
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
 }
@@ -18,11 +22,11 @@ val prepareOcrModels by tasks.registering {
         val directory = ocrAssets.get().dir("ocr/tessdata").asFile.apply { mkdirs() }
         models.forEach { (language, expectedHash) ->
             val target = directory.resolve("$language.traineddata")
-            fun digest(file: java.io.File): String = java.security.MessageDigest.getInstance("SHA-256")
+            fun digest(file: File): String = MessageDigest.getInstance("SHA-256")
                 .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
             if (!target.isFile || digest(target) != expectedHash) {
                 val temporary = directory.resolve("$language.download")
-                val connection = java.net.URI("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/$revision/$language.traineddata").toURL().openConnection()
+                val connection = URI("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/$revision/$language.traineddata").toURL().openConnection()
                 connection.connectTimeout = 30_000
                 connection.readTimeout = 60_000
                 try {
@@ -43,13 +47,13 @@ android {
     defaultConfig {
         applicationId = "app.masahati.mobile"
         minSdk = 26
-    targetSdk = 36
+        targetSdk = 36
         versionCode = 8
         versionName = "alpha-0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    sourceSets.getByName("main").assets.srcDir(ocrAssets)
+    sourceSets.getByName("main").assets.directories.add(ocrAssets.get().asFile.absolutePath)
 
     buildTypes {
         debug {
