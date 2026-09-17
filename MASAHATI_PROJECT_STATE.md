@@ -18,15 +18,27 @@ This section supersedes older branch/status information below.
 5. A server rule fallback with `ok=true` no longer prevents trying an installed local LLM.
 6. Update the two obsolete UI tests without changing the layout, and wait for the asynchronous Today summary before asserting it.
 7. Correct the local Qwen model's exact size from 977,000,000 to 977,184,032 bytes and pin its download revision. The old rounded value rejected valid completed downloads. Verified against Hugging Face LFS metadata on 2026-09-17; existing SHA-256 matches.
+8. Refresh the message list and title in place when an assistant reply arrives, preserving the live composer, unsent draft, selection and focus.
+9. Explicitly install `platform-tools` in Android CI. The default setup action tried the retired SDK `tools` package and failed before compilation.
 
 ## Validation status
 
 - Source review and `git diff --check` complete.
 - New regression tests added for document dates, cloud consent/migration, chronological context, cross-space reply isolation, deleted document focus, reminder claims and AI routing.
-- The previous local build attempt lost its temporary toolchain when the execution environment restarted. Do not claim that it completed or that the new APK was tested.
-- Run CI for this branch and record its actual result before distributing an APK.
+- CI run `35194168454` on commit `49361a95c336c79768834a0079d21dff1e1c9840` passed build, lint, unit tests, APK identity/signature verification and backend smoke tests. Instrumentation is pending; the later composer-preservation change needs verification on the new commit too.
+- Record final API 26/36 instrumentation results before distributing an APK. The earlier local build was interrupted by an environment restart and is not evidence of a pass.
 - Supabase project was INACTIVE on 2026-09-17. Restored the existing project and confirmed ACTIVE_HEALTHY. Live agent quality is being checked separately from project health.
 - Local physical-device testing has not occurred.
+
+## Live backend findings — 2026-09-17
+
+- Restoring Supabase recovered HTTP 200 responses. Project health does not establish answer quality.
+- Synthetic arithmetic probe: three boxes with four books each, five given away. Both `auto` (Nemotron Lightning) and `quality` (Nemotron Ultra) returned 8 instead of 7. Another auto response proposed an unrelated `create_space` action.
+- Synthetic correction probe: keys first in a blue box, then explicitly moved to a green bag by the door. Auto fell back to generic note classification; quality mixed the old and new locations and proposed an unrelated document action. Observed response times were roughly 10–16 seconds.
+- Document ingestion correctly left expiry blank for an indefinite contract with only an issue date. It incorrectly accepted `31.02.2027` as `2027-02-31`. Android's repaired direct date-answer path rejects this impossible date, but backend ingestion metadata still needs calendar validation.
+- The backend advertises `create_space`, `rename_last_document`, and `move_last_document`, which the current Android action executor does not implement. Do not claim those chat commands work.
+- Do not solve these failures by simply switching the default to the tested `quality` strategy: it failed both probes too. Provider/model evaluation and a regression suite are required before claiming general assistant reliability.
+- Consent protection currently blocks cloud chat/memory for spaces containing local-only documents, including trash. Derived text left behind when a document is moved or permanently removed still needs provenance tracking; do not claim complete information-flow isolation.
 
 ## Next priorities after these repairs
 

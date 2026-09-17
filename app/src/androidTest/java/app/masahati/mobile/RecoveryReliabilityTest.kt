@@ -117,6 +117,41 @@ class RecoveryReliabilityTest {
         assertTrue(db.hasLocalOnlyDocuments(space))
     }
 
+    @Test fun assistantReplyPreservesTheDraftAndComposerFocus() {
+        val space = db.createSpace("مسودة")
+        val file = db.insertFile(space, "user", "contract.pdf", "/test/contract", "application/pdf", "Vertragsende 30.09.2027")
+        db.setFocusedMessage(space, file)
+        val question = db.insertText(space, "user", "متى بينتهي العقد؟")
+        lateinit var input: android.widget.EditText
+        val composerField = MainActivity::class.java.getDeclaredField("composer").apply { isAccessible = true }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                MainActivity::class.java.getDeclaredMethod("openSpace", java.lang.Long.TYPE).apply {
+                    isAccessible = true
+                }.invoke(activity, space)
+                MainActivity::class.java.getDeclaredMethod(
+                    "analyzeWithAgent", java.lang.Long.TYPE, String::class.java, String::class.java
+                ).apply { isAccessible = true }.invoke(activity, question, "متى بينتهي العقد؟", "مسودة")
+                input = composerField.get(activity) as android.widget.EditText
+                input.setText("مسودة لم أرسلها بعد")
+                input.requestFocus()
+                input.setSelection(5)
+            }
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (System.currentTimeMillis() < deadline && db.listMessages(space).none { it.role == "assistant" }) {
+                Thread.sleep(50L)
+            }
+            assertTrue(db.listMessages(space).any { it.role == "assistant" })
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertSame(input, composerField.get(activity))
+                assertEquals("مسودة لم أرسلها بعد", input.text.toString())
+                assertEquals(5, input.selectionStart)
+                assertTrue(input.hasFocus())
+            }
+        }
+    }
+
     @Test fun staleBackupCannotDeliverTheNextOccurrenceEarly() {
         val space = db.createSpace("تنبيهات")
         val future = System.currentTimeMillis() + 86_400_000L

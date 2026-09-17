@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
     private var homeSearch: String = ""
     private var chatScroll: ScrollView? = null
     private var composer: EditText? = null
+    private var chatTitle: TextView? = null
     private var busyCount = 0
     private var messageDisplayLimit = 150
     private var localAi: HybridLocalAi? = null
@@ -745,6 +746,7 @@ class MainActivity : ComponentActivity() {
         }
         val back = button("←", 26f).apply { setOnClickListener { showHome() } }
         val title = text(currentSpaceTitle, 29f, Color.rgb(25, 30, 30), true).apply { gravity = Gravity.CENTER }
+        chatTitle = title
         val tools = button("🧰", 21f).apply { setOnClickListener { showToolsHub() } }
         val menu = button("⋮", 28f).apply { setOnClickListener { showChatMenu(this) } }
         top.addView(back, LinearLayout.LayoutParams(dp(56), dp(56)))
@@ -1274,7 +1276,9 @@ class MainActivity : ComponentActivity() {
                     }
                     if (currentSpaceId == spaceId) {
                         currentSpaceTitle = db.getSpace(spaceId)?.title ?: currentSpaceTitle
-                        showChat()
+                        chatTitle?.text = currentSpaceTitle
+                        // Keep the live composer, draft, selection and keyboard focus.
+                        renderMessages(spaceId)
                     }
                 }
             }
