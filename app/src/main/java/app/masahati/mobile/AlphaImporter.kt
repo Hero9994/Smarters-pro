@@ -149,6 +149,7 @@ object AlphaImporter {
                             createdAt = item.optLong("created_at", System.currentTimeMillis())
                         )
                         if (newId <= 0L) continue
+                        db.updateExtractionNote(newId, item.optNullableString("extraction_note"))
                         oldToNewMessage[oldId] = newId
                         messageCount++
 

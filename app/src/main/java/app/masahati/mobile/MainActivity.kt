@@ -46,13 +46,9 @@ import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.isEmpty
 import androidx.core.view.WindowInsetsCompat
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -80,10 +76,10 @@ class MainActivity : ComponentActivity() {
     private val modelWorker = Executors.newSingleThreadExecutor()
     private val webWorker = Executors.newSingleThreadExecutor()
     private val todayWorker = Executors.newSingleThreadExecutor()
-    private val recognizerHolder = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private val documentReaderHolder = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        LocalDocumentReader(applicationContext)
     }
-    private val recognizer by recognizerHolder
+    private val documentReader by documentReaderHolder
     private lateinit var db: MasahatiDatabase
     private lateinit var root: LinearLayout
     private var currentSpaceId: Long? = null
@@ -419,7 +415,7 @@ class MainActivity : ComponentActivity() {
             }
             if (stopped) {
                 runCatching {
-                    if (recognizerHolder.isInitialized()) recognizer.close()
+                    if (documentReaderHolder.isInitialized()) documentReader.close()
                 }
                 runCatching { localAi?.close() }
                 localAi = null
@@ -877,7 +873,7 @@ class MainActivity : ComponentActivity() {
         if (m.kind == "file") {
             val name = m.displayName ?: "ملف"
             bubble.addView(text("📎 $name", 17f, Color.rgb(35, 40, 40), true))
-            bubble.addView(text(if (m.ocrText.isNullOrBlank()) "اضغط لفتح الملف" else "تمت قراءته وتصنيفه للبحث", 14f, Color.DKGRAY, false))
+            bubble.addView(text(m.extractionNote ?: if (m.ocrText.isNullOrBlank()) "اضغط لفتح الملف" else "نص مقروء متاح للبحث؛ اضغط لفتح الأصل", 14f, Color.DKGRAY, false))
             if (!temporary && m.filePath != null) {
                 bubble.setOnClickListener { openSavedFile(m) }
             }
@@ -982,6 +978,7 @@ class MainActivity : ComponentActivity() {
                                 put("tags", doc.tags ?: "")
                                 put("summary", doc.summary ?: "")
                                 put("ocrText", doc.ocrText.orEmpty().take(3200))
+                                put("extractionNote", doc.extractionNote.orEmpty())
                                 put("createdAt", doc.createdAt)
                             })
                         }
@@ -1009,6 +1006,7 @@ class MainActivity : ComponentActivity() {
                             put("summary", takeBudget(msg.summary, 700))
                             put("text", takeBudget(msg.text, 1300))
                             put("ocrText", takeBudget(msg.ocrText, 3400))
+                            put("extractionNote", msg.extractionNote.orEmpty())
                             put("createdAt", msg.createdAt)
                         }
                         contextRows.add(0, item)
@@ -1256,6 +1254,9 @@ class MainActivity : ComponentActivity() {
                 }
                 val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
                 var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                if (sourceMessage.kind == "file" || result.optString("classification") == "document") {
+                    focusedDocument?.extractionNote?.let { reply += "\n\nملاحظة القراءة: $it" }
+                }
                 if (localReminderResult == null && directDocumentResult == null && localModelResult == null && !remotePreferred) {
                     reply = if (!cloudAllowed) {
                         "معالجة محلية: $reply"
@@ -1446,6 +1447,7 @@ class MainActivity : ComponentActivity() {
             .put("displayName", message.displayName.orEmpty())
             .put("mimeType", message.mimeType.orEmpty())
             .put("ocrText", message.ocrText.orEmpty().take(14_000))
+            .put("extractionNote", message.extractionNote.orEmpty())
             .put("existingSummary", meta?.smartTitle ?: message.summary.orEmpty())
 
         val raw = AlphaHttp.postJson(
@@ -1480,6 +1482,7 @@ class MainActivity : ComponentActivity() {
                 val fileName = "Scan-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(now))}.pdf"
                 val target = newDocumentFile(fileName)
                 val ocrBuilder = StringBuilder()
+                val readingNotes = linkedSetOf<String>()
                 val barcodeValues = linkedSetOf<String>()
                 val cleanedPageCount = if (pages.isNotEmpty()) {
                     DocumentImageEnhancer.processPagesToPdf(
@@ -1488,21 +1491,24 @@ class MainActivity : ComponentActivity() {
                         target
                     ) { index, cleanedBitmap ->
                         try {
-                            val image = InputImage.fromBitmap(cleanedBitmap, 0)
-                            val recognized = Tasks.await(recognizer.process(image)).text.trim()
+                            val reading = documentReader.readBitmap(cleanedBitmap)
+                            val recognized = reading.text
+                            reading.note?.let { readingNotes += "صفحة ${index + 1}: $it" }
                             if (recognized.isNotBlank()) {
                                 if (ocrBuilder.isNotEmpty()) ocrBuilder.append("\n\n")
                                 ocrBuilder.append("صفحة ${index + 1}:\n")
-                                ocrBuilder.append(recognized)
+                                ocrBuilder.append(recognized.take((LocalDocumentReader.MAX_CHARS - ocrBuilder.length).coerceAtLeast(0)))
+                                if (ocrBuilder.length >= LocalDocumentReader.MAX_CHARS) readingNotes += "قراءة جزئية: النص طويل، بقي الأصل كاملاً في الملف."
                             }
                             barcodeValues += OpenSourceDocumentTools.decodeBarcodes(cleanedBitmap)
-                        } catch (_: Exception) { }
+                        } catch (_: Exception) { readingNotes += "تعذرت قراءة الصفحة ${index + 1}." }
                     }
                 } else {
                     if (pdf == null) throw IllegalStateException("PDF result missing")
                     copyUriToFileSafely(pdf.uri, target, 160L * 1024L * 1024L)
-                    val embeddedText = OpenSourceDocumentTools.extractPdfText(this@MainActivity, target)
-                    if (embeddedText.isNotBlank()) ocrBuilder.append(embeddedText)
+                    val reading = documentReader.readPdf(target)
+                    ocrBuilder.append(reading.text)
+                    reading.note?.let(readingNotes::add)
                     pdf.pageCount
                 }
                 val ocr = buildString {
@@ -1514,6 +1520,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val messageId = db.insertFile(spaceId, "user", fileName, target.absolutePath, "application/pdf", ocr)
+                db.updateExtractionNote(messageId, readingNotes.take(4).joinToString("\n").takeIf { it.isNotBlank() })
                 val indexed = AlphaDocumentProcessor.indexNewFile(db, messageId, target, ocr)
                 val duplicateHint = indexed.duplicate?.let { existing ->
                     val match = if (indexed.matchType == "exact") "مطابق تماماً" else "يبدو مسحاً آخر لنفس المستند"
@@ -1560,19 +1567,21 @@ class MainActivity : ComponentActivity() {
                 val target = newDocumentFile(displayName)
                 copyUriToFileSafely(uri, target)
                 var ocr = ""
+                var extractionNote: String? = null
                 val barcodeValues = linkedSetOf<String>()
                 when {
                     mime.startsWith("image/") -> {
-                        try {
-                            val image = InputImage.fromFilePath(this@MainActivity, uri)
-                            ocr = Tasks.await(recognizer.process(image)).text.trim()
-                        } catch (_: Exception) { }
+                        val reading = documentReader.readImage(target)
+                        ocr = reading.text
+                        extractionNote = reading.note
                         runCatching {
                             barcodeValues += OpenSourceDocumentTools.decodeBarcodes(target)
                         }
                     }
                     mime == "application/pdf" || displayName.endsWith(".pdf", ignoreCase = true) -> {
-                        ocr = OpenSourceDocumentTools.extractPdfText(this@MainActivity, target)
+                        val reading = documentReader.readPdf(target)
+                        ocr = reading.text
+                        extractionNote = reading.note
                     }
                     mime.startsWith("text/") || displayName.substringAfterLast('.', "").lowercase() in
                         setOf("txt", "md", "csv", "json", "xml", "log") -> {
@@ -1588,6 +1597,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val id = db.insertFile(spaceId, "user", displayName, target.absolutePath, mime, ocr)
+                db.updateExtractionNote(id, extractionNote)
                 val indexed = AlphaDocumentProcessor.indexNewFile(db, id, target, ocr)
                 val duplicateHint = indexed.duplicate?.let { existing ->
                     val match = if (indexed.matchType == "exact") "مطابق تماماً" else "يبدو نسخة أخرى من نفس المستند"

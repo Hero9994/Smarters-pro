@@ -52,7 +52,7 @@ class RecoveryReliabilityTest {
         context.deleteDatabase("masahati_v05.db")
         android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath("masahati_v05.db"), null).use { old ->
             definitions.forEach { sql ->
-                old.execSQL(sql.replace("cloud_analysis_allowed INTEGER NOT NULL DEFAULT 0,", ""))
+                old.execSQL(sql.replace("cloud_analysis_allowed INTEGER NOT NULL DEFAULT 0,", "").replace("extraction_note TEXT,", ""))
             }
             old.execSQL("INSERT INTO spaces(id,title,created_at,updated_at) VALUES(1,'old',1,1)")
             old.execSQL("INSERT INTO messages(id,space_id,role,kind,ocr_text,created_at) VALUES(1,1,'user','file','original',1)")
@@ -62,8 +62,24 @@ class RecoveryReliabilityTest {
         val row = db.getMessage(1)!!
         assertEquals("original", row.ocrText)
         assertFalse(row.cloudAnalysisAllowed)
-        assertEquals(13, db.readableDatabase.version)
+        assertEquals(14, db.readableDatabase.version)
         assertEquals("ok", db.databaseIntegrityStatus())
+    }
+
+    @Test fun upgradingVersion13PreservesConsentAndAddsReadingDiagnostics() {
+        val space = db.createSpace("local")
+        val file = db.insertFile(space, "user", "scan.pdf", "/test/file", "application/pdf", "original")
+        db.setDocumentCloudAnalysisAllowed(file, true)
+        db.writableDatabase.version = 13
+        db.close()
+        db = MasahatiDatabase(context)
+        assertTrue(db.getMessage(file)!!.cloudAnalysisAllowed)
+        db.updateExtractionNote(file, "قراءة جزئية")
+        db.close()
+        db = MasahatiDatabase(context)
+        assertEquals("قراءة جزئية", db.getMessage(file)!!.extractionNote)
+        assertEquals("original", db.getMessage(file)!!.ocrText)
+        assertEquals(14, db.readableDatabase.version)
     }
 
     @Test fun aiHistoryExcludesQuestionAndMessagesQueuedAfterIt() {

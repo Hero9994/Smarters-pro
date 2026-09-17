@@ -31,7 +31,8 @@ data class MessageRow(
     val summary: String?,
     val starred: Boolean,
     val createdAt: Long,
-    val cloudAnalysisAllowed: Boolean = false
+    val cloudAnalysisAllowed: Boolean = false,
+    val extractionNote: String? = null
 )
 
 data class DocumentMetaRow(
@@ -123,7 +124,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 13) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 14) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -164,6 +165,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               text_fingerprint TEXT,
               deleted_at INTEGER,
               cloud_analysis_allowed INTEGER NOT NULL DEFAULT 0,
+              extraction_note TEXT,
               created_at INTEGER NOT NULL,
               FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
             )
@@ -194,6 +196,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         // Prior versions did not persist consent. Existing and restored files stay local
         // until the user explicitly authorizes their analysis.
         addColumnIfMissing(db, "messages", "cloud_analysis_allowed", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, "messages", "extraction_note", "TEXT")
 
         // Only create indexes/tables after all referenced message/reminder columns exist.
         createAlphaTables(db)
@@ -534,6 +537,10 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         })
         writableDatabase.update("spaces", ContentValues().apply { put("updated_at", now) }, "id=?", arrayOf(spaceId.toString()))
         return id
+    }
+
+    fun updateExtractionNote(messageId: Long, note: String?) {
+        writableDatabase.update("messages", ContentValues().apply { put("extraction_note", note) }, "id=?", arrayOf(messageId.toString()))
     }
 
     fun updateOcr(messageId: Long, ocrText: String) {
@@ -1671,7 +1678,8 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         summary = c.stringOrNull("summary"),
         starred = c.getInt(c.getColumnIndexOrThrow("starred")) == 1,
         createdAt = c.getLong(c.getColumnIndexOrThrow("created_at")),
-        cloudAnalysisAllowed = c.getInt(c.getColumnIndexOrThrow("cloud_analysis_allowed")) == 1
+        cloudAnalysisAllowed = c.getInt(c.getColumnIndexOrThrow("cloud_analysis_allowed")) == 1,
+        extractionNote = c.stringOrNull("extraction_note")
     )
 
     private fun Cursor.stringOrNull(name: String): String? {

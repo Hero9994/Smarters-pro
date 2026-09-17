@@ -49,6 +49,7 @@ object AlphaExporter {
                     .put("display_name", m.displayName)
                     .put("mime_type", m.mimeType)
                     .put("ocr_text", m.ocrText)
+                    .put("extraction_note", m.extractionNote)
                     .put("classification", m.classification)
                     .put("tags", m.tags)
                     .put("summary", m.summary)

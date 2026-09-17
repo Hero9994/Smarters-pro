@@ -1,0 +1,8 @@
+Tesseract OCR language data (ara, deu, eng)
+Source: https://github.com/tesseract-ocr/tessdata_fast
+Revision: 87416418657359cb625c412a48b6e1d6d41c29bd
+License: Apache-2.0 (LICENSE-tessdata.txt)
+Tesseract4Android 4.9.0, Copyright 2019 Adaptech s.r.o., Robert Posel
+https://github.com/adaptech-cz/Tesseract4Android
+License: Apache-2.0
+The language files are downloaded and SHA-256-verified at build time and bundled for offline use.

@@ -12,9 +12,6 @@ import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.multi.GenericMultipleBarcodeReader
-import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
-import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.text.PDFTextStripper
 import io.michaelrocks.libphonenumber.android.PhoneNumberUtil
 import org.jsoup.Jsoup
 import java.io.File
@@ -131,22 +128,8 @@ object OpenSourceDocumentTools {
         }
     }
 
-    fun extractPdfText(context: Context, file: File, maxChars: Int = 24_000): String {
-        if (!file.isFile || file.length() <= 0L || file.length() > 96L * 1024L * 1024L) return ""
-        return runCatching {
-            PDFBoxResourceLoader.init(context.applicationContext)
-            PDDocument.load(file).use { document ->
-                if (document.numberOfPages <= 0) return@use ""
-                PDFTextStripper().apply {
-                    startPage = 1
-                    endPage = minOf(document.numberOfPages, 120)
-                }.getText(document)
-                    .replace("\u0000", "")
-                    .trim()
-                    .take(maxChars.coerceIn(1000, 100_000))
-            }
-        }.getOrDefault("")
-    }
+    fun extractPdfText(context: Context, file: File, maxChars: Int = 24_000): String =
+        LocalDocumentReader(context).use { it.readPdf(file, maxChars = maxChars).text }
 
     fun clipWebPage(url: String, maxChars: Int = 18_000): AlphaWebClip {
         require(AlphaHttp.isSafeWebUrl(url)) { "الرابط غير مدعوم" }
