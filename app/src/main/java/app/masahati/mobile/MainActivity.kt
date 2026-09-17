@@ -2,6 +2,7 @@ package app.masahati.mobile
 
 import android.Manifest
 import app.masahati.mobile.ai.HybridLocalAi
+import app.masahati.mobile.ai.AssistantEnginePolicy
 import app.masahati.mobile.ai.MasahatiAiRequest
 import app.masahati.mobile.ai.LocalModelCatalog
 import app.masahati.mobile.ai.LocalModelPackManager
@@ -902,27 +903,34 @@ class MainActivity : ComponentActivity() {
         analyzeWithAgent(id, value, currentSpaceTitle)
     }
 
-    private fun analyzeWithAgent(messageId: Long, content: String, spaceTitle: String) {
-        val spaceId = currentSpaceId ?: return
+    private fun analyzeWithAgent(messageId: Long, content: String, requestedSpaceTitle: String) {
+        val sourceMessage = db.getMessage(messageId) ?: return
+        val spaceId = sourceMessage.spaceId
+        val spaceTitle = db.getSpace(spaceId)?.title ?: requestedSpaceTitle
+        // Capture document focus at request time, before another file or chat is opened.
+        val focusedDocument = sourceMessage.takeIf { it.kind == "file" }
+            ?: db.focusedDocument(spaceId) ?: db.lastFileMessage(spaceId)
         busyCount++
-        renderMessages(spaceId)
+        if (currentSpaceId == spaceId) renderMessages(spaceId)
         worker.execute {
-            val recent = db.recentForAi(spaceId, 20).filter { it.id != messageId }
-            val sourceMessage = db.getMessage(messageId)
-            val focusedDocument = db.focusedDocument(spaceId) ?: db.lastFileMessage(spaceId)
-            val memoryMatches = if (sourceMessage?.kind == "file") {
+            val recent = db.recentForAi(spaceId, 20, beforeMessage = sourceMessage)
+            val cloudAllowed = if (sourceMessage.kind == "file") {
+                db.getMessage(messageId)?.cloudAnalysisAllowed == true
+            } else !db.hasLocalOnlyDocuments(spaceId)
+            val memoryMatches = if (sourceMessage.kind == "file") {
                 emptyList()
             } else {
                 db.search(content, 10)
-                    .filter { it.id != messageId }
+                    .filter { it.id < messageId }
                     .filterNot { candidate -> recent.any { it.id == candidate.id } }
+                    .filterNot { candidate -> db.hasLocalOnlyDocuments(candidate.spaceId) }
                     .take(6)
             }
             try {
                 val body = JSONObject().apply {
                     put("text", content.take(6000))
                     put("spaceTitle", spaceTitle)
-                    put("mode", if (sourceMessage?.kind == "file") "document_ingest" else "chat")
+                    put("mode", if (sourceMessage.kind == "file") "document_ingest" else "chat")
                     put("now", ZonedDateTime.now().toString())
                     put("timezone", java.time.ZoneId.systemDefault().id)
 
@@ -1134,15 +1142,15 @@ class MainActivity : ComponentActivity() {
 
                 val directDocumentResult = if (localReminderResult == null) {
                     when {
-                        sourceMessage?.kind == "file" -> DocumentIntelligence.blankScanResult(sourceMessage)
+                        sourceMessage.kind == "file" -> DocumentIntelligence.blankScanResult(sourceMessage)
                         else -> DocumentIntelligence.directAnswer(content, focusedDocument)
                     }
                 } else null
 
                 // Quality first: deterministic truth -> dedicated document intelligence -> general agent -> local fallback.
-                val remote = if (localReminderResult == null && directDocumentResult == null) {
+                val remote = if (cloudAllowed && localReminderResult == null && directDocumentResult == null) {
                     runCatching {
-                        if (sourceMessage?.kind == "file") {
+                        if (sourceMessage.kind == "file") {
                             postDocumentAlpha(sourceMessage)
                         } else {
                             postAgent(body)
@@ -1150,10 +1158,15 @@ class MainActivity : ComponentActivity() {
                     }.getOrNull()
                 } else null
 
+                val remotePreferred = AssistantEnginePolicy.preferRemote(
+                    remote?.optBoolean("ok", false) == true,
+                    remote?.optString("engine").orEmpty(),
+                    remote?.optString("model").orEmpty()
+                )
                 val localModelResult = if (
                     localReminderResult == null &&
                     directDocumentResult == null &&
-                    remote?.optBoolean("ok", false) != true
+                    !remotePreferred
                 ) {
                     runCatching {
                         val engine = localAi ?: HybridLocalAi(this@MainActivity).also { localAi = it }
@@ -1172,8 +1185,9 @@ class MainActivity : ComponentActivity() {
 
                 val result = localReminderResult
                     ?: directDocumentResult
-                    ?: if (remote?.optBoolean("ok", false) == true) remote
+                    ?: if (remotePreferred) remote!!
                     else localModelResult
+                        ?: remote?.takeIf { it.optBoolean("ok", false) }
                         ?: DocumentIntelligence.offlineDocumentFallback(content, focusedDocument)
                         ?: LocalAssistantFallback.analyze(content, spaceTitle, recent)
 
@@ -1210,10 +1224,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (sourceMessage?.kind != "file") {
+                if (sourceMessage.kind != "file") {
                     runCatching { AlphaAnswerGrounding.apply(result, content, focusedDocument, db) }
                 }
 
+                // Discard results if their source was deleted or moved while work ran.
+                if (db.getMessage(messageId)?.spaceId != spaceId) return@execute
                 val labels = result.optJSONArray("labels")?.toStringList()?.joinToString("، ").orEmpty()
                 val classification = result.optString("classification", "other")
                 val summary = result.optString("summary", "")
@@ -1229,9 +1245,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
-                val reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
+                if (localReminderResult == null && directDocumentResult == null && localModelResult == null && !remotePreferred) {
+                    reply = if (!cloudAllowed) {
+                        "معالجة محلية: $reply"
+                    } else {
+                        "الذكاء المتقدم غير متاح الآن؛ استخدمت معالجة مبسطة.\n$reply"
+                    }
+                }
                 db.insertText(spaceId, "assistant", listOf(reply, actionText).filter { it.isNotBlank() }.joinToString("\n\n"))
             } catch (_: Exception) {
+                if (db.getMessage(messageId)?.spaceId != spaceId) return@execute
                 val fallback = DocumentIntelligence.offlineDocumentFallback(content, focusedDocument)
                     ?: LocalAssistantFallback.analyze(content, spaceTitle, recent)
                 db.updateAi(
@@ -1243,8 +1267,8 @@ class MainActivity : ComponentActivity() {
                 )
                 db.insertText(spaceId, "assistant", fallback.optString("reply", "حفظت المحتوى محلياً، لكن التحليل السحابي لم يكتمل."))
             } finally {
-                busyCount = (busyCount - 1).coerceAtLeast(0)
                 runOnUiThread {
+                    busyCount = (busyCount - 1).coerceAtLeast(0)
                     if (isFinishing || isDestroyed) {
                         return@runOnUiThread
                     }
@@ -1432,6 +1456,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleScan(scan: GmsDocumentScanningResult) {
         val spaceId = currentSpaceId ?: return
+        val spaceTitle = currentSpaceTitle
         val pdf = scan.pdf
         val pages = scan.pages.orEmpty()
         if (pdf == null && pages.isEmpty()) return
@@ -1495,7 +1520,7 @@ class MainActivity : ComponentActivity() {
                     }
                     busyCount = (busyCount - 1).coerceAtLeast(0)
                     if (currentSpaceId == spaceId) renderMessages(spaceId)
-                    confirmCloudDocumentAnalysis(messageId, aiText, currentSpaceTitle)
+                    confirmCloudDocumentAnalysis(messageId, aiText, spaceTitle)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -1503,7 +1528,7 @@ class MainActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     busyCount = (busyCount - 1).coerceAtLeast(0)
-                    renderMessages(spaceId)
+                    if (currentSpaceId == spaceId) renderMessages(spaceId)
                     Toast.makeText(this, "لم يكتمل حفظ المسح: ${e.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -1512,6 +1537,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handlePickedFile(uri: Uri, cloudDecision: Boolean? = null) {
         val spaceId = currentSpaceId ?: return
+        val spaceTitle = currentSpaceTitle
         try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
         busyCount++
         renderMessages(spaceId)
@@ -1566,14 +1592,17 @@ class MainActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     busyCount = (busyCount - 1).coerceAtLeast(0)
-                    renderMessages(spaceId)
+                    if (currentSpaceId == spaceId) renderMessages(spaceId)
                     when (cloudDecision) {
-                        true -> analyzeWithAgent(id, aiText, currentSpaceTitle)
+                        true -> {
+                            db.setDocumentCloudAnalysisAllowed(id, true)
+                            analyzeWithAgent(id, aiText, spaceTitle)
+                        }
                         false -> {
                             db.insertText(spaceId, "assistant", "تم حفظ «$displayName» محلياً بدون إرساله للتحليل السحابي.")
-                            renderMessages(spaceId)
+                            if (currentSpaceId == spaceId) renderMessages(spaceId)
                         }
-                        null -> confirmCloudDocumentAnalysis(id, aiText, currentSpaceTitle)
+                        null -> confirmCloudDocumentAnalysis(id, aiText, spaceTitle)
                     }
                 }
             } catch (e: Exception) {
@@ -1582,7 +1611,7 @@ class MainActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     busyCount = (busyCount - 1).coerceAtLeast(0)
-                    renderMessages(spaceId)
+                    if (currentSpaceId == spaceId) renderMessages(spaceId)
                     Toast.makeText(this, "تعذر حفظ الملف: ${e.localizedMessage ?: "خطأ"}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -1591,14 +1620,19 @@ class MainActivity : ComponentActivity() {
 
 
     private fun confirmCloudDocumentAnalysis(messageId: Long, aiText: String, spaceTitle: String) {
-        val spaceId = currentSpaceId ?: return
+        val source = db.getMessage(messageId) ?: return
+        val spaceId = source.spaceId
         AlertDialog.Builder(this)
             .setTitle("تحليل المستند بالذكاء؟")
-            .setMessage("تم حفظ المستند محلياً. للتحليل والتصنيف سأرسل النص المستخرج أو بيانات الملف فقط إلى خدمة الذكاء، وليس صورة المستند أو ملف PDF نفسه.")
-            .setPositiveButton("تحليل ذكي") { _, _ -> analyzeWithAgent(messageId, aiText, spaceTitle) }
+            .setMessage("تم حفظ «${source.displayName ?: "المستند"}» في «${db.getSpace(spaceId)?.title ?: spaceTitle}». التحليل الذكي يسمح بإرسال النص المستخرج وبيانات الملف إلى خدمة الذكاء الآن وفي الأسئلة التالية، دون الصورة أو ملف PDF. اختيار «محلي فقط» يُبقي أسئلة هذه المساحة على الجهاز.")
+            .setPositiveButton("تحليل ذكي") { _, _ ->
+                db.setDocumentCloudAnalysisAllowed(messageId, true)
+                analyzeWithAgent(messageId, aiText, spaceTitle)
+            }
             .setNegativeButton("محلي فقط") { _, _ ->
+                db.setDocumentCloudAnalysisAllowed(messageId, false)
                 db.insertText(spaceId, "assistant", "تم حفظ المستند محلياً بدون إرساله للتحليل السحابي.")
-                renderMessages(spaceId)
+                if (currentSpaceId == spaceId) renderMessages(spaceId)
             }
             .show()
     }
@@ -2983,6 +3017,7 @@ class MainActivity : ComponentActivity() {
             if (m.kind == "file") {
                 if (m.filePath != null) menu.add("فتح")
                 menu.add("تفاصيل المستند")
+                menu.add("إعداد التحليل الذكي")
                 if (!m.ocrText.isNullOrBlank()) menu.add("نسخ النص")
             } else {
                 menu.add("نسخ")
@@ -2996,6 +3031,11 @@ class MainActivity : ComponentActivity() {
                 when (item.title.toString()) {
                     "فتح" -> openSavedFile(m)
                     "تفاصيل المستند" -> showDocumentDetails(m)
+                    "إعداد التحليل الذكي" -> confirmCloudDocumentAnalysis(
+                        m.id,
+                        "حلّل المستند «${m.displayName.orEmpty()}» اعتماداً على النص المقروء فقط.",
+                        db.getSpace(m.spaceId)?.title.orEmpty()
+                    )
                     "نسخ", "نسخ النص" -> copyMessage(m)
                     "تمييز بنجمة ★" -> {
                         db.setMessageStarred(m.id, true)

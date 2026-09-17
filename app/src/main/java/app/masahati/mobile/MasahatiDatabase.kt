@@ -30,7 +30,8 @@ data class MessageRow(
     val tags: String?,
     val summary: String?,
     val starred: Boolean,
-    val createdAt: Long
+    val createdAt: Long,
+    val cloudAnalysisAllowed: Boolean = false
 )
 
 data class DocumentMetaRow(
@@ -122,7 +123,7 @@ data class ReminderRow(
     val createdAt: Long
 )
 
-class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 12) {
+class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v05.db", null, 13) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -162,6 +163,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
               content_hash TEXT,
               text_fingerprint TEXT,
               deleted_at INTEGER,
+              cloud_analysis_allowed INTEGER NOT NULL DEFAULT 0,
               created_at INTEGER NOT NULL,
               FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
             )
@@ -189,6 +191,9 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         addColumnIfMissing(db, "messages", "deleted_at", "INTEGER")
         addColumnIfMissing(db, "reminders", "condition_action_id", "INTEGER")
         addColumnIfMissing(db, "messages", "text_fingerprint", "TEXT")
+        // Prior versions did not persist consent. Existing and restored files stay local
+        // until the user explicitly authorizes their analysis.
+        addColumnIfMissing(db, "messages", "cloud_analysis_allowed", "INTEGER NOT NULL DEFAULT 0")
 
         // Only create indexes/tables after all referenced message/reminder columns exist.
         createAlphaTables(db)
@@ -573,12 +578,17 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             arrayOf(spaceId.toString())
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
 
-    fun recentForAi(spaceId: Long, limit: Int = 20): List<MessageRow> {
+    fun recentForAi(spaceId: Long, limit: Int = 20, beforeMessage: MessageRow? = null): List<MessageRow> {
+        val before = if (beforeMessage == null) "" else " AND (created_at < ? OR (created_at = ? AND id < ?))"
+        val args = mutableListOf(spaceId.toString())
+        beforeMessage?.let {
+            args += listOf(it.createdAt.toString(), it.createdAt.toString(), it.id.toString())
+        }
         val c = readableDatabase.query(
             "messages",
             null,
-            "space_id=? AND deleted_at IS NULL AND (text<>'' OR (ocr_text IS NOT NULL AND ocr_text<>'') OR (summary IS NOT NULL AND summary<>'') OR (display_name IS NOT NULL AND display_name<>''))",
-            arrayOf(spaceId.toString()),
+            "space_id=? AND deleted_at IS NULL AND (text<>'' OR (ocr_text IS NOT NULL AND ocr_text<>'') OR (summary IS NOT NULL AND summary<>'') OR (display_name IS NOT NULL AND display_name<>''))$before",
+            args.toTypedArray(),
             null,
             null,
             "created_at DESC, id DESC",
@@ -610,6 +620,19 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }
     }
 
+    fun setDocumentCloudAnalysisAllowed(messageId: Long, allowed: Boolean) {
+        writableDatabase.update(
+            "messages", ContentValues().apply { put("cloud_analysis_allowed", if (allowed) 1 else 0) },
+            "id=? AND kind='file'", arrayOf(messageId.toString())
+        )
+    }
+
+    fun hasLocalOnlyDocuments(spaceId: Long): Boolean = readableDatabase.rawQuery(
+        // Include trash: past assistant replies can still contain excerpts from these files.
+        "SELECT 1 FROM messages WHERE space_id=? AND kind='file' AND cloud_analysis_allowed=0 LIMIT 1",
+        arrayOf(spaceId.toString())
+    ).use { it.moveToFirst() }
+
     fun setFocusedMessage(spaceId: Long, messageId: Long?) {
         writableDatabase.update(
             "spaces",
@@ -628,7 +651,7 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             SELECT m.*
             FROM spaces s
             JOIN messages m ON m.id = s.focus_message_id
-            WHERE s.id=? AND m.space_id=s.id
+            WHERE s.id=? AND m.space_id=s.id AND m.deleted_at IS NULL
             LIMIT 1
             """.trimIndent(),
             arrayOf(spaceId.toString())
@@ -1548,8 +1571,8 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         val changed = writableDatabase.update(
             "reminders",
             ContentValues().apply { put("delivered_at", deliveredAt) },
-            "id=? AND enabled=1 AND (delivered_at IS NULL OR delivered_at < ?)",
-            arrayOf(id.toString(), cutoff.toString())
+            "id=? AND enabled=1 AND next_fire_at=? AND next_fire_at<=? AND (delivered_at IS NULL OR delivered_at < ?)",
+            arrayOf(id.toString(), scheduledAt.toString(), deliveredAt.toString(), cutoff.toString())
         )
         return changed == 1
     }
@@ -1647,7 +1670,8 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         tags = c.stringOrNull("tags"),
         summary = c.stringOrNull("summary"),
         starred = c.getInt(c.getColumnIndexOrThrow("starred")) == 1,
-        createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"))
+        createdAt = c.getLong(c.getColumnIndexOrThrow("created_at")),
+        cloudAnalysisAllowed = c.getInt(c.getColumnIndexOrThrow("cloud_analysis_allowed")) == 1
     )
 
     private fun Cursor.stringOrNull(name: String): String? {

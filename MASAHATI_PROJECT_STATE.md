@@ -1,3 +1,46 @@
+# Current continuation — 2026-09-17
+
+This section supersedes older branch/status information below.
+
+- Repository: `Hero9994/Smarters-pro`.
+- Baseline: `alpha/masahati-alpha`, commit `6c6b7d66f298298a160708b695b5436ea6530b89` (2026-09-07).
+- Active repair branch: `alpha/recovery-reliability-2026-09-16`.
+- User request: recover the project, inspect actual behavior, and continue development while retaining the current UI, user-created spaces, keyboard behavior and existing functionality.
+- Recovered user APK: `Masahati-Alpha-Latest-Test.zip`, dated 2026-09-07, contains a 302,937,799-byte debug APK; package `app.masahati.mobile.v07`, versionCode 8, `alpha-0.1-dev`.
+- Last baseline CI run: `34125793406`. Build/lint/unit tests passed. Instrumentation failed on API 26 and 36 because two UI assertions still expected obsolete labels. Backend smoke job passed at that time; it is not proof of current LLM quality.
+
+## Repairs in this branch
+
+1. Bind assistant work to the source message's space and capture document focus before asynchronous work. Ignore messages newer than the question and discard results whose source moved/deleted.
+2. Persist per-document cloud-analysis consent (SQLite v13). Files default to local; chat requests in a space containing unapproved documents stay local, and such spaces are excluded from cross-space cloud memory. Restored backups require fresh consent. An existing file's consent can be changed from its long-press menu.
+3. Require an explicitly labelled, valid date before reporting a document start/end date. Never reinterpret a single issue date or borrow a date from an unrelated field. An unresolved date is handled locally without letting the cloud fallback guess it.
+4. Prevent a stale reminder backup from delivering the following occurrence early; delivery claims must match the current due occurrence.
+5. A server rule fallback with `ok=true` no longer prevents trying an installed local LLM.
+6. Update the two obsolete UI tests without changing the layout, and wait for the asynchronous Today summary before asserting it.
+7. Correct the local Qwen model's exact size from 977,000,000 to 977,184,032 bytes and pin its download revision. The old rounded value rejected valid completed downloads. Verified against Hugging Face LFS metadata on 2026-09-17; existing SHA-256 matches.
+
+## Validation status
+
+- Source review and `git diff --check` complete.
+- New regression tests added for document dates, cloud consent/migration, chronological context, cross-space reply isolation, deleted document focus, reminder claims and AI routing.
+- The previous local build attempt lost its temporary toolchain when the execution environment restarted. Do not claim that it completed or that the new APK was tested.
+- Run CI for this branch and record its actual result before distributing an APK.
+- Supabase project was INACTIVE on 2026-09-17. Restored the existing project and confirmed ACTIVE_HEALTHY. Live agent quality is being checked separately from project health.
+- Local physical-device testing has not occurred.
+
+## Next priorities after these repairs
+
+- Add actual Arabic OCR. Current ML Kit Latin recognizer cannot read Arabic script; Arabic text extraction from text-based PDFs is a separate feature.
+- Add page rendering + OCR for image-only and mixed PDFs; current PDFBox path only extracts existing text.
+- Test scanner crop/shadow cleanup on real paper images, including faint text and colored/stamped documents. Do not promise CamScanner parity from synthetic tests.
+- Validate multi-turn reasoning against real model responses and expose degraded/offline status accurately. The backend uses many rules and may return `ok=true` in fallback mode.
+- Fix release delivery: stable signing key, version progression, arm64 build and dependency/resource trimming. Recovered debug signer SHA-256: `eed9a02f3af9279fcdb50d87af35c49f83da3154de96f6557e5d0c50c55d41d4`. Its private key is not in the repository; never instruct uninstalling without a verified backup.
+- Split the large activity into services incrementally. Do not combine this repair with a UI rewrite or seed fake conversations.
+
+---
+
+# Historical handoff (retained for provenance; outdated versions/branches below)
+
 # MASAHATI PROJECT STATE
 
 This file is the persistent handoff for future ChatGPT sessions. Read it before changing the app.

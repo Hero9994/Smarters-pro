@@ -62,6 +62,14 @@ object DocumentIntelligence {
                 confidence = 0.9
             )
         }
+        if (asksStartDate(q) || asksEndDate(q)) {
+            val field = if (asksStartDate(q)) "بداية" else "انتهاء"
+            return result(
+                reply = "لا أرى تاريخ $field مؤكداً ومربوطاً بهذا الحقل في النص المقروء من «${doc.displayName ?: "المستند"}». لا أستطيع اعتباره تاريخاً مؤكداً من مجرد وجود تاريخ آخر في الورقة.",
+                summary = "تاريخ $field غير مؤكد من النص المقروء.",
+                confidence = 0.95
+            )
+        }
         return null
     }
 
@@ -90,23 +98,28 @@ object DocumentIntelligence {
     internal fun resolveGroundedDate(question: String, ocr: String): Pair<String, String>? {
         if (ocr.isBlank()) return null
         val q = question.trim().lowercase()
-        val asksEnd = listOf(
-            "ينتهي", "تنتهي", "انتهاء", "نهاية", "ende", "ablauf", "gültig bis", "gueltig bis", "vertragsende"
-        ).any(q::contains)
-        val asksStart = listOf(
-            "يبدأ", "يبدا", "بداية", "beginn", "startdatum", "vertragsbeginn", "gültig ab", "gueltig ab"
-        ).any(q::contains)
+        val asksEnd = asksEndDate(q)
+        val asksStart = asksStartDate(q)
         if (!asksEnd && !asksStart) return null
 
-        val dates = DATE_REGEX.findAll(ocr).map { it.value }.distinct().toList()
         val keywords = if (asksStart) {
             listOf("vertragsbeginn", "beginn", "startdatum", "gültig ab", "gueltig ab", "بداية", "يبدأ", "يبدا")
         } else {
             listOf("vertragsende", "gültig bis", "gueltig bis", "ablauf", "ende", "endet", "انتهاء", "ينتهي", "تنتهي")
         }
-        val chosen = findDateNear(ocr, keywords) ?: dates.singleOrNull() ?: return null
+        // A lone date may be an issue date, birthday or payment deadline.
+        // Only answer deterministically when the requested field is explicitly labelled.
+        val chosen = findDateNear(ocr, keywords) ?: return null
         return (if (asksStart) "start" else "end") to chosen
     }
+
+    private fun asksEndDate(q: String): Boolean = listOf(
+        "ينتهي", "تنتهي", "انتهاء", "نهاية", "ende", "ablauf", "gültig bis", "gueltig bis", "vertragsende"
+    ).any(q::contains)
+
+    private fun asksStartDate(q: String): Boolean = listOf(
+        "يبدأ", "يبدا", "بداية", "beginn", "startdatum", "vertragsbeginn", "gültig ab", "gueltig ab"
+    ).any(q::contains)
 
     private fun findDateNear(text: String, keywords: List<String>): String? {
         val lower = text.lowercase()
@@ -116,12 +129,18 @@ object DocumentIntelligence {
                 val index = lower.indexOf(keyword.lowercase(), from)
                 if (index < 0) break
                 val afterStart = (index + keyword.length).coerceAtMost(text.length)
-                val afterEnd = (afterStart + 100).coerceAtMost(text.length)
-                DATE_REGEX.find(text.substring(afterStart, afterEnd))?.value?.let { return it }
-
-                val beforeStart = (index - 60).coerceAtLeast(0)
-                val beforeDates = DATE_REGEX.findAll(text.substring(beforeStart, index)).map { it.value }.toList()
-                beforeDates.lastOrNull()?.let { return it }
+                // Do not cross prose or another field to borrow its date. Allow only
+                // whitespace, punctuation and a short linking word after the label.
+                val tail = text.substring(afterStart, minOf(afterStart + 70, text.length))
+                val match = DATE_REGEX.find(tail)
+                if (match != null) {
+                    val link = tail.substring(0, match.range.first).trim()
+                    if (link.matches(Regex("(?:[:：=\\-–—]|am|zum|ist|on|في|بتاريخ|هو|bis|ab|des Vertrags)*[\\s:：=\\-–—]*", RegexOption.IGNORE_CASE))) {
+                        val parts = match.value.split('.', '/', '-').map(String::toInt)
+                        val valid = runCatching { java.time.LocalDate.of(parts[2], parts[1], parts[0]) }.isSuccess
+                        if (valid) return match.value
+                    }
+                }
                 from = index + keyword.length
             }
         }

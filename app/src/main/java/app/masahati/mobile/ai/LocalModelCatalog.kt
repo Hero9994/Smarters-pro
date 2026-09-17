@@ -16,8 +16,9 @@ object LocalModelCatalog {
         id = "qwen3-1.7b-dynamic-int4",
         displayName = "Qwen3 1.7B LiteRT-LM",
         fileName = "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",
-        downloadUrl = "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/main/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm?download=true",
-        expectedBytes = 977_000_000L,
+        downloadUrl = "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/73fbc3fe8271c162a603ee66f6e7ed25b6211195/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm?download=true",
+        // Exact LFS size; a rounded MB count rejects a complete, valid download.
+        expectedBytes = 977_184_032L,
         sha256 = "2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b",
         maxTokens = 4096,
         supportsVision = false

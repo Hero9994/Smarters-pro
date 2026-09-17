@@ -47,4 +47,25 @@ class DocumentIntelligenceTest {
         val ocr = "Termine: 01.10.2026 und 30.09.2027"
         assertNull(DocumentIntelligence.resolveGroundedDate("متى بينتهي؟", ocr))
     }
+
+    @Test
+    fun singleIssueDateIsNotInventedAsExpiry() {
+        assertNull(DocumentIntelligence.resolveGroundedDate("متى بينتهي العقد؟", "Ausgestellt am 16.09.2026"))
+    }
+
+    @Test
+    fun unspecifiedExpiryDoesNotBorrowNextOrPreviousField() {
+        assertNull(DocumentIntelligence.resolveGroundedDate("متى بينتهي؟", "Vertragsende unbefristet. Ausgestellt am 16.09.2026"))
+        assertNull(DocumentIntelligence.resolveGroundedDate("متى بينتهي؟", "Ausgestellt am 16.09.2026. Vertragsende unbefristet."))
+    }
+
+    @Test
+    fun invalidCalendarDateIsNotAnExpiry() {
+        assertNull(DocumentIntelligence.resolveGroundedDate("متى بينتهي؟", "Vertragsende 31.02.2027"))
+    }
+
+    @Test
+    fun labelMayWrapOntoNextLine() {
+        assertEquals("end" to "30.09.2027", DocumentIntelligence.resolveGroundedDate("متى بينتهي؟", "Vertragsende:\n30.09.2027"))
+    }
 }

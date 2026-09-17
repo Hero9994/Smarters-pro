@@ -826,7 +826,7 @@ class AlphaInstrumentedReliabilityTest {
 
 
     @Test
-    fun todaySmartConversationIsFirstAndGreenActionMovesTaskToCompletedSection() {
+    fun todaySummaryIsFirstAndGreenActionMovesTaskToCompletedSection() {
         val db = MasahatiDatabase(context)
         val actionId: Long
         try {
@@ -845,16 +845,17 @@ class AlphaInstrumentedReliabilityTest {
         }
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitView(scenario) { findByDescription(it, "ملخص مهام وتذكيرات اليوم") }
             scenario.onActivity { activity ->
                 val root = activity.findViewById<ViewGroup>(android.R.id.content)
                 val texts = collectTexts(root)
-                val todayIndex = texts.indexOf("مهام اليوم")
+                val todayIndex = texts.indexOf("لديك اليوم مهمة واحدة")
                 val normalIndex = texts.indexOf("محادثة عادية")
                 assertTrue("Today smart conversation must be visible", todayIndex >= 0)
                 assertTrue("Normal conversation must be visible", normalIndex >= 0)
                 assertTrue("Today smart conversation must render first", todayIndex < normalIndex)
 
-                val todayLabel = findText(root, "مهام اليوم")
+                val todayLabel = findByDescription(root, "ملخص مهام وتذكيرات اليوم")
                 assertNotNull(todayLabel)
                 var clickable: View? = todayLabel
                 while (clickable != null && !clickable.isClickable) {
@@ -970,7 +971,7 @@ class AlphaInstrumentedReliabilityTest {
             scenario.onActivity { activity ->
                 val root = activity.findViewById<ViewGroup>(android.R.id.content)
                 assertNotNull(findText(root, "أدوات مساحاتي Alpha"))
-                assertNotNull(findButton(root, "📄 سكانر"))
+                assertNotNull(findButton(root, "📷 سكانر ذكي"))
                 assertNotNull(findButton(root, "🔎 بحث ذكي"))
                 assertNotNull(findButton(root, "🎙 صوت"))
                 assertNotNull(findButton(root, "💾 نسخ"))
@@ -989,6 +990,27 @@ class AlphaInstrumentedReliabilityTest {
         }
         walk(root)
         return result
+    }
+
+    private fun awaitView(scenario: ActivityScenario<MainActivity>, find: (View) -> View?) {
+        val deadline = System.currentTimeMillis() + 5_000L
+        do {
+            var found = false
+            scenario.onActivity { found = find(it.findViewById(android.R.id.content)) != null }
+            if (found) return
+            Thread.sleep(50L)
+        } while (System.currentTimeMillis() < deadline)
+        throw AssertionError("Expected view did not appear within 5 seconds")
+    }
+
+    private fun findByDescription(root: View, value: String): View? {
+        if (root.contentDescription?.toString() == value) return root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                findByDescription(root.getChildAt(i), value)?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun findText(root: View, value: String): TextView? {

@@ -444,6 +444,9 @@ object ReminderDelivery {
 
             val now = System.currentTimeMillis()
             val scheduledAt = reminder.nextFireAt ?: now
+            // A delayed backup for the previous occurrence can run after the alarm
+            // has already scheduled tomorrow. Never deliver that future occurrence.
+            if (scheduledAt > now) return
 
             // Atomic claim: only AlarmManager OR WorkManager may deliver this occurrence.
             if (!db.tryMarkReminderDelivered(reminderId, scheduledAt, now)) return
