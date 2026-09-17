@@ -20,23 +20,26 @@ This section supersedes older branch/status information below.
 7. Correct the local Qwen model's exact size from 977,000,000 to 977,184,032 bytes and pin its download revision. The old rounded value rejected valid completed downloads. Verified against Hugging Face LFS metadata on 2026-09-17; existing SHA-256 matches.
 8. Refresh the message list and title in place when an assistant reply arrives, preserving the live composer, unsent draft and selection. Use coordinate-based scrolling instead of `fullScroll`, which steals composer focus on Android 8.
 9. Explicitly install `platform-tools` in Android CI. The default setup action tried the retired SDK `tools` package and failed before compilation.
+10. Calendar validation in the live document backend: reject impossible labelled dates, ask for source review rather than a model guess, and validate model-derived date metadata too. Deployed `masahati-document-alpha-v2` version 4; restored its source under `supabase/functions/masahati-document-alpha-v2/`.
 
 ## Validation status
 
 - Source review and `git diff --check` complete.
 - New regression tests added for document dates, cloud consent/migration, chronological context, cross-space reply isolation, deleted document focus, reminder claims and AI routing.
-- CI run `35194168454` on commit `49361a95c336c79768834a0079d21dff1e1c9840` passed build, lint, unit tests, APK identity/signature verification and backend smoke tests. Instrumentation is pending; the later composer-preservation change needs verification on the new commit too.
-- Record final API 26/36 instrumentation results before distributing an APK. The earlier local build was interrupted by an environment restart and is not evidence of a pass.
-- Supabase project was INACTIVE on 2026-09-17. Restored the existing project and confirmed ACTIVE_HEALTHY. Live agent quality is being checked separately from project health.
+- Android source commit `5e4d6b9fce3110bf6e3a4966ef8ffdd0074a0276`, CI run `35224169870`: build, lint, unit tests, APK identity/signature verification and backend smoke tests all PASSED. All 28 instrumentation tests passed on API 26, and all 28 passed on API 36, with zero skipped or failed tests. This includes composer focus/draft, migration, consent, source-chat binding and reminder delivery regression tests.
+- The previous run `35194736934` passed 27/28 on API 26; its sole composer-focus failure was fixed by replacing `fullScroll` with coordinate-based scrolling. Do not report that earlier failure as still open.
+- Supabase project was INACTIVE on 2026-09-17. Restored the existing project and confirmed ACTIVE_HEALTHY. Live general-assistant quality remains insufficient, as documented below; smoke-test success does not establish model reasoning quality.
 - Local physical-device testing has not occurred.
-- Source commit `8a863f6fdb7e54cfde76810635ddee46bba5aed2`, CI run `35194736934`: verify and backend-regression passed; API 36 passed all 28 tests, API 26 passed 27/28. The sole failure was composer focus after automatic scrolling (draft and selection were preserved). The subsequent coordinate-scrolling repair needs a fresh run. Generated APK signer SHA-256 is `ebca0ecf1452943460a18fc636bdaf6c89e3c0d4ea60d6a7e03690ab6706c58a`, different from the recovered installed APK. This build is not an in-place update for that APK. No matching signing/keystore secret was found by relevant Vault secret names.
+- The validated APK signer SHA-256 is `341980dbf26b36778af231043e45991f1469b668737032c72958fcdc75af39e4`, different from the recovered user APK. This build is not an in-place update for that APK. No matching signing/keystore secret was found by relevant Vault secret names. No new APK was distributed as an upgrade.
+- Subsequent backend-source/audit commits do not change Android source. Backend version 4 was verified with three Node tests and five live cases, and was deployed before the successful backend-regression job in run `35224169870`.
 
 ## Live backend findings — 2026-09-17
 
 - Restoring Supabase recovered HTTP 200 responses. Project health does not establish answer quality.
 - Synthetic arithmetic probe: three boxes with four books each, five given away. Both `auto` (Nemotron Lightning) and `quality` (Nemotron Ultra) returned 8 instead of 7. Another auto response proposed an unrelated `create_space` action.
 - Synthetic correction probe: keys first in a blue box, then explicitly moved to a green bag by the door. Auto fell back to generic note classification; quality mixed the old and new locations and proposed an unrelated document action. Observed response times were roughly 10–16 seconds.
-- Document ingestion correctly left expiry blank for an indefinite contract with only an issue date. It incorrectly accepted `31.02.2027` as `2027-02-31`. Android's repaired direct date-answer path rejects this impossible date, but backend ingestion metadata still needs calendar validation.
+- Document ingestion originally accepted `31.02.2027`. Fixed in backend version 4: three Node regression tests passed, plus five live API cases (impossible date, non-leap February 29, valid leap day, German contract with separate expiry/deadline, Arabic contract). Indefinite contracts with only an issue date already correctly leave expiry blank.
+- Re-run pure backend tests with `node --test supabase/functions/masahati-document-alpha-v2/document-dates.test.ts` (Node 24).
 - The backend advertises `create_space`, `rename_last_document`, and `move_last_document`, which the current Android action executor does not implement. Do not claim those chat commands work.
 - Do not solve these failures by simply switching the default to the tested `quality` strategy: it failed both probes too. Provider/model evaluation and a regression suite are required before claiming general assistant reliability.
 - Consent protection currently blocks cloud chat/memory for spaces containing local-only documents, including trash. Derived text left behind when a document is moved or permanently removed still needs provenance tracking; do not claim complete information-flow isolation.
