@@ -74,7 +74,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: masahati-alpha-lint
-          path: app/build/reports/lint-results-debug.html
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
           if-no-files-found: warn
           retention-days: 14
 
@@ -143,6 +145,17 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Verify conversation and calendar boundaries
+        run: node --test supabase/functions/masahati-agent-dev/*.test.ts supabase/functions/masahati-document-alpha-v2/*.test.ts
+
       - name: Validate document intelligence and contextual agent
         shell: bash
         run: |

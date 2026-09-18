@@ -80,6 +80,7 @@ android {
 dependencies {
     implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")

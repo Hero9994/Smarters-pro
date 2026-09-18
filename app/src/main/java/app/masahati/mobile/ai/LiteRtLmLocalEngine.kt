@@ -63,7 +63,7 @@ class LiteRtLmLocalEngine(
         if (start < 0 || end <= start) return null
         val parsed = runCatching { JSONObject(clean.substring(start, end + 1)) }.getOrNull() ?: return null
         if (!parsed.has("reply")) return null
-        if (!parsed.has("actions")) parsed.put("actions", JSONArray())
+        parsed.put("actions", JSONArray())
         if (!parsed.has("labels")) parsed.put("labels", JSONArray())
         if (!parsed.has("keywords")) parsed.put("keywords", JSONArray())
         if (!parsed.has("classification")) parsed.put("classification", "other")

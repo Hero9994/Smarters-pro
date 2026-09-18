@@ -6,7 +6,9 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import com.google.android.gms.tasks.Tasks
@@ -103,7 +105,7 @@ class LocalDocumentReader(context: Context) : Closeable {
 
     fun readBitmap(bitmap: Bitmap): DocumentReadResult {
         val scale = minOf(1f, MAX_SIDE.toFloat() / max(bitmap.width, bitmap.height))
-        val working = if (scale < 1f) Bitmap.createScaledBitmap(bitmap,
+        val working = if (scale < 1f) bitmap.scale(
             (bitmap.width * scale).roundToInt().coerceAtLeast(1),
             (bitmap.height * scale).roundToInt().coerceAtLeast(1), true) else bitmap
         try {
@@ -192,7 +194,7 @@ class LocalDocumentReader(context: Context) : Closeable {
                         try {
                             val reading = renderer!!.openPage(index).use { page ->
                                 val factor = minOf(3f, MAX_SIDE.toFloat() / max(page.width, page.height))
-                                val bitmap = Bitmap.createBitmap((page.width * factor).roundToInt().coerceAtLeast(1),
+                                val bitmap = createBitmap((page.width * factor).roundToInt().coerceAtLeast(1),
                                     (page.height * factor).roundToInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
                                 try {
                                     bitmap.eraseColor(Color.WHITE)

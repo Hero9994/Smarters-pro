@@ -1151,7 +1151,8 @@ class MainActivity : ComponentActivity() {
                 val directDocumentResult = if (localReminderResult == null) {
                     when {
                         sourceMessage.kind == "file" -> DocumentIntelligence.blankScanResult(sourceMessage)
-                        else -> DocumentIntelligence.directAnswer(content, focusedDocument)
+                        else -> LocalCommandParser.analyze(content, spaceTitle)
+                            ?: DocumentIntelligence.directAnswer(content, focusedDocument)
                     }
                 } else null
 
@@ -1252,7 +1253,19 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val actionText = executeAgentActions(spaceId, result.optJSONArray("actions"), content)
+                val execution = AgentActionExecutor(this@MainActivity, db).execute(
+                    sourceMessage, result.optJSONArray("actions"), focusedDocument?.id,
+                    recent.lastOrNull { it.role == "user" }?.id,
+                    recent.lastOrNull { it.kind == "file" }?.id,
+                    reminderResolved = localReminderResult != null
+                )
+                if (execution.reminderCreated) runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        maybeRequestNotificationPermission()
+                        if (execution.exactPermissionNeeded) maybeRequestExactAlarmPermission()
+                    }
+                }
+                val actionText = execution.note
                 var reply = result.optString("reply", "فهمت المحتوى وحفظته.")
                 if (sourceMessage.kind == "file" || result.optString("classification") == "document") {
                     focusedDocument?.extractionNote?.let { reply += "\n\nملاحظة القراءة: $it" }
@@ -1292,118 +1305,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    private fun executeAgentActions(spaceId: Long, actions: JSONArray?, sourceText: String): String {
-        if (actions == null) return ""
-        val notes = mutableListOf<String>()
-        for (i in 0 until actions.length()) {
-            val action = actions.optJSONObject(i) ?: continue
-            val type = action.optString("type")
-            val args = action.optJSONObject("args") ?: JSONObject()
-            val needsConfirm = action.optBoolean("requires_confirmation", true)
-            when (type) {
-                "create_reminder" -> {
-                    val created = ReminderScheduler.createFromAgent(this, db, spaceId, args, sourceText)
-                    if (created == null) {
-                        notes += "فهمت أنك تريد تنبيهاً، لكن الموعد غير واضح بما يكفي لإنشائه."
-                    } else {
-                        val precision = if (created.exact) "" else " قد يتأخر بضع دقائق ما لم تفعّل دقة التنبيهات من إعدادات أندرويد."
-                        val permissionNote = if (ReminderScheduler.notificationsAllowed(this)) "" else " سأطلب منك الآن السماح بإشعارات التطبيق."
-                        notes += "تم إنشاء تنبيه فعلي: ${created.description}.$precision$permissionNote"
-                        runOnUiThread {
-                            if (isFinishing || isDestroyed) {
-                                return@runOnUiThread
-                            }
-                            maybeRequestNotificationPermission()
-                            if (!created.exact) maybeRequestExactAlarmPermission()
-                        }
-                    }
-                }
-                "enrich_previous_document" -> {
-                    val target = db.lastFileMessage(spaceId)
-                    if (target != null) {
-                        val newSummary = args.optString("summary").trim().ifBlank { target.summary.orEmpty() }
-                        val labelList = args.optJSONArray("labels")?.toStringList().orEmpty()
-                        val keywordList = args.optJSONArray("keywords")?.toStringList().orEmpty()
-                        val mergedTags = (labelList + keywordList + target.tags.orEmpty().split('،').map { it.trim() })
-                            .filter { it.isNotBlank() }.distinct().take(12).joinToString("، ")
-                        db.updateAi(
-                            target.id,
-                            "document",
-                            mergedTags,
-                            newSummary,
-                            JSONObject().put("source", "user_clarification").put("summary", newSummary).put("tags", mergedTags).toString()
-                        )
-                        notes += "ربطت هذه المعلومة بالمستند السابق وحدّثت وصفه وكلمات البحث."
-                    }
-                }
-                "search" -> {
-                    val q = args.optString("query").trim()
-                    if (q.isNotBlank()) {
-                        val found = db.search(q, 8)
-                        if (found.isEmpty()) notes += "لم أجد نتيجة محلية مطابقة لـ «$q»."
-                        else {
-                            val lines = found.mapNotNull { m ->
-                                val s = db.getSpace(m.spaceId)?.title ?: return@mapNotNull null
-                                val preview = when {
-                                    !m.displayName.isNullOrBlank() -> m.displayName
-                                    m.summary?.isNotBlank() == true -> m.summary
-                                    else -> m.text.take(85)
-                                }
-                                "• $s — $preview"
-                            }
-                            notes += "وجدت محلياً:\n${lines.joinToString("\n")}"
-                        }
-                    }
-                }
-                "archive_space" -> {
-                    val target = args.optString("space_name").ifBlank { db.getSpace(spaceId)?.title.orEmpty() }
-                    val space = db.findSpaceByTitle(target) ?: db.getSpace(spaceId)
-                    if (space != null) {
-                        if (needsConfirm) notes += "الأرشفة جاهزة، لكني لم أنفذها لأن الإجراء يحتاج تأكيداً."
-                        else {
-                            db.setArchived(space.id, true)
-                            notes += "تمت أرشفة مساحة «${space.title}»."
-                        }
-                    }
-                }
-                "pin_space" -> {
-                    val target = args.optString("space_name").ifBlank { db.getSpace(spaceId)?.title.orEmpty() }
-                    val space = db.findSpaceByTitle(target) ?: db.getSpace(spaceId)
-                    if (space != null) {
-                        if (needsConfirm) notes += "التثبيت جاهز وينتظر التأكيد."
-                        else {
-                            db.setPinned(space.id, true)
-                            notes += "تم تثبيت مساحة «${space.title}»."
-                        }
-                    }
-                }
-                "rename_space" -> {
-                    val newName = args.optString("new_name").ifBlank { args.optString("title") }.trim()
-                    if (newName.isNotBlank()) {
-                        if (needsConfirm) notes += "إعادة التسمية جاهزة وينتظر التأكيد."
-                        else {
-                            db.renameSpace(spaceId, newName)
-                            notes += "تم تغيير اسم المساحة إلى «$newName»."
-                        }
-                    }
-                }
-                "move_last_item" -> {
-                    val targetName = args.optString("target_space").ifBlank { args.optString("space_name") }.trim()
-                    val target = db.findSpaceByTitle(targetName)
-                    val last = db.lastUserMessage(spaceId)
-                    if (target != null && last != null) {
-                        if (needsConfirm) notes += "النقل جاهز وينتظر التأكيد."
-                        else {
-                            db.moveMessage(last.id, target.id)
-                            notes += "تم نقل آخر عنصر إلى «${target.title}»."
-                        }
-                    }
-                }
-            }
-        }
-        return notes.joinToString("\n")
     }
 
     private fun maybeRequestNotificationPermission() {
