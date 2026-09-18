@@ -178,12 +178,14 @@ class LocalDocumentReader(context: Context) : Closeable {
                 for (line in candidates) {
                     if (SystemClock.elapsedRealtime() >= deadline || Thread.currentThread().isInterrupted) break
                     val box = line.boundingBox ?: continue
-                    val padding = (box.height() / 4).coerceIn(6, 24)
+                    // Latin boxes often enclose only the digits. Include taller Arabic
+                    // glyphs/descenders around them, and let the block reader find the row.
+                    val padding = (box.height() / 2).coerceIn(12, 48)
                     val top = (box.top - padding).coerceIn(0, working.height - 1)
                     val bottom = (box.bottom + padding).coerceIn(top + 1, working.height)
                     val strip = Bitmap.createBitmap(working, 0, top, working.width, bottom - top)
                     val recovered = try {
-                        recognize(strip, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE,
+                        recognize(strip, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK,
                             minOf(4000L, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1)))
                     } finally { if (strip !== working) strip.recycle() }
                     if (recovered.confidence >= 20 && numericTokens(recovered.text).any { it in numericTokens(line.text) }) {

@@ -9,6 +9,8 @@ import android.graphics.Typeface
 import android.graphics.Matrix
 import android.net.Uri
 import android.util.Log
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import androidx.test.core.app.ActivityScenario
@@ -21,10 +23,15 @@ import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 import com.googlecode.tesseract.android.TessBaseAPI
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /** These assertions run the real native OCR engine, not a mock or a text fixture. */
 @RunWith(AndroidJUnit4::class)
@@ -125,10 +132,45 @@ class DocumentReaderInstrumentedTest {
                 assertTrue(result.text.contains("Mixed page header"))
                 val scanned = result.text.substringAfter("صفحة 2:").substringBefore("صفحة 3:")
                 val mixed = result.text.substringAfter("صفحة 3:")
+                if (!mixed.contains("7319")) logSyntheticMixedPage(reader, file)
                 assertArabicText(scanned)
                 assertArabicText(mixed)
             }
         } finally { file.delete() }
+    }
+
+    private fun logSyntheticMixedPage(reader: LocalDocumentReader, file: File) {
+        PDDocument.load(file).use { document ->
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                PdfRenderer(descriptor).use { renderer ->
+                    val render = LocalDocumentReader::class.java.getDeclaredMethod(
+                        "renderPdfPage", PDDocument::class.java, PdfRenderer::class.java, Integer.TYPE
+                    ).apply { isAccessible = true }
+                    val bitmap = render.invoke(reader, document, renderer, 2) as Bitmap
+                    val recognize = LocalDocumentReader::class.java.getDeclaredMethod(
+                        "recognize", Bitmap::class.java, Integer.TYPE, java.lang.Long.TYPE
+                    ).apply { isAccessible = true }
+                    val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                    try {
+                        val text = Tasks.await(latin.process(InputImage.fromBitmap(bitmap, 0)), 8, TimeUnit.SECONDS)
+                        for (line in text.textBlocks.flatMap { it.lines }.filter { it.text.any(Char::isDigit) }.take(6)) {
+                            val box = line.boundingBox ?: continue
+                            val pad = (box.height() / 2).coerceIn(12, 48)
+                            val top = (box.top - pad).coerceIn(0, bitmap.height - 1)
+                            val bottom = (box.bottom + pad).coerceIn(top + 1, bitmap.height)
+                            Log.w("MasahatiOCR", "Synthetic mixed numeric row: ${line.text}, box=$box")
+                            val strip = Bitmap.createBitmap(bitmap, 0, top, bitmap.width, bottom - top)
+                            try {
+                                for (mode in listOf(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK,
+                                    TessBaseAPI.PageSegMode.PSM_SINGLE_LINE, 13 /* raw line */)) {
+                                    Log.w("MasahatiOCR", "Synthetic numeric strip mode $mode: ${recognize.invoke(reader, strip, mode, 4000L)}")
+                                }
+                            } finally { if (strip !== bitmap) strip.recycle() }
+                        }
+                    } finally { latin.close(); bitmap.recycle() }
+                }
+            }
+        }
     }
 
     @Test fun reportsPageAndOcrLimitsWithoutPretendingWholeDocumentWasRead() {
