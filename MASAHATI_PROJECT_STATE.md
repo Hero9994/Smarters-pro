@@ -1,3 +1,28 @@
+# Current continuation — 2026-09-18
+
+This section supersedes the older status below. Active branch remains `alpha/recovery-reliability-2026-09-16`.
+
+## Implemented in the OCR/conversation phase
+
+- Local Arabic/German/English OCR via Tesseract4Android 4.9.0 and pinned tessdata_fast packs. Packs are downloaded and SHA-256-verified at build time, bundled in the APK, then verified/extracted into private no-backup storage. Phone OCR makes no network requests. ML Kit remains the Latin fallback.
+- Shared reader for scanner pages, image attachments (including EXIF orientation) and PDFs. PDF text layers are preserved; image-only and mixed pages are rendered for OCR. Native rendering has a PDFBox fallback. Read limits: 2,400-pixel longest side; 24,000 extracted characters; 120 PDF pages, up to 20 OCR pages, 90-second document budget plus one bounded page in flight. PDFBox uses a 16 MiB memory cache with private disk overflow.
+- SQLite v14 stores `extraction_note` separately from actual OCR text. Partial/unreadable/low-confidence results are visible on file cards, included in AI context and preserved in exports/imports. Existing files gain a local re-read menu item; blank re-reads preserve previous text. OCR is approximate, especially handwriting, faint text, complex layouts and low-quality photos.
+- Extracted `AgentActionExecutor` and `AgentActionPolicy`. Only explicit user commands can mutate data; confirmation flags are honored. File operations use captured IDs and last-file lookup before the request. Added actual local creation of spaces, file rename/move, search and document clarification, including local-only spaces. No default/sample spaces or UI redesign.
+- Model-generated actions are disabled; deterministic commands run separately. Remote conversation preserves user/assistant roles and latest corrections, treats documents as data, and reports the actual returned model. The local prompt has the same boundaries.
+- Recovered and versioned the assistant Edge Function under `supabase/functions/masahati-agent-dev`. Production deployed as version 28 on 2026-09-18. Default provider and existing quota/auth semantics are retained. Optional server-only provider configuration is prepared but no new provider/key/account/billing is enabled.
+
+## Validation and remaining gates
+
+- Pure backend boundary/calendar/provider tests: 9 passed.
+- Live v28 probes: first run passed correction, pronoun resolution, German invoice amount, unknown contract owner and negated actions (5/6). Arithmetic returned an honest unavailability response on the first run, then correctly answered 7 on one retry (~21 seconds). This is NOT a six-of-six uninterrupted reliability claim. Earlier direct provider probes explicitly returned `FREE_MODEL_FAILED` (free capacity exhausted). Do not claim the free provider is reliable or solve this merely by switching to its old quality strategy.
+- CI `35317612140`, Android commit `ac6457d9d606939cf2428bc5ee16ced027c6e894`: build, lint, unit tests, APK identity and backend regressions PASSED. Both Android 8 and 16 ran 37 tests. API 26 passed Arabic-image OCR but failed PDF mixed-page reading (0 OCR pages). API 36 read Arabic text but dropped the short reference-number row in two OCR cases. These are real OCR coverage failures, not test-label mismatches. A PDFBox rendering fallback and additional EXIF/import/re-read/date/command tests were then added. These need the subsequent CI result recorded here before declaring completion.
+- Latest code commit entering final verification: `36b1bc1a0a2f4618c01b0fb50a0307cb74cbcbb4`.
+- Verified the OCR dependency's four arm64 native libraries have 16 KiB LOAD alignment. This does not replace physical Samsung testing.
+- Old installation signing is still unresolved. Original signer is recorded below. The existing GitHub token cannot manage Actions secrets (public-key read returned HTTP 403); no signing key was created or exposed. Do not instruct uninstalling or distribute a differently signed APK as an in-place update.
+- Server provider settings: `MASAHATI_CHAT_URL`, `MASAHATI_CHAT_MODEL`, `MASAHATI_CHAT_API_KEY` together. Partial configuration fails closed. Before paid use, add real user authentication and a spending limit; the current public API key and IP quota are not user authentication.
+
+---
+
 # Current continuation — 2026-09-17
 
 This section supersedes older branch/status information below.

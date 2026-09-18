@@ -107,53 +107,86 @@ class LocalDocumentReader(context: Context) : Closeable {
         }
     }
 
+    private data class OcrPass(val text: String = "", val confidence: Int = 0, val timedOut: Boolean = false, val failed: Boolean = false)
+
+    private fun recognize(bitmap: Bitmap, mode: Int, timeoutMillis: Long): OcrPass {
+        return try {
+            val engine = arabicEngine()
+            engine.pageSegMode = mode
+            engine.setImage(bitmap)
+            var active = true
+            var timedOut = false
+            val timeout = timer.schedule({
+                synchronized(stopLock) {
+                    if (active) { timedOut = true; engine.stop() }
+                }
+            }, timeoutMillis, TimeUnit.MILLISECONDS)
+            try {
+                // HOCR uses Tesseract's cancellation monitor; getUTF8Text alone does not.
+                engine.getHOCRText(0)
+                synchronized(stopLock) { active = false }
+                timeout.cancel(false)
+                if (timedOut || Thread.currentThread().isInterrupted) OcrPass(timedOut = true)
+                else OcrPass(engine.getUTF8Text().orEmpty().trim(), engine.meanConfidence())
+            } finally {
+                synchronized(stopLock) { active = false }
+                timeout.cancel(false)
+                engine.clear()
+            }
+        } catch (_: Exception) { OcrPass(failed = true) }
+    }
+
+    private fun numericTokens(value: String): Set<String> =
+        Regex("[0-9٠-٩]{2,}(?:[./,-][0-9٠-٩]+)*").findAll(value).map { match ->
+            match.value.map { char -> if (char in '٠'..'٩') ('0'.code + (char - '٠')).toChar() else char }.joinToString("")
+        }.toSet()
+
     fun readBitmap(bitmap: Bitmap): DocumentReadResult {
         val scale = minOf(1f, MAX_SIDE.toFloat() / max(bitmap.width, bitmap.height))
         val working = if (scale < 1f) bitmap.scale(
             (bitmap.width * scale).roundToInt().coerceAtLeast(1),
             (bitmap.height * scale).roundToInt().coerceAtLeast(1), true) else bitmap
         try {
-            var timedOut = false
-            var engineFailed = false
-            var confidence = 0
-            val multilingual = try {
-                val engine = arabicEngine()
-                engine.setImage(working)
-                var active = true
-                val timeout = timer.schedule({
-                    synchronized(stopLock) {
-                        if (active) { timedOut = true; engine.stop() }
+            val deadline = SystemClock.elapsedRealtime() + 30_000
+            val pass = recognize(working, TessBaseAPI.PageSegMode.PSM_AUTO, 12_000)
+            val latinResult = try {
+                Tasks.await(latin.process(InputImage.fromBitmap(working, 0)), 8, TimeUnit.SECONDS)
+            } catch (_: InterruptedException) { Thread.currentThread().interrupt(); null }
+            catch (_: Exception) { null }
+            val hasArabic = pass.text.count { it in '\u0600'..'\u06FF' && it.isLetter() } >= 3
+            var selected = if (hasArabic && pass.confidence >= 20) pass.text else
+                latinResult?.text?.trim().orEmpty().ifBlank { pass.text.takeIf { pass.confidence >= 20 }.orEmpty() }
+            var missingNumbers = false
+            if (hasArabic && !pass.failed && !pass.timedOut) {
+                // Automatic page layout can drop short reference-number rows on Arabic forms.
+                // Locate missing numeric rows with the Latin detector and reread their full-width
+                // strip, including the Arabic label. Never append an unlabelled guessed number.
+                val candidates = latinResult?.textBlocks.orEmpty().flatMap { it.lines }
+                    .filter { line -> numericTokens(line.text).any { it !in numericTokens(selected) } }
+                    .take(4)
+                for (line in candidates) {
+                    if (SystemClock.elapsedRealtime() >= deadline || Thread.currentThread().isInterrupted) break
+                    val box = line.boundingBox ?: continue
+                    val padding = (box.height() / 4).coerceIn(6, 24)
+                    val top = (box.top - padding).coerceIn(0, working.height - 1)
+                    val bottom = (box.bottom + padding).coerceIn(top + 1, working.height)
+                    val strip = Bitmap.createBitmap(working, 0, top, working.width, bottom - top)
+                    val recovered = try {
+                        recognize(strip, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE,
+                            minOf(4000L, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1)))
+                    } finally { if (strip !== working) strip.recycle() }
+                    if (recovered.confidence >= 20 && numericTokens(recovered.text).any { it in numericTokens(line.text) }) {
+                        selected = DocumentTextMerge.merge(selected, recovered.text)
                     }
-                }, 15, TimeUnit.SECONDS)
-                try {
-                    // HOCR uses Tesseract's cancellation monitor; getUTF8Text alone does not.
-                    engine.getHOCRText(0)
-                    synchronized(stopLock) { active = false }
-                    timeout.cancel(false)
-                    if (timedOut || Thread.currentThread().isInterrupted) "" else {
-                        confidence = engine.meanConfidence()
-                        engine.getUTF8Text().orEmpty().trim()
-                    }
-                } finally {
-                    synchronized(stopLock) { active = false }
-                    timeout.cancel(false)
-                    engine.clear()
                 }
-            } catch (_: Exception) { engineFailed = true; "" }
-            // The multilingual engine retains the layout of mixed Arabic/Latin pages.
-            val hasArabic = multilingual.count { it in '\u0600'..'\u06FF' && it.isLetter() } >= 3
-            val selected = if (hasArabic && confidence >= 20) multilingual else {
-                val latinText = try {
-                    Tasks.await(latin.process(InputImage.fromBitmap(working, 0)), 12, TimeUnit.SECONDS).text.trim()
-                } catch (_: InterruptedException) { Thread.currentThread().interrupt(); "" }
-                catch (_: Exception) { "" }
-                latinText.ifBlank { multilingual.takeIf { confidence >= 20 }.orEmpty() }
+                missingNumbers = candidates.any { line -> numericTokens(line.text).any { it !in numericTokens(selected) } }
             }
             val note = when {
-                engineFailed -> "تعذر تشغيل قارئ العربية؛ قد يكون النص المقروء ناقصاً."
-                timedOut -> "لم تكتمل قراءة الصورة ضمن المهلة؛ راجع النص المقروء."
+                pass.failed -> "تعذر تشغيل قارئ العربية؛ قد يكون النص المقروء ناقصاً."
+                pass.timedOut -> "لم تكتمل قراءة الصورة ضمن المهلة؛ راجع النص المقروء."
                 selected.isBlank() -> "لم أجد نصاً واضحاً في الصورة؛ قد تكون فارغة أو تحتاج صورة أوضح."
-                hasArabic && confidence < 55 -> "بعض الكلمات غير واضحة؛ راجع الأسماء والأرقام في الأصل."
+                missingNumbers -> "بعض الأرقام لم تُقرأ بوضوح؛ راجع أرقام المرجع والتواريخ في الأصل."
+                hasArabic && pass.confidence < 55 -> "بعض الكلمات غير واضحة؛ راجع الأسماء والأرقام في الأصل."
                 else -> null
             }
             return DocumentReadResult(selected.take(MAX_CHARS), note ?: if (selected.length > MAX_CHARS) "النص طويل؛ حُفظ أول $MAX_CHARS حرف للبحث." else null, ocrPages = 1)
