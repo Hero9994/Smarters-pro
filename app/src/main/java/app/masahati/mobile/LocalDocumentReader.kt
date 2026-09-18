@@ -137,7 +137,7 @@ class LocalDocumentReader(context: Context) : Closeable {
     }
 
     private fun numericTokens(value: String): Set<String> =
-        Regex("[0-9٠-٩]{2,}(?:[./,-][0-9٠-٩]+)*").findAll(value).map { match ->
+        Regex("[+−-]?[0-9٠-٩]{2,}(?:[./,-][0-9٠-٩]+)*").findAll(value).map { match ->
             match.value.map { char -> if (char in '٠'..'٩') ('0'.code + (char - '٠')).toChar() else char }.joinToString("")
         }.toSet()
 
@@ -157,6 +157,7 @@ class LocalDocumentReader(context: Context) : Closeable {
             var selected = if (hasArabic && pass.confidence >= 20) pass.text else
                 latinResult?.text?.trim().orEmpty().ifBlank { pass.text.takeIf { pass.confidence >= 20 }.orEmpty() }
             var missingNumbers = false
+            var unreadableNumericLabels = false
             if (hasArabic && !pass.failed && !pass.timedOut) {
                 // Forms contain isolated fields that AUTO can discard as layout noise. The
                 // Latin detector can miss the same field, so it must not be the only signal
@@ -171,7 +172,8 @@ class LocalDocumentReader(context: Context) : Closeable {
                 }
                 // Automatic page layout can drop short reference-number rows on Arabic forms.
                 // Locate missing numeric rows with the Latin detector and reread their full-width
-                // strip, including the Arabic label. Never append an unlabelled guessed number.
+                // strip, including the Arabic label. If the label is unreadable, preserve a
+                // number only when two recognizers agree, and report the missing context.
                 val candidates = latinResult?.textBlocks.orEmpty().flatMap { it.lines }
                     .filter { line -> numericTokens(line.text).any { it !in numericTokens(selected) } }
                     .take(4)
@@ -184,13 +186,26 @@ class LocalDocumentReader(context: Context) : Closeable {
                     val top = (box.top - padding).coerceIn(0, working.height - 1)
                     val bottom = (box.bottom + padding).coerceIn(top + 1, working.height)
                     val strip = Bitmap.createBitmap(working, 0, top, working.width, bottom - top)
-                    val recovered = try {
-                        recognize(strip, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK,
+                    try {
+                        val expected = numericTokens(line.text)
+                        val recovered = recognize(strip, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK,
                             minOf(4000L, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1)))
+                        if (recovered.confidence >= 20 && numericTokens(recovered.text).any { it in expected }) {
+                            selected = DocumentTextMerge.merge(selected, recovered.text)
+                        }
+                        if (expected.any { it !in numericTokens(selected) } && SystemClock.elapsedRealtime() < deadline &&
+                            !Thread.currentThread().isInterrupted) {
+                            // Raw-line mode bypasses Tesseract's row-rejection heuristics.
+                            // Do not merge its uncertain surrounding letters into the document.
+                            val raw = recognize(strip, RAW_LINE_SEGMENTATION,
+                                minOf(4000L, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1)))
+                            val verified = numericTokens(raw.text).intersect(expected) - numericTokens(selected)
+                            if (!raw.failed && !raw.timedOut && raw.confidence >= 50 && verified.isNotEmpty()) {
+                                selected = (selected + "\n" + verified.joinToString(" ")).trim()
+                                unreadableNumericLabels = true
+                            }
+                        }
                     } finally { if (strip !== working) strip.recycle() }
-                    if (recovered.confidence >= 20 && numericTokens(recovered.text).any { it in numericTokens(line.text) }) {
-                        selected = DocumentTextMerge.merge(selected, recovered.text)
-                    }
                 }
                 missingNumbers = candidates.any { line -> numericTokens(line.text).any { it !in numericTokens(selected) } }
             }
@@ -199,6 +214,7 @@ class LocalDocumentReader(context: Context) : Closeable {
                 pass.timedOut -> "لم تكتمل قراءة الصورة ضمن المهلة؛ راجع النص المقروء."
                 selected.isBlank() -> "لم أجد نصاً واضحاً في الصورة؛ قد تكون فارغة أو تحتاج صورة أوضح."
                 missingNumbers -> "بعض الأرقام لم تُقرأ بوضوح؛ راجع أرقام المرجع والتواريخ في الأصل."
+                unreadableNumericLabels -> "قُرئت بعض الأرقام دون الكلمات المحيطة بها؛ راجع معناها في الأصل."
                 hasArabic && pass.confidence < 55 -> "بعض الكلمات غير واضحة؛ راجع الأسماء والأرقام في الأصل."
                 else -> null
             }
@@ -325,6 +341,8 @@ class LocalDocumentReader(context: Context) : Closeable {
     }
 
     companion object {
+        // Tesseract PSM 13 is supported by the native engine but older Java enums omit it.
+        private const val RAW_LINE_SEGMENTATION = 13
         private const val MAX_SIDE = 2400
         const val MAX_CHARS = 24_000
     }

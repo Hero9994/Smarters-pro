@@ -135,6 +135,9 @@ class DocumentReaderInstrumentedTest {
                 if (!mixed.contains("7319")) logSyntheticMixedPage(reader, file)
                 assertArabicText(scanned)
                 assertArabicText(mixed)
+                if (mixed.lines().any { it.trim() == "7319" }) {
+                    assertTrue("An isolated number must disclose its unreadable label", result.note.orEmpty().contains("الكلمات المحيطة"))
+                }
             }
         } finally { file.delete() }
     }
