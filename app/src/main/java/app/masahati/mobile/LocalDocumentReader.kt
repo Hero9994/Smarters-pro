@@ -160,10 +160,10 @@ class LocalDocumentReader(context: Context) : Closeable {
             if (hasArabic && !pass.failed && !pass.timedOut) {
                 // Forms contain isolated fields that AUTO can discard as layout noise. The
                 // Latin detector can miss the same field, so it must not be the only signal
-                // for recovery. Sparse segmentation reads those fields independently while
-                // the original pass preserves the page's main reading order.
+                // for recovery. A uniform-block pass keeps short rows that automatic and
+                // sparse segmentation discard; the first pass preserves the page layout.
                 if (SystemClock.elapsedRealtime() < deadline && !Thread.currentThread().isInterrupted) {
-                    val fields = recognize(working, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                    val fields = recognize(working, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK,
                         minOf(8000L, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1)))
                     if (!fields.failed && !fields.timedOut && fields.confidence >= 20) {
                         selected = DocumentTextMerge.merge(selected, fields.text)
