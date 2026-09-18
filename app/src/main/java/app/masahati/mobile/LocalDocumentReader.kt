@@ -158,6 +158,17 @@ class LocalDocumentReader(context: Context) : Closeable {
                 latinResult?.text?.trim().orEmpty().ifBlank { pass.text.takeIf { pass.confidence >= 20 }.orEmpty() }
             var missingNumbers = false
             if (hasArabic && !pass.failed && !pass.timedOut) {
+                // Forms contain isolated fields that AUTO can discard as layout noise. The
+                // Latin detector can miss the same field, so it must not be the only signal
+                // for recovery. Sparse segmentation reads those fields independently while
+                // the original pass preserves the page's main reading order.
+                if (SystemClock.elapsedRealtime() < deadline && !Thread.currentThread().isInterrupted) {
+                    val fields = recognize(working, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                        minOf(8000L, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1)))
+                    if (!fields.failed && !fields.timedOut && fields.confidence >= 20) {
+                        selected = DocumentTextMerge.merge(selected, fields.text)
+                    }
+                }
                 // Automatic page layout can drop short reference-number rows on Arabic forms.
                 // Locate missing numeric rows with the Latin detector and reread their full-width
                 // strip, including the Arabic label. Never append an unlabelled guessed number.

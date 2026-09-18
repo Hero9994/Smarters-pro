@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.Matrix
 import android.net.Uri
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import androidx.test.core.app.ActivityScenario
@@ -19,6 +20,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
+import com.googlecode.tesseract.android.TessBaseAPI
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,7 +52,24 @@ class DocumentReaderInstrumentedTest {
 
     @Test fun readsActualArabicPixelsWithoutCloudAccess() {
         val bitmap = arabicPage()
-        try { LocalDocumentReader(context).use { assertArabicText(it.readBitmap(bitmap).text) } }
+        try {
+            LocalDocumentReader(context).use { reader ->
+                val result = reader.readBitmap(bitmap)
+                if (!result.text.contains("7319")) {
+                    // Only this synthetic fixture is logged, never a user's document. Keep
+                    // native segmentation diagnostics with the failed emulator test report.
+                    val recognize = LocalDocumentReader::class.java.getDeclaredMethod(
+                        "recognize", Bitmap::class.java, Integer.TYPE, java.lang.Long.TYPE
+                    ).apply { isAccessible = true }
+                    for (mode in listOf(TessBaseAPI.PageSegMode.PSM_AUTO,
+                        TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT)) {
+                        Log.w("MasahatiOCR", "Synthetic fixture mode $mode: ${recognize.invoke(reader, bitmap, mode, 8000L)}")
+                    }
+                    Log.w("MasahatiOCR", "Synthetic fixture reading note: ${result.note}")
+                }
+                assertArabicText(result.text)
+            }
+        }
         finally { bitmap.recycle() }
     }
 
