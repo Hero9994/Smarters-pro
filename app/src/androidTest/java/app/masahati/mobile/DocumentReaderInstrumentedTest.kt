@@ -6,6 +6,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.graphics.Matrix
+import android.net.Uri
+import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
+import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -40,12 +45,53 @@ class DocumentReaderInstrumentedTest {
     private fun assertArabicText(text: String) {
         assertTrue("Arabic words were lost: $text", text.contains("عقد") && (text.contains("محمد") || text.contains("المنزل")))
         assertTrue("Reference number was lost: $text", text.contains("7319"))
+        assertTrue("Expiry date was lost or reordered: $text", text.contains("30.09.2027"))
     }
 
     @Test fun readsActualArabicPixelsWithoutCloudAccess() {
         val bitmap = arabicPage()
         try { LocalDocumentReader(context).use { assertArabicText(it.readBitmap(bitmap).text) } }
         finally { bitmap.recycle() }
+    }
+
+    @Test fun importedJpegHonorsCameraOrientation() {
+        val bitmap = arabicPage()
+        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, Matrix().apply { setRotate(-90f) }, true)
+        val file = File.createTempFile("camera-", ".jpg", context.cacheDir)
+        try {
+            file.outputStream().use { rotated.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+            ExifInterface(file.absolutePath).apply {
+                setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
+                saveAttributes()
+            }
+            LocalDocumentReader(context).use { assertArabicText(it.readImage(file).text) }
+        } finally { rotated.recycle(); bitmap.recycle(); file.delete() }
+    }
+
+    @Test fun importsScannedPdfThroughActivityAndIndexesItWithoutCloudConsent() {
+        context.deleteDatabase("masahati_v05.db")
+        val db = MasahatiDatabase(context)
+        val space = db.createSpace("قراءة محلية")
+        val file = makeMixedPdf()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("openSpace", java.lang.Long.TYPE)
+                        .apply { isAccessible = true }.invoke(activity, space)
+                    MainActivity::class.java.getDeclaredMethod("handlePickedFile", Uri::class.java, java.lang.Boolean::class.java)
+                        .apply { isAccessible = true }.invoke(activity, uri, false)
+                }
+                val deadline = System.currentTimeMillis() + 60_000
+                while (System.currentTimeMillis() < deadline && db.listMessages(space).none { it.role == "assistant" }) Thread.sleep(100)
+                val saved = db.listMessages(space).single { it.kind == "file" }
+                assertArabicText(saved.ocrText.orEmpty())
+                assertFalse(saved.cloudAnalysisAllowed)
+                assertTrue(File(saved.filePath!!).isFile)
+                assertTrue(db.search("7319", 10).any { it.id == saved.id })
+                assertTrue(db.listMessages(space).any { it.text.contains("بدون إرساله للتحليل السحابي") })
+            }
+        } finally { db.close(); context.deleteDatabase("masahati_v05.db"); file.delete() }
     }
 
     @Test fun keepsGermanTextAndOcrReadsScannedAndMixedPdfPages() {
@@ -55,7 +101,7 @@ class DocumentReaderInstrumentedTest {
                 val result = reader.readPdf(file)
                 assertEquals(3, result.totalPages)
                 assertEquals(3, result.processedPages)
-                assertEquals(2, result.ocrPages)
+                assertEquals("PDF reading failed: ${result.note}\n${result.text}", 2, result.ocrPages)
                 assertTrue(result.text.contains("Vertragsende 30.09.2027"))
                 assertTrue(result.text.contains("Mixed page header"))
                 val scanned = result.text.substringAfter("صفحة 2:").substringBefore("صفحة 3:")
@@ -93,6 +139,27 @@ class DocumentReaderInstrumentedTest {
                 assertNotNull(pdf.note)
             }
         } finally { bitmap.recycle(); broken.delete() }
+    }
+
+    @Test fun unsuccessfulRereadPreservesExistingTextAndConsent() {
+        context.deleteDatabase("masahati_v05.db")
+        val db = MasahatiDatabase(context)
+        val space = db.createSpace("قراءة محلية")
+        val file = File.createTempFile("broken-", ".pdf", context.cacheDir).apply { writeText("%PDF-1.4 broken") }
+        val id = db.insertFile(space, "user", "old.pdf", file.absolutePath, "application/pdf", "previous readable text")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("rereadDocument", MessageRow::class.java)
+                        .apply { isAccessible = true }.invoke(activity, db.getMessage(id))
+                }
+                val deadline = System.currentTimeMillis() + 10_000
+                while (System.currentTimeMillis() < deadline && db.getMessage(id)?.extractionNote == null) Thread.sleep(50)
+                assertEquals("previous readable text", db.getMessage(id)!!.ocrText)
+                assertFalse(db.getMessage(id)!!.cloudAnalysisAllowed)
+                assertTrue(db.getMessage(id)!!.extractionNote.orEmpty().contains("احتفظت بالنص السابق"))
+            }
+        } finally { db.close(); context.deleteDatabase("masahati_v05.db"); file.delete() }
     }
 
     private fun makeMixedPdf(): File {

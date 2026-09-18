@@ -11,17 +11,21 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.util.Log
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.googlecode.tesseract.android.TessBaseAPI
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDResources
 import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.rendering.PDFRenderer
+import com.tom_roush.pdfbox.rendering.ImageType
 import java.io.Closeable
 import java.io.File
 import java.security.MessageDigest
@@ -141,7 +145,8 @@ class LocalDocumentReader(context: Context) : Closeable {
             val selected = if (hasArabic && confidence >= 20) multilingual else {
                 val latinText = try {
                     Tasks.await(latin.process(InputImage.fromBitmap(working, 0)), 12, TimeUnit.SECONDS).text.trim()
-                } catch (_: Exception) { "" }
+                } catch (_: InterruptedException) { Thread.currentThread().interrupt(); "" }
+                catch (_: Exception) { "" }
                 latinText.ifBlank { multilingual.takeIf { confidence >= 20 }.orEmpty() }
             }
             val note = when {
@@ -168,11 +173,11 @@ class LocalDocumentReader(context: Context) : Closeable {
         var ocrCount = 0
         val started = SystemClock.elapsedRealtime()
         try {
-            document = runCatching { PDDocument.load(file) }.getOrNull()
+            document = runCatching { PDDocument.load(file, MemoryUsageSetting.setupMixed(16L * 1024L * 1024L).setTempDir(app.cacheDir)) }.getOrNull()
             runCatching {
                 descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                 renderer = PdfRenderer(descriptor!!)
-            }
+            }.onFailure { Log.w("MasahatiOCR", "Native PDF reader unavailable", it) }
             total = maxOf(document?.numberOfPages ?: 0, renderer?.pageCount ?: 0)
             if (total == 0) return DocumentReadResult("", "تعذر قراءة PDF؛ قد يكون محمياً بكلمة مرور أو تالفاً.", totalPages = 0, processedPages = 0)
             val stripper = PDFTextStripper()
@@ -188,24 +193,21 @@ class LocalDocumentReader(context: Context) : Closeable {
                 val hasImage = runCatching { document?.getPage(index)?.resources?.let { hasLargeImage(it) } == true }.getOrDefault(true)
                 var pageText = embedded
                 if (!DocumentTextMerge.useful(embedded) || hasImage) {
-                    if (ocrCount >= maxOcrPages || renderer == null) {
+                    if (ocrCount >= maxOcrPages || (renderer == null && document == null)) {
                         notes += "بعض صفحات الصور لم تُقرأ؛ حد القراءة $maxOcrPages صفحة مصوّرة لكل ملف."
                     } else {
                         try {
-                            val reading = renderer!!.openPage(index).use { page ->
-                                val factor = minOf(3f, MAX_SIDE.toFloat() / max(page.width, page.height))
-                                val bitmap = createBitmap((page.width * factor).roundToInt().coerceAtLeast(1),
-                                    (page.height * factor).roundToInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-                                try {
-                                    bitmap.eraseColor(Color.WHITE)
-                                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                    ocrCount++
-                                    readBitmap(bitmap)
-                                } finally { bitmap.recycle() }
-                            }
+                            val bitmap = renderPdfPage(document, renderer, index)
+                            val reading = try {
+                                ocrCount++
+                                readBitmap(bitmap)
+                            } finally { bitmap.recycle() }
                             pageText = DocumentTextMerge.merge(embedded, reading.text)
                             reading.note?.let { notes += "صفحة ${index + 1}: $it" }
-                        } catch (_: Exception) { notes += "تعذرت قراءة صورة الصفحة ${index + 1}." }
+                        } catch (error: Exception) {
+                            Log.w("MasahatiOCR", "PDF page ${index + 1} could not be rendered", error)
+                            notes += "تعذرت قراءة صورة الصفحة ${index + 1}."
+                        }
                     }
                 }
                 processed++
@@ -226,6 +228,27 @@ class LocalDocumentReader(context: Context) : Closeable {
             runCatching { document?.close() }
         }
         return DocumentReadResult(result.toString(), notes.take(4).joinToString("\n").takeIf(String::isNotBlank), total, processed, ocrCount)
+    }
+
+    private fun renderPdfPage(document: PDDocument?, renderer: PdfRenderer?, index: Int): Bitmap {
+        if (renderer != null) {
+            try {
+                return renderer.openPage(index).use { page ->
+                    val factor = minOf(3f, MAX_SIDE.toFloat() / max(page.width, page.height))
+                    val bitmap = createBitmap((page.width * factor).roundToInt().coerceAtLeast(1),
+                        (page.height * factor).roundToInt().coerceAtLeast(1))
+                    try {
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        bitmap
+                    } catch (error: Exception) { bitmap.recycle(); throw error }
+                }
+            } catch (error: Exception) { Log.w("MasahatiOCR", "Native page rendering failed; trying PDFBox", error) }
+        }
+        val source = requireNotNull(document)
+        val box = source.getPage(index).cropBox
+        val factor = minOf(3f, MAX_SIDE / max(box.width, box.height).coerceAtLeast(1f))
+        return PDFRenderer(source).renderImage(index, factor, ImageType.RGB)
     }
 
     private fun hasLargeImage(resources: PDResources, depth: Int = 0): Boolean {

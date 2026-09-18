@@ -59,6 +59,19 @@ class AgentActionsInstrumentedTest {
         assertNull(LocalCommandParser.analyze("لا تنقل آخر ملف إلى مساحة الدراسة", "أوراقي"))
     }
 
+    @Test fun clarificationUpdatesCapturedDocumentAndLastFileLookupIgnoresNewArrivals() {
+        val space = db.createSpace("أوراقي")
+        val old = db.insertFile(space,"user","selected.pdf","/selected","application/pdf","old")
+        repeat(25) { db.insertText(space,"assistant","رسالة") }
+        val id = db.insertText(space,"user","هاي ورقة تسمح بالنقل إلى الطبيب")
+        val later = db.insertFile(space,"user","later.pdf","/later","application/pdf","new")
+        assertEquals(old, db.lastFileMessage(space, db.getMessage(id))!!.id)
+        val parsed = LocalCommandParser.analyze(db.getMessage(id)!!.text,"أوراقي",true)!!
+        AgentActionExecutor(context, db).execute(db.getMessage(id)!!,parsed.optJSONArray("actions"),old,old,old)
+        assertTrue(db.getMessage(old)!!.summary.orEmpty().contains("الطبيب"))
+        assertNull(db.getMessage(later)!!.summary)
+    }
+
     @Test fun requiresConfirmationBeforeAnyProposedMutation() {
         val space = db.createSpace("أوراقي")
         val id = db.insertText(space,"user","اعمل مساحة باسم جديدة")

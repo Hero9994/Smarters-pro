@@ -916,6 +916,7 @@ class MainActivity : ComponentActivity() {
         // Capture document focus at request time, before another file or chat is opened.
         val focusedDocument = sourceMessage.takeIf { it.kind == "file" }
             ?: db.focusedDocument(spaceId) ?: db.lastFileMessage(spaceId)
+        val lastDocumentBeforeRequest = db.lastFileMessage(spaceId, sourceMessage)
         busyCount++
         if (currentSpaceId == spaceId) renderMessages(spaceId)
         worker.execute {
@@ -1151,7 +1152,7 @@ class MainActivity : ComponentActivity() {
                 val directDocumentResult = if (localReminderResult == null) {
                     when {
                         sourceMessage.kind == "file" -> DocumentIntelligence.blankScanResult(sourceMessage)
-                        else -> LocalCommandParser.analyze(content, spaceTitle)
+                        else -> LocalCommandParser.analyze(content, spaceTitle, focusedDocument != null)
                             ?: DocumentIntelligence.directAnswer(content, focusedDocument)
                     }
                 } else null
@@ -1256,7 +1257,7 @@ class MainActivity : ComponentActivity() {
                 val execution = AgentActionExecutor(this@MainActivity, db).execute(
                     sourceMessage, result.optJSONArray("actions"), focusedDocument?.id,
                     recent.lastOrNull { it.role == "user" }?.id,
-                    recent.lastOrNull { it.kind == "file" }?.id,
+                    lastDocumentBeforeRequest?.id,
                     reminderResolved = localReminderResult != null
                 )
                 if (execution.reminderCreated) runOnUiThread {
@@ -2941,6 +2942,8 @@ class MainActivity : ComponentActivity() {
                 if (m.filePath != null) menu.add("فتح")
                 menu.add("تفاصيل المستند")
                 menu.add("إعداد التحليل الذكي")
+                if (m.mimeType?.startsWith("image/") == true || m.mimeType == "application/pdf" ||
+                    m.displayName?.endsWith(".pdf", ignoreCase = true) == true) menu.add("إعادة قراءة النص محلياً")
                 if (!m.ocrText.isNullOrBlank()) menu.add("نسخ النص")
             } else {
                 menu.add("نسخ")
@@ -2959,6 +2962,7 @@ class MainActivity : ComponentActivity() {
                         "حلّل المستند «${m.displayName.orEmpty()}» اعتماداً على النص المقروء فقط.",
                         db.getSpace(m.spaceId)?.title.orEmpty()
                     )
+                    "إعادة قراءة النص محلياً" -> rereadDocument(m)
                     "نسخ", "نسخ النص" -> copyMessage(m)
                     "تمييز بنجمة ★" -> {
                         db.setMessageStarred(m.id, true)
@@ -2976,6 +2980,44 @@ class MainActivity : ComponentActivity() {
                 true
             }
             show()
+        }
+    }
+
+    private fun rereadDocument(message: MessageRow) {
+        val file = message.filePath?.let(::File)?.takeIf { it.isFile } ?: run {
+            Toast.makeText(this, "الملف الأصلي غير موجود على الجهاز", Toast.LENGTH_LONG).show()
+            return
+        }
+        busyCount++
+        currentSpaceId?.let(::renderMessages)
+        worker.execute {
+            var notice = ""
+            try {
+                val reading = if (message.mimeType == "application/pdf" || message.displayName?.endsWith(".pdf", true) == true) {
+                    documentReader.readPdf(file)
+                } else documentReader.readImage(file)
+                if (db.getMessage(message.id) != null) {
+                    if (reading.text.isBlank()) {
+                        notice = "لم تنجح إعادة القراءة؛ احتفظت بالنص السابق. " + reading.note.orEmpty()
+                        db.updateExtractionNote(message.id, notice)
+                    } else {
+                        db.updateOcr(message.id, reading.text)
+                        db.updateExtractionNote(message.id, reading.note)
+                        AlphaDocumentProcessor.indexNewFile(db, message.id, file, reading.text)
+                        notice = "أعيدت قراءة النص محلياً وأصبح متاحاً للبحث."
+                    }
+                }
+            } catch (_: Exception) {
+                notice = "تعذرت إعادة القراءة؛ بقي الملف والنص السابق محفوظين."
+            } finally {
+                runOnUiThread {
+                    busyCount = (busyCount - 1).coerceAtLeast(0)
+                    if (!isFinishing && !isDestroyed) {
+                        currentSpaceId?.let(::renderMessages)
+                        if (notice.isNotBlank()) Toast.makeText(this, notice, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
     }
 

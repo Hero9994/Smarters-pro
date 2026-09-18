@@ -612,9 +612,12 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }
     }
 
-    fun lastFileMessage(spaceId: Long): MessageRow? {
+    fun lastFileMessage(spaceId: Long, beforeMessage: MessageRow? = null): MessageRow? {
+        val before = if (beforeMessage == null) "" else " AND (created_at < ? OR (created_at = ? AND id < ?))"
+        val arguments = mutableListOf(spaceId.toString())
+        beforeMessage?.let { arguments += listOf(it.createdAt.toString(), it.createdAt.toString(), it.id.toString()) }
         val c = readableDatabase.query(
-            "messages", null, "space_id=? AND kind='file' AND deleted_at IS NULL", arrayOf(spaceId.toString()), null, null,
+            "messages", null, "space_id=? AND kind='file' AND deleted_at IS NULL$before", arguments.toTypedArray(), null, null,
             "created_at DESC, id DESC", "1"
         )
         return c.use { if (it.moveToFirst()) messageFrom(it) else null }

@@ -125,7 +125,8 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: gradle :app:connectedDebugAndroidTest --stacktrace
+          script: |
+            gradle :app:connectedDebugAndroidTest --stacktrace || { adb logcat -d -s MasahatiOCR:W AndroidRuntime:E; exit 1; }
 
       - name: Upload instrumentation reports
         if: always()
