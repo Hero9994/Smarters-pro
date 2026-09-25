@@ -27,7 +27,7 @@ export function comparable(v: string) {
   return v.normalize("NFKC").replace(/[٠-٩۰-۹]/g, c => String(c.charCodeAt(0) % 16))
     .replace(/[\u200e\u200f\u061c]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 }
-export const DATE_PATTERN = /(?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-](?:19|20)\d{2}/g;
+export const DATE_PATTERN = /(?<!\d)(?:(?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-](?:19|20)\d{2})(?!\d)/g;
 export const DATE_ROLES: Record<string, RegExp> = {
   issue: /ausstellungsdatum|ausgestellt am|rechnungsdatum|bescheiddatum|issued? (?:on|date)|تاريخ الإصدار|تاريخ الاصدار/iu,
   due: /fällig|faellig|zahlbar bis|frist(?:\s+bis)?|spätestens(?:\s+bis)?|spaetestens(?:\s+bis)?|(?:zahlen|überweisen|einreichen|vorlegen).{0,30}\bbis\b|due date|deadline|pay by|آخر موعد|اخر موعد|يجب قبل|تاريخ الاستحقاق/iu,
@@ -93,6 +93,8 @@ export function understandDocument(raw: any, source: string, displayName: string
   method: "semantic" | "rules"; model: string; extractionNote?: string; truncated?: boolean; failure?: string;
 }) {
   const evidence: Evidence[] = [], issues = new Set<string>();
+  // Do not let a model silently omit an impossible calendar date from otherwise plausible output.
+  if ([...comparable(source).matchAll(DATE_PATTERN)].some(m => !normalizedDate(m[0]))) issues.add("uncertain_date");
   const readFact = (item: any, field: string): Fact | null => {
     if (!item?.value) return null;
     const value = clip(item.value, 160), excerpt = quote(source, item.excerpt);
@@ -143,7 +145,7 @@ export function understandDocument(raw: any, source: string, displayName: string
   if (options.truncated) issues.add("truncated_source");
   for (const issue of list(raw?.issues)) if (["multiple_documents", "unreadable_text", "contradictory_values"].includes(issue)) issues.add(issue);
   if (!source.trim()) issues.add("unreadable_text");
-  const critical = ["partial_ocr", "truncated_source", "multiple_documents", "unreadable_text", "contradictory_values", "conflicting_dates", "conflicting_amounts"];
+  const critical = ["partial_ocr", "truncated_source", "multiple_documents", "unreadable_text", "uncertain_date", "contradictory_values", "conflicting_dates", "conflicting_amounts"];
   const actionRequired = status === "required" && !critical.some(i => issues.has(i));
   if (actionQuote) evidence.push({ field: "action_text", value: status, excerpt: actionQuote });
   for (const [field, item] of [["issue_date", issued], ["due_date", due], ["expiry_date", expiry], ["amount_text", amount]] as const) {

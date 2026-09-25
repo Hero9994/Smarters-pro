@@ -13,7 +13,11 @@ test("cancellation, invoice, benefit refusal and medical transport are not contr
     ["medical_transport", "Verordnung einer Krankenbeförderung\nTransport zum Arzt. Versicherungsvertrag: KV-123."],
     ["payslip", "Entgeltabrechnung\nArbeitsvertrag AV-123\nNetto: 2.200,00 EUR"],
     ["bank_statement", "Kontoauszug\nBuchung: Rechnung zum Vertrag AB-123"],
-  ]) assert.equal(read(text).document.doc_type, type, text);
+  ]) {
+    const doc = read(text).document;
+    assert.equal(doc.doc_type, type, text);
+    assert.ok(!doc.issue_codes.includes("multiple_documents"), text);
+  }
 });
 
 test("paid invoice distinguishes total, paid and remaining and must not create payment task", () => {
@@ -109,4 +113,16 @@ test("fallback and blank documents never advertise semantic analysis or near cer
   assert.equal(result.confidence, 0.5);
   assert.equal(read("", {}).confidence, 0);
   assert.equal(read("", {}).document.doc_type, "other");
+});
+
+test("omitted invalid dates and mixed document headings still require review", () => {
+  const text = "Rechnung\nFällig am 31.02.2027\nBitte Unterlagen einreichen.";
+  const raw = limitedReading(text);
+  raw.dates = []; // A model can miss a value; that is not permission to hide the OCR defect.
+  const result = read(text, raw);
+  assert.equal(result.document.needs_date_review, true);
+  assert.equal(result.document.action_required, false);
+  const mixed = read("Rechnung\nBitte 50 EUR zahlen.\nEntgeltabrechnung\nNetto: 2000 EUR");
+  assert.ok(mixed.document.issue_codes.includes("multiple_documents"));
+  assert.equal(mixed.document.action_required, false);
 });

@@ -26,9 +26,16 @@ export function limitedReading(source: string) {
     ["official_notice", "government", /^(?:bescheid\b|قرار رسمي)/iu],
   ];
   let doc_type = "other", topic = "other", classification_excerpt = "";
+  const detectedTypes = new Set<string>();
   for (const [type, subject, pattern] of headings) {
     const line = lines.slice(0, 12).find(s => pattern.test(s));
-    if (line) { doc_type = type; topic = subject; classification_excerpt = line.slice(0, 500); break; }
+    if (line) {
+      const heading = line.match(pattern)?.[0].trim();
+      // A generic prefix of a specific heading (Verordnung...) or a reference
+      // in the body (Arbeitsvertrag AV-123) is not another document heading.
+      if (comparable(line.replace(/[.!?:]+$/u, "")) === comparable(heading ?? "")) detectedTypes.add(type);
+      if (!classification_excerpt) { doc_type = type; topic = subject; classification_excerpt = line.slice(0, 500); }
+    }
   }
   const dates: any[] = [], amounts: any[] = [], references: any[] = [];
   let organization: any = null;
@@ -63,6 +70,7 @@ export function limitedReading(source: string) {
   const actionLine = lines.find(s => actionStatus(s) === "required") ?? lines.find(s => ["none", "possible"].includes(actionStatus(s)));
   return {
     doc_type, topic, classification_excerpt, organization, references, amounts, dates, person_names: [],
+    issues: detectedTypes.size > 1 ? ["multiple_documents"] : [],
     action: actionLine ? { status: actionStatus(actionLine), excerpt: actionLine.slice(0, 500) } : null,
     language: /[\u0600-\u06ff]/u.test(source) ? "ar" : /rechnung|vertrag|bescheid|termin|verordnung/i.test(source) ? "de" : "unknown",
   };

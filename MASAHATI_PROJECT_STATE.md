@@ -1,3 +1,34 @@
+# Document-understanding continuation — 2026-09-25
+
+This section supersedes the earlier status below. User now wants the app to understand and classify papers intelligently. Branch: `alpha/recovery-reliability-2026-09-16`. Android source commit: `d854cb63f1ada36445d1509daa1aa268209ff842`.
+
+## Implemented
+
+- Replaced document-v2's keyword-count confidence shortcut and nested call to old v1 with a bounded semantic extraction request on every nonblank, consented document. The existing URL remains compatible; deployed function `masahati-document-alpha-v2` **v6** returns schema 3. No new account, paid model or provider key was enabled.
+- Prompt distinguishes communicative purpose: invoice vs contract mention, cancellation confirmation/request, benefits refusal, medical transport prescription, payslip, school invitation, etc. The ontology has 22 specific types plus `other`; this is schema coverage, NOT a validated accuracy claim for every type.
+- Structured source-checked issuer/names/references, separate date roles and amount roles, explicit action status, review reasons, original-language quotes. Numeric values must occur in real OCR quotes; dates also pass calendar/role checks. Missing, conflicting, fabricated, partially read and truncated information stays uncertain. A short action quote cannot hide negation in its full sentence. Model-generated actions remain an empty array.
+- Arabic summaries are generated from accepted fields. Advanced understanding and limited fallback are visibly distinct; raw percentage confidence is no longer shown for schema 3 in the new Android details dialog. A conservative internal confidence estimate is retained for old-client compatibility, not presented as measured accuracy.
+- Android sends up to 24k OCR characters with an explicit truncation flag, does not use an old filename/summary as factual evidence, retains structured limited output rather than replacing it with generic local chat, and preserves metadata/tasks when a generic reply has no document schema. Existing cloud-consent checks remain in place; no user document was used in testing.
+- Generated tasks require an original OCR excerpt. Reanalysis preserves the ID of an unchanged task and does not reopen a completed/skipped task. Uncertain analysis does not clear earlier tasks; a grounded explicit no-action result can clear obsolete open generated tasks. Existing spaces, layout and user filenames remain unchanged.
+
+## Verification and actual service limitation
+
+- Baseline live v4 returned a paid invoice as requiring payment, confidence 0.97, despite `Bitte nicht erneut überweisen`. A cancellation confirmation was classified `other`. These were synthetic probes.
+- Local backend regression suite now **23/23 PASS**. Seven synthetic document evaluations pass using the explicitly labelled rules fallback. Additional cases cover fabricated quotes, omitted negation, optional appeals, impossible/omitted dates, mixed document headings, and separate paid/remaining amounts.
+- Live deployed v5: **7/7 expected structured fallback results**, **0 semantic results**. Every request hit `provider_capacity`. This is NOT evidence that an LLM understood those documents. Post-v6 live regression status: PASS: an impossible date and a mixed-document file both suppressed automatic tasks. The impossible-date call returned a semantic needs-review result; the mixed-document call reported provider capacity. This confirms intermittent availability, not stability.
+- Current official BlockRun catalogue listed Lightning and Ultra unavailable; Nano Omni was listed available, but its real completion request returned HTTP 429 `FREE_MODEL_FAILED`. Document requests now use the free Nano Omni alias and report actual response model when available, with a 23-second bound. Optional `MASAHATI_CHAT_URL/MODEL/API_KEY` remains server-only and fails closed on partial config. The assistant function v28 is unchanged.
+- Android CI [36160858417](https://github.com/Hero9994/Smarters-pro/actions/runs/36160858417): PENDING_FINAL_ANDROID. Four new instrumentation cases cover repeated analysis/task completion, metadata preservation, fake evidence/partial OCR, and Arabic structured details. Earlier OCR/conversation tests are still included.
+- A small subsequent backend-only patch detects impossible dates even if the model omits them, and warns on distinct standalone headings in multi-document files without treating a generic heading prefix or contract reference as a second paper. Local tests and deployed v6 cover this patch. Android source remains the commit above.
+
+## Remaining work — do not overclaim
+
+- The requested strong, reliable semantic understanding is still blocked by free-provider capacity. We have prepared and tested the extraction/verification pipeline; real-model accuracy on varied papers is unverified. A stable provider requires an explicit user choice/budget plus actual user authentication and a server spending limit before paid traffic. The public app key is not user identity or sufficient billing protection.
+- Quotes support provenance, not a formal proof of semantic truth. Handwriting, tables, layout, multilingual OCR and novel document wording can still be misread. Current cloud input is OCR text, not original page images. Date-role/amount-role guards and emergency headings are deliberately conservative and can miss valid information.
+- Local-only documents keep their existing local processing and consent boundary; no new local semantic classifier was claimed. No automatic movement into new spaces was added.
+- Existing APK signing mismatch remains unresolved; no compatible update APK was delivered or installed. Original app data must be preserved. Physical Samsung/real-document validation remains outstanding.
+
+---
+
 # Current continuation — 2026-09-25
 
 This section supersedes the older status below. Active branch remains `alpha/recovery-reliability-2026-09-16`.
