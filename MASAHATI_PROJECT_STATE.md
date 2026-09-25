@@ -1,31 +1,44 @@
-# Current continuation — 2026-09-18
+# Current continuation — 2026-09-25
 
 This section supersedes the older status below. Active branch remains `alpha/recovery-reliability-2026-09-16`.
 
 ## Implemented in the OCR/conversation phase
 
-- Local Arabic/German/English OCR via Tesseract4Android 4.9.0 and pinned tessdata_fast packs. Packs are downloaded and SHA-256-verified at build time, bundled in the APK, then verified/extracted into private no-backup storage. Phone OCR makes no network requests. ML Kit remains the Latin fallback.
+- Local Arabic/German/English OCR via Tesseract4Android 4.9.0 and pinned tessdata_fast packs. Packs are downloaded and SHA-256-verified at build time, bundled in the APK, then verified/extracted into private no-backup storage. Phone OCR makes no network requests. ML Kit remains the Latin fallback. Arabic reading combines automatic and uniform-block page segmentation to recover isolated form fields; detected missing numeric rows can also be read as individual lines. If the surrounding label remains unreadable, raw-line recovery retains only numeric values independently agreed with ML Kit, preserves number signs/separators, and records an explicit missing-label diagnostic; uncertain surrounding letters are not merged. The per-image work budget is 30 seconds.
 - Shared reader for scanner pages, image attachments (including EXIF orientation) and PDFs. PDF text layers are preserved; image-only and mixed pages are rendered for OCR. Native rendering has a PDFBox fallback. Read limits: 2,400-pixel longest side; 24,000 extracted characters; 120 PDF pages, up to 20 OCR pages, 90-second document budget plus one bounded page in flight. PDFBox uses a 16 MiB memory cache with private disk overflow.
 - SQLite v14 stores `extraction_note` separately from actual OCR text. Partial/unreadable/low-confidence results are visible on file cards, included in AI context and preserved in exports/imports. Existing files gain a local re-read menu item; blank re-reads preserve previous text. OCR is approximate, especially handwriting, faint text, complex layouts and low-quality photos.
 - Extracted `AgentActionExecutor` and `AgentActionPolicy`. Only explicit user commands can mutate data; confirmation flags are honored. File operations use captured IDs and last-file lookup before the request. Added actual local creation of spaces, file rename/move, search and document clarification, including local-only spaces. No default/sample spaces or UI redesign.
 - Model-generated actions are disabled; deterministic commands run separately. Remote conversation preserves user/assistant roles and latest corrections, treats documents as data, and reports the actual returned model. The local prompt has the same boundaries.
 - Recovered and versioned the assistant Edge Function under `supabase/functions/masahati-agent-dev`. Production deployed as version 28 on 2026-09-18. Default provider and existing quota/auth semantics are retained. Optional server-only provider configuration is prepared but no new provider/key/account/billing is enabled.
 
-## Validation and remaining gates
+## Validated outcome
 
-- Pure backend boundary/calendar/provider tests: 9 passed.
-- Live v28 probes: first run passed correction, pronoun resolution, German invoice amount, unknown contract owner and negated actions (5/6). Arithmetic returned an honest unavailability response on the first run, then correctly answered 7 on one retry (~21 seconds). This is NOT a six-of-six uninterrupted reliability claim. Earlier direct provider probes explicitly returned `FREE_MODEL_FAILED` (free capacity exhausted). Do not claim the free provider is reliable or solve this merely by switching to its old quality strategy.
-- CI `35317612140`, Android commit `ac6457d9d606939cf2428bc5ee16ced027c6e894`: build, lint, unit tests, APK identity and backend regressions PASSED. Both Android 8 and 16 ran 37 tests. API 26 passed Arabic-image OCR but failed PDF mixed-page reading (0 OCR pages). API 36 read Arabic text but dropped the short reference-number row in two OCR cases. These are real OCR coverage failures, not test-label mismatches. A PDFBox rendering fallback and additional EXIF/import/re-read/date/command tests were then added. These need the subsequent CI result recorded here before declaring completion.
-- Latest code commit entering final verification: `36b1bc1a0a2f4618c01b0fb50a0307cb74cbcbb4`.
-- Verified the OCR dependency's four arm64 native libraries have 16 KiB LOAD alignment. This does not replace physical Samsung testing.
-- Old installation signing is still unresolved. Original signer is recorded below. The existing GitHub token cannot manage Actions secrets (public-key read returned HTTP 403); no signing key was created or exposed. Do not instruct uninstalling or distribute a differently signed APK as an in-place update.
-- Server provider settings: `MASAHATI_CHAT_URL`, `MASAHATI_CHAT_MODEL`, `MASAHATI_CHAT_API_KEY` together. Partial configuration fails closed. Before paid use, add real user authentication and a spending limit; the current public API key and IP quota are not user authentication.
+- Android source commit **`06a3cfa4f26df7170b7ab87a7b448f17b4cb4327`**, [CI run `35346290710`](https://github.com/Hero9994/Smarters-pro/actions/runs/35346290710): **all gates PASSED**. The run completed on 2026-09-18; final job logs were reviewed on 2026-09-25. Build, lint, unit tests and APK identity/signature checks passed. All **41/41 instrumentation tests passed on API 26**, and all **41/41 passed on API 36**, with zero failed or skipped tests. Backend: **9 pure tests plus 4 live deterministic checks passed**.
+- Successful job IDs: verify `105603531817`; API 26 `105603531828`; API 36 `105603531564`; backend `105605183645`. Later documentation-only commits do not change this validated Android source.
+- Coverage includes actual Arabic pixels, rotated JPEG import, image-only and mixed PDFs, Activity import/search with cloud consent disabled, partial-reading limits, preservation of existing text after a failed re-read, local commands/captured document targets, and existing composer/migration/reminder regressions. Exact Arabic-word, reference-number and date assertions were retained. Isolated numeric recovery must additionally show the missing-label warning.
+- The mixed-page fixture can still have an unreadable Arabic label. Its number is recovered only when two local recognizers agree, and the UI/context receives a warning about missing surrounding words. Passing tests do not mean every glyph was read, OCR is lossless, or the app is bug-free.
+- Supabase project checked on 2026-09-25: **ACTIVE_HEALTHY**. This is a project-health observation, not a fresh assessment of model reasoning or provider availability.
+- Live v28 probes on 2026-09-18: first run passed correction, pronoun resolution, German invoice amount, unknown contract owner and negated actions (5/6). Arithmetic first returned an unavailability response, then correctly answered 7 on one retry (~21 seconds). Earlier direct provider probes explicitly returned `FREE_MODEL_FAILED` (free capacity exhausted). Do not claim uninterrupted reliability or that switching to the old quality strategy solves it.
+- Verified the OCR dependency's four arm64 native libraries have 16 KiB LOAD alignment. Physical Samsung testing and real-paper scanner/OCR validation remain outstanding.
+
+## Remaining release and service work
+
+- Old installation signing is unresolved. Original signer is recorded below. The existing GitHub token cannot manage Actions secrets (public-key read returned HTTP 403); no signing key was created or exposed. Do not instruct uninstalling or distribute a differently signed APK as an in-place update.
+- A dependable AI provider remains necessary. Prepared server settings: `MASAHATI_CHAT_URL`, `MASAHATI_CHAT_MODEL`, `MASAHATI_CHAT_API_KEY` together; partial configuration fails closed. No new provider/account/billing was enabled. Before paid use, add real user authentication and a spending limit; the current public API key and IP quota are not user authentication.
+- Derived text left after moving/deleting a local-only document still needs provenance tracking. Do not claim complete information-flow isolation.
+- Continue physical-device/scanner validation, stable signing/version progression and APK size reduction. Keep the UI and user-created spaces intact.
+
+## OCR diagnostic history (resolved gates)
+
+- `35317612140` / `ac6457d9d606939cf2428bc5ee16ced027c6e894`: API 26 could not OCR rendered PDF pages; API 36 omitted a short numeric row. A PDFBox rendering fallback and broader EXIF/import/re-read tests followed.
+- `35319118380` / `8a98fe366ba1c1d0491df0e3b508af16edacbfb2` and `35342981604` / `45cde25182915eb05b076cdb9f86a358335ec488`: API 26 passed 41/41; API 36 failed four numeric-row assertions. Native diagnostics showed AUTO and SPARSE omit the row, while SINGLE_BLOCK reads the bitmap fixture fully with confidence 92.
+- `35344254693` / `b67d098915b056640e6c6d775654df8247824098` and `35345190432` / `61fa3bcf961ef240a0d4f1103d9ddb53f292594b`: API 36 improved to 40/41. The sole remaining mixed-page case had ML Kit reading `7319`, block/line modes returning empty, and raw-line mode reading `7319` at confidence 57 with unreadable surrounding letters. This led to agreed-number recovery plus an explicit missing-context warning, validated by the final successful run. Diagnostics log synthetic fixtures only.
 
 ---
 
-# Current continuation — 2026-09-17
+# Historical continuation — 2026-09-17
 
-This section supersedes older branch/status information below.
+This dated section is retained for provenance. Its outstanding OCR/command/model findings are superseded by the 2026-09-25 section above.
 
 - Repository: `Hero9994/Smarters-pro`.
 - Baseline: `alpha/masahati-alpha`, commit `6c6b7d66f298298a160708b695b5436ea6530b89` (2026-09-07).
