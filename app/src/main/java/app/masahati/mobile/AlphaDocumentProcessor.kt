@@ -42,26 +42,27 @@ object AlphaDocumentProcessor {
         val row = db.getMessage(messageId) ?: return
         if (row.kind != "file") return
 
-        val doc = result.optJSONObject("document")
-        val smartTitle = doc?.optString("smart_title")?.trim().orEmpty().ifBlank { null }
-        val docType = doc?.optString("doc_type")?.trim().orEmpty().ifBlank { result.optString("classification").takeIf { it == "document" } }
-        val organization = doc?.optString("organization")?.trim().orEmpty().ifBlank { null }
-        val people = doc?.optJSONArray("person_names")?.let { arr ->
+        // A generic local chat response has no extraction contract. Preserve existing metadata/tasks.
+        val doc = result.optJSONObject("document") ?: return
+        val smartTitle = doc.optString("smart_title")?.trim().orEmpty().ifBlank { null }
+        val docType = doc.optString("doc_type")?.trim().orEmpty().ifBlank { result.optString("classification").takeIf { it == "document" } }
+        val organization = doc.optString("organization")?.trim().orEmpty().ifBlank { null }
+        val people = doc.optJSONArray("person_names")?.let { arr ->
             buildList {
                 for (i in 0 until arr.length()) arr.optString(i).trim().takeIf { it.isNotBlank() }?.let(::add)
             }.joinToString("، ").ifBlank { null }
         }
-        val reference = doc?.optString("reference_number")?.trim().orEmpty().ifBlank { null }
-        val amount = doc?.optString("amount_text")?.trim().orEmpty().ifBlank { null }
-        val currency = doc?.optString("currency")?.trim().orEmpty().ifBlank { null }
-        val issueDate = doc?.optString("issue_date")?.trim().orEmpty().ifBlank { null }
-        val dueDate = doc?.optString("due_date")?.trim().orEmpty().ifBlank { null }
-        val expiryDate = doc?.optString("expiry_date")?.trim().orEmpty().ifBlank { null }
-        val actionRequired = doc?.optBoolean("action_required", false) == true
-        val actionText = doc?.optString("action_text")?.trim().orEmpty().ifBlank { null }
-        val confidence = doc?.optDouble("confidence")?.takeIf { !it.isNaN() }
+        val reference = doc.optString("reference_number")?.trim().orEmpty().ifBlank { null }
+        val amount = doc.optString("amount_text")?.trim().orEmpty().ifBlank { null }
+        val currency = doc.optString("currency")?.trim().orEmpty().ifBlank { null }
+        val issueDate = doc.optString("issue_date")?.trim().orEmpty().ifBlank { null }
+        val dueDate = doc.optString("due_date")?.trim().orEmpty().ifBlank { null }
+        val expiryDate = doc.optString("expiry_date")?.trim().orEmpty().ifBlank { null }
+        val actionRequired = DocumentUnderstanding.hasGroundedAction(doc, row.ocrText.orEmpty()) && row.extractionNote.isNullOrBlank()
+        val actionText = doc.optString("action_text")?.trim().orEmpty().ifBlank { null }
+        val confidence = doc.optDouble("confidence")?.takeIf { !it.isNaN() }
             ?: result.optDouble("confidence").takeIf { !it.isNaN() }
-        val evidenceJson = doc?.optJSONArray("evidence")?.toString()
+        val evidenceJson = doc.optJSONArray("evidence")?.toString()
 
         val meta = DocumentMetaRow(
             messageId = messageId,
@@ -79,7 +80,7 @@ object AlphaDocumentProcessor {
             actionText = actionText,
             confidence = confidence,
             evidenceJson = evidenceJson,
-            extractedJson = doc?.toString(),
+            extractedJson = doc.toString(),
             updatedAt = System.currentTimeMillis()
         )
         db.upsertDocumentMeta(meta)
@@ -88,10 +89,20 @@ object AlphaDocumentProcessor {
             db.renameMessageDisplayName(messageId, smartDisplayName(smartTitle, row.displayName))
         }
 
-        db.clearGeneratedActionItemsForMessage(messageId)
-        if (actionRequired && !actionText.isNullOrBlank()) {
-            val dueAt = parseDateAtMorning(dueDate)
-            val excerpt = doc?.optJSONArray("evidence")?.let { evidence ->
+        val dueAt = parseDateAtMorning(dueDate)
+        val priorAction = if (actionRequired && !actionText.isNullOrBlank()) {
+            db.listActionItemsForMessage(messageId).firstOrNull {
+                it.kind in setOf("deadline", "document_action") && it.title == actionText.take(180) && it.dueAt == dueAt
+            }
+        } else null
+        // Reanalysis must keep a completed task completed and retain reminders attached to an unchanged task.
+        val confirmedNoAction = doc.optString("action_status") == "none" &&
+            doc.optInt("schema_version", 0) >= 3 &&
+            (doc.optJSONArray("issue_codes")?.length() ?: 0) == 0 &&
+            !actionText.isNullOrBlank() && row.ocrText.orEmpty().contains(actionText)
+        if (actionRequired || confirmedNoAction) db.clearGeneratedActionItemsForMessage(messageId, priorAction?.id)
+        if (actionRequired && !actionText.isNullOrBlank() && priorAction == null) {
+            val excerpt = doc.optJSONArray("evidence")?.let { evidence ->
                 for (i in 0 until evidence.length()) {
                     val e = evidence.optJSONObject(i) ?: continue
                     if (e.optString("field") in setOf("action_text", "due_date", "expiry_date")) {

@@ -1171,7 +1171,8 @@ class MainActivity : ComponentActivity() {
                 val remotePreferred = AssistantEnginePolicy.preferRemote(
                     remote?.optBoolean("ok", false) == true,
                     remote?.optString("engine").orEmpty(),
-                    remote?.optString("model").orEmpty()
+                    remote?.optString("model").orEmpty(),
+                    if (sourceMessage.kind == "file") remote?.optJSONObject("document")?.optInt("schema_version", 0) ?: 0 else 0
                 )
                 val localModelResult = if (
                     localReminderResult == null &&
@@ -1344,13 +1345,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun postDocumentAlpha(message: MessageRow): JSONObject {
-        val meta = db.getDocumentMeta(message.id)
         val body = JSONObject()
             .put("displayName", message.displayName.orEmpty())
             .put("mimeType", message.mimeType.orEmpty())
-            .put("ocrText", message.ocrText.orEmpty().take(14_000))
+            .put("ocrText", message.ocrText.orEmpty().take(24_000))
+            .put("sourceTruncated", message.ocrText.orEmpty().length > 24_000)
             .put("extractionNote", message.extractionNote.orEmpty())
-            .put("existingSummary", meta?.smartTitle ?: message.summary.orEmpty())
 
         val raw = AlphaHttp.postJson(
             url = DOCUMENT_ALPHA_URL,
@@ -2363,7 +2363,10 @@ class MainActivity : ComponentActivity() {
                 .show()
             return
         }
-        val lines = buildList {
+        val structured = runCatching { JSONObject(meta.extractedJson.orEmpty()) }.getOrNull()
+        val lines = if ((structured?.optInt("schema_version", 0) ?: 0) >= 3) {
+            DocumentUnderstanding.details(structured!!)
+        } else buildList {
             meta.smartTitle?.let { add("الاسم الذكي: $it") }
             meta.docType?.let { add("النوع: $it") }
             meta.organization?.let { add("الجهة: $it") }

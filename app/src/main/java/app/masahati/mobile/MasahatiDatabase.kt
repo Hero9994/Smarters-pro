@@ -954,13 +954,19 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
         }
     }
 
-    fun clearGeneratedActionItemsForMessage(messageId: Long) {
+    fun listActionItemsForMessage(messageId: Long): List<ActionItemRow> = readableDatabase.query(
+        "action_items", null, "message_id=?", arrayOf(messageId.toString()), null, null, "id DESC"
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(actionItemFrom(cursor)) } }
+
+    fun clearGeneratedActionItemsForMessage(messageId: Long, keepId: Long? = null) {
+        val selection = "message_id=? AND status='open' AND kind IN ('deadline','document_action') AND id<>?"
+        val selectionArgs = arrayOf(messageId.toString(), (keepId ?: -1L).toString())
         val actionIds = mutableListOf<Long>()
         readableDatabase.query(
             "action_items",
             arrayOf("id"),
-            "message_id=? AND status='open' AND kind IN ('deadline','document_action')",
-            arrayOf(messageId.toString()),
+            selection,
+            selectionArgs,
             null,
             null,
             null
@@ -982,8 +988,8 @@ class MasahatiDatabase(context: Context) : SQLiteOpenHelper(context, "masahati_v
             }
             delete(
                 "action_items",
-                "message_id=? AND status='open' AND kind IN ('deadline','document_action')",
-                arrayOf(messageId.toString())
+                selection,
+                selectionArgs
             )
         }
     }
