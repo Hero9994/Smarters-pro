@@ -19,13 +19,13 @@ class DocumentUnderstandingInstrumentedTest {
     @After fun tearDown() { db.close(); context.deleteDatabase("masahati_v05.db") }
 
     private val instruction = "Bitte Unterlagen einreichen."
-    private fun analysis(excerpt: String = instruction) = JSONObject().put("ok", true).put("classification", "document")
+    private fun analysis(excerpt: String = instruction): JSONObject = JSONObject().put("ok", true).put("classification", "document")
         .put("summary", "أرسل الأوراق المطلوبة")
         .put("document", JSONObject().put("schema_version", 3).put("analysis_status", "analyzed")
             .put("smart_title", "طلب مستندات").put("doc_type", "official_notice").put("doc_type_label", "قرار رسمي")
             .put("topic_label", "المعاملات الرسمية").put("action_status", "required").put("action_required", true)
             .put("action_text", instruction).put("due_date", "2026-10-15").put("issue_codes", JSONArray())
-            .put("evidence", JSONArray().put(JSONObject().put("field", "action_text").put("excerpt", excerpt)))
+            .put("evidence", JSONArray().put(JSONObject().put("field", "action_text").put("excerpt", excerpt))))
 
     @Test fun rereadingRetainsTaskIdentityAndDoesNotReopenCompletedTask() {
         val space = db.createSpace("أوراقي")
