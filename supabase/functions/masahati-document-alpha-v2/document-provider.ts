@@ -1,19 +1,8 @@
 import { TYPES, TOPICS } from "./document-understanding.ts";
+import { resolveChatProvider, chatRequest } from "../_shared/chat-provider.ts";
 
 export function documentProvider(env: (key: string) => string | undefined) {
-  const url = env("MASAHATI_CHAT_URL")?.trim();
-  const model = env("MASAHATI_CHAT_MODEL")?.trim();
-  const key = env("MASAHATI_CHAT_API_KEY")?.trim();
-  if (!url && !model && !key) return {
-    url: "https://blockrun.ai/api/v1/chat/completions",
-    // Current free catalogue's available model. Never silently route to a paid model.
-    model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-    headers: { "Content-Type": "application/json", Accept: "application/json" } as Record<string, string>,
-  };
-  if (!url || !model || !key) throw new Error("incomplete_provider_configuration");
-  const endpoint = new URL(url);
-  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error("invalid_provider_url");
-  return { url: endpoint.toString(), model, headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: "Bearer " + key } };
+  return resolveChatProvider(env, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning");
 }
 
 export const DOCUMENT_PROMPT = `You read German, Arabic and English documents for an Arabic-speaking owner.
@@ -52,9 +41,9 @@ export function parseModelResponse(data: any): { raw: any; model: string } {
 export async function semanticReading(source: string, env: (key: string) => string | undefined, fetcher = fetch) {
   const provider = documentProvider(env);
   const response = await fetcher(provider.url, {
-    method: "POST", headers: provider.headers, signal: AbortSignal.timeout(23000),
-    body: JSON.stringify({ model: provider.model, stream: false, temperature: 0, max_tokens: 2200,
-      messages: [{ role: "system", content: DOCUMENT_PROMPT }, { role: "user", content: JSON.stringify({ ocr_text: source }) }] }),
+    method: "POST", headers: provider.headers, signal: AbortSignal.timeout(23000), redirect: "error",
+    body: JSON.stringify(chatRequest(provider,
+      [{ role: "system", content: DOCUMENT_PROMPT }, { role: "user", content: JSON.stringify({ ocr_text: source }) }], "document")),
   });
   if (!response.ok) throw new Error(response.status === 429 ? "provider_capacity" : "provider_unavailable");
   return parseModelResponse(await response.json());

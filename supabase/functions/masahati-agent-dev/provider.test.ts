@@ -8,7 +8,7 @@ test("existing provider remains default without opening an account or charging a
   assert.equal(config.headers.Authorization, undefined);
 });
 test("configured provider uses only server values and partial configuration does not leak to fallback", () => {
-  const values: Record<string,string> = {MASAHATI_CHAT_URL:"https://example.org/v1/chat/completions",MASAHATI_CHAT_MODEL:"test-model",MASAHATI_CHAT_API_KEY:"synthetic-test-key"};
+  const values: Record<string,string> = {MASAHATI_CHAT_URL:"https://example.org/v1/chat/completions",MASAHATI_CHAT_MODEL:"test-model",MASAHATI_CHAT_API_KEY:"synthetic-test-key",MASAHATI_CUSTOM_PROVIDER_ENABLED:"true"};
   assert.equal(providerConfig(k => values[k]).headers.Authorization, "Bearer synthetic-test-key");
   assert.throws(() => providerConfig(k => k === "MASAHATI_CHAT_MODEL" ? "model" : undefined), /incomplete/);
   values.MASAHATI_CHAT_URL = "http://example.org/v1/chat/completions";

@@ -10,6 +10,8 @@
 **/build/
 *.jks
 *.keystore
+*.p12
 keystore.properties
 .env
 .env.*
+__pycache__/

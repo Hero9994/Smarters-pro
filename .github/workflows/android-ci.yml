@@ -48,7 +48,7 @@ jobs:
           gradle-version: '9.5.0'
 
       - name: Build, lint and test
-        run: gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace
+        run: gradle :app:lintDebug :app:lintPreview :app:testDebugUnitTest :app:assembleDebug :app:assemblePreview --stacktrace
 
       - name: Verify integrated APK identity and signature
         shell: bash
@@ -58,8 +58,33 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$META"
           test -f "$APK"
-          jq -e '.applicationId == "app.masahati.mobile.v07" and .elements[0].versionCode == 8 and .elements[0].versionName == "alpha-0.1-dev"' "$META"
+          jq -e '.applicationId == "app.masahati.mobile.v07" and .elements[0].versionCode == 9 and .elements[0].versionName == "alpha-0.2-dev"' "$META"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+
+      - name: Prepare separate preview for persistent signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="app/build/outputs/apk/preview/output-metadata.json"
+          APK="app/build/outputs/apk/preview/app-preview-unsigned.apk"
+          jq -e '.applicationId == "app.masahati.mobile.preview" and .elements[0].versionCode == 9 and .elements[0].versionName == "alpha-0.2-preview"' "$META"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$APK"
+          if "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK" 2>/dev/null; then
+            echo 'Preview artifact must remain unsigned until persistent signing.' >&2
+            exit 1
+          fi
+          mkdir -p preview-bundle
+          cp "$APK" "$META" preview-bundle/
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" preview-bundle/
+          python3 scripts/preview-manifest.py preview-bundle
+
+      - name: Upload unsigned preview bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: masahati-preview-unsigned
+          path: preview-bundle/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload integrated debug APK
         uses: actions/upload-artifact@v7
@@ -125,7 +150,12 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            gradle :app:connectedDebugAndroidTest --stacktrace || { adb logcat -d -s MasahatiOCR:W AndroidRuntime:E; exit 1; }
+            gradle :app:assembleDebug --stacktrace
+            adb install app/build/outputs/apk/debug/app-debug.apk
+            adb shell run-as app.masahati.mobile.v07 touch files-preserved-marker
+            gradle :app:connectedPreviewAndroidTest -PpreviewCiTest=true --stacktrace || { adb logcat -d -s MasahatiOCR:W AndroidRuntime:E; exit 1; }
+            adb shell run-as app.masahati.mobile.v07 test -f files-preserved-marker
+            adb shell pm path app.masahati.mobile.v07
 
       - name: Upload instrumentation reports
         if: always()
@@ -154,7 +184,7 @@ jobs:
           node-version: '24'
 
       - name: Verify conversation and calendar boundaries
-        run: node --test supabase/functions/masahati-agent-dev/*.test.ts supabase/functions/masahati-document-alpha-v2/*.test.ts
+        run: node --test supabase/functions/_shared/*.test.ts supabase/functions/masahati-agent-dev/*.test.ts supabase/functions/masahati-document-alpha-v2/*.test.ts
 
       - name: Verify synthetic document roles and fallback boundaries
         run: node scripts/evaluate-documents.mjs

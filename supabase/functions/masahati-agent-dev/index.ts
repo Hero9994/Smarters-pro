@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { buildConversation, explicitAction, supportedActions, documentDateAnswer, parseModelEnvelope } from "./conversation.ts";
 import { providerConfig } from "./provider.ts";
+import { chatRequest } from "../_shared/chat-provider.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -81,7 +82,8 @@ async function askModel(provider: ReturnType<typeof providerConfig>, timeoutMs: 
     const r = await fetch(provider.url, {
       method: "POST",
       headers: provider.headers,
-      body: JSON.stringify({ model:provider.model, messages, temperature: 0.05, max_tokens: 1050, stream: false }),
+      body: JSON.stringify(chatRequest(provider, messages, "conversation")),
+      redirect: "error",
       signal: controller.signal,
     });
     const raw = await r.text();

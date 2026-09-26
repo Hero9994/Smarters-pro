@@ -48,8 +48,8 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "alpha-0.1"
+        versionCode = 9
+        versionName = "alpha-0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -63,7 +63,21 @@ android {
         release {
             isMinifyEnabled = false
         }
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+            matchingFallbacks += listOf("release")
+            // CI may sign its emulator copy. Distributable previews are unsigned here,
+            // then signed outside CI with the persistent preview key (never committed).
+            signingConfig = if (providers.gradleProperty("previewCiTest").orNull == "true") signingConfigs.getByName("debug") else null
+            if (providers.gradleProperty("previewCiTest").orNull != "true") {
+                ndk { abiFilters += "arm64-v8a" }
+            }
+        }
     }
+
+    testBuildType = if (providers.gradleProperty("previewCiTest").orNull == "true") "preview" else "debug"
 
     lint {
         abortOnError = true
