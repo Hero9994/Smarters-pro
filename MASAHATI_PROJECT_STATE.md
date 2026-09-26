@@ -1,6 +1,6 @@
-# Document-understanding continuation — 2026-09-25
+# Document-understanding continuation — verified 2026-09-26
 
-This section supersedes the earlier status below. User now wants the app to understand and classify papers intelligently. Branch: `alpha/recovery-reliability-2026-09-16`. Android source commit: `d854cb63f1ada36445d1509daa1aa268209ff842`.
+This section supersedes the earlier status below. User now wants the app to understand and classify papers intelligently. Branch: `alpha/recovery-reliability-2026-09-16`. Validated source commit: `8e96f42a1257b057b7e112ac572974435f1a9baf` (includes backend v6 source and corrected instrumentation fixture).
 
 ## Implemented
 
@@ -17,8 +17,12 @@ This section supersedes the earlier status below. User now wants the app to unde
 - Local backend regression suite now **23/23 PASS**. Seven synthetic document evaluations pass using the explicitly labelled rules fallback. Additional cases cover fabricated quotes, omitted negation, optional appeals, impossible/omitted dates, mixed document headings, and separate paid/remaining amounts.
 - Live deployed v5: **7/7 expected structured fallback results**, **0 semantic results**. Every request hit `provider_capacity`. This is NOT evidence that an LLM understood those documents. Post-v6 live regression status: PASS: an impossible date and a mixed-document file both suppressed automatic tasks. The impossible-date call returned a semantic needs-review result; the mixed-document call reported provider capacity. This confirms intermittent availability, not stability.
 - Current official BlockRun catalogue listed Lightning and Ultra unavailable; Nano Omni was listed available, but its real completion request returned HTTP 429 `FREE_MODEL_FAILED`. Document requests now use the free Nano Omni alias and report actual response model when available, with a 23-second bound. Optional `MASAHATI_CHAT_URL/MODEL/API_KEY` remains server-only and fails closed on partial config. The assistant function v28 is unchanged.
-- Android CI [36160858417](https://github.com/Hero9994/Smarters-pro/actions/runs/36160858417): PENDING_FINAL_ANDROID. Four new instrumentation cases cover repeated analysis/task completion, metadata preservation, fake evidence/partial OCR, and Arabic structured details. Earlier OCR/conversation tests are still included.
-- A small subsequent backend-only patch detects impossible dates even if the model omits them, and warns on distinct standalone headings in multi-document files without treating a generic heading prefix or contract reference as a second paper. Local tests and deployed v6 cover this patch. Android source remains the commit above.
+- Final Android CI [36161677093](https://github.com/Hero9994/Smarters-pro/actions/runs/36161677093): **ALL GATES PASSED**. Build, lint, unit tests and APK checks passed; all **45 instrumentation tests completed successfully on API 26 and API 36**. Progress logs reported zero skipped/failed tests. Backend: **23/23 pure tests**, seven synthetic rules evaluations and four live contract/agent checks passed. Run completed 2026-09-25; final logs reviewed 2026-09-26.
+- Final job IDs: verify `108159492720`; API 26 `108159492727`; API 36 `108159492387`; backend `108161232592`. Four new instrumentation cases cover repeated analysis/task completion, metadata preservation, fake evidence/partial OCR, and Arabic structured details. Earlier OCR/conversation tests remain included.
+- Earlier run `36160858417` failed at instrumentation compilation because the new test fixture missed a closing parenthesis. Fixed in `8e96f42`; final run above supersedes it. No production assertions were weakened.
+- Fresh 2026-09-26 live semantic gate (`--live --case=paid_invoice --require-semantic`) **FAILED**: returned correct limited fields (`invoice`, remaining `0,00 EUR`, no task), but `analysis_method=rules`, `degraded_reason=provider_capacity`, ~8.7 seconds. This failure is intentionally reported rather than counting fallback as model success. Do not keep retrying the same unavailable provider or claim the strong-model requirement is complete.
+- Final APK debug signer SHA-256: `42a19d66dd4d04b01a185ffb3fd5826a214477dfdf94968b8526966782ac81c3`; it still differs from the recovered original installation. No APK was distributed as a compatible upgrade.
+- A small subsequent backend-only patch detects impossible dates even if the model omits them, and warns on distinct standalone headings in multi-document files without treating a generic heading prefix or contract reference as a second paper. Local tests, final CI and deployed v6 cover this patch. The final source commit includes it.
 
 ## Remaining work — do not overclaim
 
