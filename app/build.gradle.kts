@@ -72,7 +72,7 @@ android {
             // then signed outside CI with the persistent preview key (never committed).
             signingConfig = if (providers.gradleProperty("previewCiTest").orNull == "true") signingConfigs.getByName("debug") else null
             if (providers.gradleProperty("previewCiTest").orNull != "true") {
-                ndk { abiFilters += "arm64-v8a" }
+                ndk { abiFilters += setOf("arm64-v8a", "x86_64") }
             }
         }
     }

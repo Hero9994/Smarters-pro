@@ -48,7 +48,8 @@ Official documentation reviewed 2026-09-26:
 
 - Package `app.masahati.mobile.preview`, launcher label **مساحاتي تجريبي**.
 - Version code 9 / `alpha-0.2-preview`; release-style, not debuggable.
-- User build targets **arm64-v8a**. Emulator test copies also include x86_64.
+- User build targets **arm64-v8a and x86_64** (64-bit phones and ChromeOS).
+  Emulator test copies include all dependency-supported architectures.
 - It installs alongside the recovered original `app.masahati.mobile.v07`.
   It is NOT an in-place update and cannot read that app's private database.
 - Do not uninstall the original. Export a backup from the original, then import a
