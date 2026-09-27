@@ -1,3 +1,86 @@
+# Free development and separate preview — continuation 2026-09-27
+
+This section supersedes older delivery/provider status below. User chose **free only**;
+paid AI requires a later explicit decision and is not automatically enabled after tests pass.
+Current source: `50cd1fe74a330acb7b9be964826c73d0f783adbe` on
+`alpha/recovery-reliability-2026-09-16`. See `FREE_AI_AND_PREVIEW.md`.
+
+- Shared server provider configuration prepares Gemini Free Tier, defaults to
+  `gemini-3.1-flash-lite`, accepts only reviewed free-tier text models and requires
+  confirmation that the Google project has no linked billing. The flag records an
+  operator check, not a billing API guarantee. Unknown models, mixed settings and
+  partial settings fail closed. Generic custom providers need a separate explicit
+  enable flag. No Gemini credential, Google billing or paid provider was activated.
+- Both endpoints use the shared settings; Gemini requests reserve room for reasoning
+  and complete JSON, disallow redirects and make no silent paid/provider fallback.
+  Existing source/date/action validation and Android cloud-consent boundaries remain.
+- Deployed on 2026-09-26: document function **v7**, assistant function **v29**, ACTIVE.
+  Existing free BlockRun routes remain default and have historically hit capacity.
+  Gemini has NOT undergone live semantic evaluation. All **27 pure backend tests**
+  and seven limited-rule document fixtures passed locally on September 26.
+- Gemini browser setup reached a Google sign-in wall. A September 26 browser read
+  was rejected by automatic approval review because of a usage limit. On September
+  27 the review limit was no longer reported, but Google sign-in returned 502
+  Connection refused twice (one reload). No sign-in values were entered. This is a
+  browser connection failure, not evidence of a Google bot challenge or outage.
+- Separate preview: `app.masahati.mobile.preview`, launcher **مساحاتي تجريبي**,
+  versionCode **9**, `alpha-0.2-preview`, release-style/non-debuggable, arm64-v8a +
+  x86_64. Existing `app.masahati.mobile.v07` remains installed alongside it. It is
+  not an in-place update and cannot automatically access that app's private data.
+  Export/import a backup copy to move data; keep the original. Review duplicate
+  reminder schedules when running both copies. Cloud consent resets on import.
+- Persistent private preview signing key was created and backed up in the existing
+  Supabase Vault secret `masahati_preview_signing_v1`. It was successfully recovered
+  after workspace pruning; do not regenerate. Public certificate SHA-256:
+  `134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a`.
+  CI never receives the key. Its unsigned preview bundle includes source provenance
+  and the official SDK apksigner; `scripts/sign-preview.py` verifies hashes, source,
+  package and signer before producing the signed user APK. No original signing key
+  was recovered. GitHub Actions secret permissions remain unchanged.
+- First preview CI `36232515048` on `fc48cd4`: all 45 app instrumentation tests
+  completed successfully on both API 26 and API 36. Build/lint failed on missing
+  ChromeOS x86_64 support, and API 26's *post-test* preservation check used an
+  unavailable `run-as ... test` command. Added x86_64 support and changed that check
+  to read the preserved marker with `cat`. No test assertion or lint gate disabled.
+
+## Current validation and delivery
+
+- Final CI [36342066327](https://github.com/Hero9994/Smarters-pro/actions/runs/36342066327)
+  on `50cd1fe74a330acb7b9be964826c73d0f783adbe`: **ALL GATES PASSED** on
+  2026-09-27. Build, both lint variants, unit tests and APK identity/alignment checks
+  passed. **45/45 instrumentation tests passed on API 26 and API 36**, zero failures
+  or skips in progress logs; both old-package private marker checks and package
+  presence checks passed. Backend **27/27 pure tests**, seven limited-rule fixtures
+  and four live contract/agent checks passed. This does not establish Gemini quality.
+- Final jobs: verify `108683964980`; API 26 `108683965166`; API 36 `108683965098`;
+  backend `108685381450`. Source commit includes the ABI and portable marker fixes.
+- Downloaded unsigned bundle artifact `10939820955`; verified its GitHub SHA-256
+  `41a903da7326ca8c0261282f9b2569720a0b38d901c18e4974a68af6002b378a` and all internal
+  source/file checksums. Actual APK includes arm64-v8a and x86_64 native libraries.
+- Produced **Masahati-Preview-0.2.apk**, **323,121,060 bytes**. Verified APK Signature
+  Schemes v2 and v3 with the persistent certificate above. Signed APK SHA-256:
+  `b6a7e55b81aa818aa5b9ba884e2fda7d78f181144313de31e8eebe42a165a5ea`.
+- User APK saved successfully as Library item
+  `libfile_b911853282f88191a65b877bfdd0acaa`, file
+  `file_00000000ef6c81f58c35914a9451bde3`, path `/Masahati-Preview-0.2.apk`.
+  Local deliverable `/workspace/scratch/91ed36f9d2a3/deliverables/Masahati-Preview-0.2.apk`.
+  Library identity was applied to the local file. Recover this item after workspace
+  pruning rather than rebuilding or giving the user an unsigned artifact.
+- This is the first delivered separately signed preview, not a compatible update to
+  the recovered original installation. The user has not yet installed/tested it on
+  their physical Samsung. Preserve the original app and its backup.
+
+## Remaining scope
+
+Physical Samsung testing, real-paper/scanner quality and live Gemini/provider
+validation remain outstanding. Passing CI is not proof of 100% accuracy or no bugs.
+The prior derived-text privacy/provenance limitation remains unresolved. The free
+public app key is not user authentication; real identity and enforced spending caps
+are still prerequisites before paid traffic. Do not claim strong semantic AI has
+been activated just because this preview installs or its tests pass.
+
+---
+
 # Document-understanding continuation — verified 2026-09-26
 
 This section supersedes the earlier status below. User now wants the app to understand and classify papers intelligently. Branch: `alpha/recovery-reliability-2026-09-16`. Validated source commit: `8e96f42a1257b057b7e112ac572974435f1a9baf` (includes backend v6 source and corrected instrumentation fixture).
