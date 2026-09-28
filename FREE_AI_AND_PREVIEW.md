@@ -44,6 +44,31 @@ Official documentation reviewed 2026-09-26:
 - https://ai.google.dev/gemini-api/docs/pricing
 - https://supabase.com/docs/guides/functions/secrets
 
+### Completing the free connection (reviewed 2026-09-28)
+
+The September 27 and September 28 browser attempts failed at Google sign-in with HTTP 502. Preparing
+provider code is not activation; no Gemini API key has been installed by this work.
+Gmail access also does not grant Gemini API credentials. The account owner can finish
+without sharing a password or API key in the conversation:
+
+1. Open https://aistudio.google.com/api-keys and sign in. Create a Gemini API key in
+   a project whose plan is **Free Tier**, with **no linked Cloud Billing account**.
+   Do not select Set up billing, Upgrade, prepay or a paid project.
+2. Open https://supabase.com/dashboard/project/hxrvlvqlkfylbjicdfzs/functions/secrets
+   with the project owner's account. Add both `MASAHATI_GEMINI_API_KEY` (the key)
+   and `MASAHATI_GEMINI_FREE_TIER_CONFIRMED` (`true`) together, then Save. Set the
+   confirmation only after actually checking the Google project's free status.
+   Leave unrelated secrets alone; do not add the custom-provider settings.
+3. Keep the key server-side. The default model is `gemini-3.1-flash-lite`; its
+   current free quota is limited. After the save, run the existing live synthetic
+   evaluations and require semantic results before claiming Gemini works.
+
+The deployed provider reads environment secrets; this switch does not require a
+new APK. Account setup and live Gemini quality remain incomplete until those steps
+have actually succeeded. Official key/billing references:
+- https://ai.google.dev/gemini-api/docs/api-key
+- https://ai.google.dev/gemini-api/docs/billing
+
 ## Separate preview and data preservation
 
 - Package `app.masahati.mobile.preview`, launcher label **مساحاتي تجريبي**.
@@ -68,6 +93,27 @@ checksums and the official Android SDK signing tool. Its unsigned APK is not a u
 download. After **all CI jobs pass**, download the bundle and verify its GitHub
 artifact digest. Run `scripts/sign-preview.py` with the exact source commit and
 persistent preview key. The script checks package, checksums and expected signer.
+
+The first delivery on September 27 was **truncated**, despite a successful check
+before delivery. Its 323,121,060 bytes matched only the prefix of the complete
+327,716,531-byte APK; its ZIP directory and APK signing block were missing. The
+exact truncation stage is not established. Do not treat a successful upload or a
+pre-upload signature check as proof of a usable download.
+
+`sign-preview.py` now signs to a temporary path, verifies and flushes it, then
+publishes the complete APK atomically. The receipt records exact byte length and
+SHA-256. After storing and downloading the actual deliverable, run:
+
+```
+python scripts/verify-preview-download.py DOWNLOADED_APK signing/preview-0.2-verification.json APKSIGNER_JAR
+```
+
+The trusted receipt must come from the signing step or this reviewed repository,
+not an untrusted download. The check rejects truncation and byte changes, validates
+ZIP entry CRCs, verifies all native libraries' 16 KiB alignment and rechecks the
+persistent APK signature. Delivery is not complete until this round trip passes.
+The September 28 corrected Library version 1 passed this gate; the first version
+must not be reused. Physical Samsung installation remains to be confirmed.
 
 The public certificate fingerprint is in `signing/preview-certificate.sha256`.
 The private key and password are stored separately in the existing Supabase Vault

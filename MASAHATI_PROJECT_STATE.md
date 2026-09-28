@@ -1,3 +1,41 @@
+# Installation-file repair — 2026-09-28
+
+The first user download failed Android installation because the delivered APK was
+truncated. The downloaded Library version 0 was 323,121,060 bytes, SHA-256
+`3569f611cb33c31d172cd8421006be41b3b70eb7b614d95455f0141c411f92f8`.
+Every available byte matched the start of the correct signed APK, but the final
+4,595,471 bytes (including the APK signing block and ZIP directory) were absent.
+The exact preparation/transfer stage responsible is not established; do not blame
+the user's phone, Google, or a signing-key mismatch for this observed failure.
+
+- Recovered the same verified CI artifact and persistent preview signer. Android
+  source and package/version remain unchanged; this repairs the downloadable file.
+- `scripts/sign-preview.py` now signs to a temporary file, verifies and flushes it,
+  then publishes the delivery filename atomically. It records the exact byte count.
+- Added `scripts/verify-preview-download.py` and trusted public receipt
+  `signing/preview-0.2-verification.json`. The gate checks size, SHA-256, ZIP CRCs,
+  20 stored native libraries' 16 KiB alignment, and the persistent APK signature.
+- A regression check reproducing the original truncation was correctly rejected.
+  The complete replacement was saved, independently materialized, and passed the
+  entire gate. Correct size: **327,716,531 bytes**. SHA-256 remains
+  `b6a7e55b81aa818aa5b9ba884e2fda7d78f181144313de31e8eebe42a165a5ea`.
+- Replaced the existing Library item `libfile_b911853282f88191a65b877bfdd0acaa`;
+  current version **1**, file `file_000000005c0881f893b4e371ae33a33c`.
+  Verified download: `/workspace/scratch/91ed36f9d2a3/verified-download/Masahati-Preview-0.2.apk`.
+  Recover version 1 or later, never the original truncated version. Installation
+  on the physical Samsung still needs the user to try this corrected download.
+- Gemini is still not activated. A fresh September 28 browser attempt again
+  reached Google sign-in with HTTP 502 / Connection refused. No sign-in values,
+  API key, Google billing, or paid service were submitted or enabled. The account
+  owner can add a Free Tier key directly to the existing server secrets following
+  `FREE_AI_AND_PREVIEW.md`; never request a key in chat. Live semantic verification
+  remains necessary after configuration, with no paid fallback.
+
+No unchanged Android or backend suite was rerun for this packaging-only repair;
+the full CI result below still describes the exact APK source.
+
+---
+
 # Free development and separate preview — continuation 2026-09-27
 
 This section supersedes older delivery/provider status below. User chose **free only**;
@@ -57,15 +95,12 @@ Current source: `50cd1fe74a330acb7b9be964826c73d0f783adbe` on
 - Downloaded unsigned bundle artifact `10939820955`; verified its GitHub SHA-256
   `41a903da7326ca8c0261282f9b2569720a0b38d901c18e4974a68af6002b378a` and all internal
   source/file checksums. Actual APK includes arm64-v8a and x86_64 native libraries.
-- Produced **Masahati-Preview-0.2.apk**, **323,121,060 bytes**. Verified APK Signature
+- Produced **Masahati-Preview-0.2.apk**, **327,716,531 bytes**. Verified APK Signature
   Schemes v2 and v3 with the persistent certificate above. Signed APK SHA-256:
   `b6a7e55b81aa818aa5b9ba884e2fda7d78f181144313de31e8eebe42a165a5ea`.
-- User APK saved successfully as Library item
-  `libfile_b911853282f88191a65b877bfdd0acaa`, file
-  `file_00000000ef6c81f58c35914a9451bde3`, path `/Masahati-Preview-0.2.apk`.
-  Local deliverable `/workspace/scratch/91ed36f9d2a3/deliverables/Masahati-Preview-0.2.apk`.
-  Library identity was applied to the local file. Recover this item after workspace
-  pruning rather than rebuilding or giving the user an unsigned artifact.
+- The initial Library write reported success but stored a truncated file. The old
+  `file_00000000ef6c81f58c35914a9451bde3` is invalid. Use the corrected version 1
+  and verified download listed in the September 28 repair section above.
 - This is the first delivered separately signed preview, not a compatible update to
   the recovered original installation. The user has not yet installed/tested it on
   their physical Samsung. Preserve the original app and its backup.

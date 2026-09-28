@@ -5,9 +5,11 @@ Run only after the complete CI run for EXPECTED_COMMIT has passed.
 """
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 bundle, commit, keystore, password, output = sys.argv[1:]
@@ -31,16 +33,24 @@ cert = subprocess.run(["keytool", "-exportcert", "-alias", "masahati-preview", "
                        "-storepass:file", password], check=True, capture_output=True).stdout
 if hashlib.sha256(cert).hexdigest() != expected:
     raise SystemExit("Wrong preview signing key")
-subprocess.run(command + ["sign", "--ks", keystore, "--ks-key-alias", "masahati-preview", "--ks-pass", "file:" + password,
-                         "--v4-signing-enabled", "false", "--out", str(output), str(bundle / "app-preview-unsigned.apk")], check=True)
-verification = subprocess.run(command + ["verify", "--verbose", "--print-certs", str(output)], check=True, capture_output=True, text=True)
-if "Signer #1 certificate SHA-256 digest: " + expected not in verification.stdout:
-    output.unlink()
-    raise SystemExit("Signed APK certificate mismatch")
+# Never expose the delivery path while the signer is still writing. Publish a
+# complete, verified file atomically and record its exact size for download checks.
+with tempfile.TemporaryDirectory(prefix=".preview-sign-", dir=output.parent) as temporary:
+    signed = Path(temporary) / "signed.apk"
+    subprocess.run(command + ["sign", "--ks", keystore, "--ks-key-alias", "masahati-preview", "--ks-pass", "file:" + password,
+                             "--v4-signing-enabled", "false", "--out", str(signed), str(bundle / "app-preview-unsigned.apk")], check=True)
+    verification = subprocess.run(command + ["verify", "--verbose", "--print-certs", str(signed)], check=True, capture_output=True, text=True)
+    if "Signer #1 certificate SHA-256 digest: " + expected not in verification.stdout:
+        raise SystemExit("Signed APK certificate mismatch")
+    with signed.open("rb") as stream:
+        os.fsync(stream.fileno())
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    size = signed.stat().st_size
+    # A hard link creates the final name atomically and refuses to overwrite it.
+    os.link(signed, output)
 print(verification.stdout)
-with output.open("rb") as stream:
-    digest = hashlib.file_digest(stream, "sha256").hexdigest()
 receipt = {"commit": commit, "ci_run": manifest["run_id"], "application_id": metadata["applicationId"],
-           "version": metadata["elements"][0]["versionName"], "signer_sha256": expected, "apk_sha256": digest}
+           "version": metadata["elements"][0]["versionName"], "signer_sha256": expected, "apk_sha256": digest,
+           "apk_name": output.name, "apk_size_bytes": size}
 output.with_suffix(".verification.json").write_text(json.dumps(receipt, indent=2) + "\n")
 print(json.dumps(receipt, indent=2))
