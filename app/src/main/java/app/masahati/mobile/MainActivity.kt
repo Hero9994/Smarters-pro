@@ -14,6 +14,7 @@ import android.os.Build
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -1386,32 +1387,38 @@ class MainActivity : ComponentActivity() {
                 val ocrBuilder = StringBuilder()
                 val readingNotes = linkedSetOf<String>()
                 val barcodeValues = linkedSetOf<String>()
-                val cleanedPageCount = if (pages.isNotEmpty()) {
-                    DocumentImageEnhancer.processPagesToPdf(
-                        this@MainActivity,
-                        pages.map { it.imageUri },
-                        target
-                    ) { index, cleanedBitmap ->
-                        try {
-                            val reading = documentReader.readBitmap(cleanedBitmap)
-                            val recognized = reading.text
-                            reading.note?.let { readingNotes += "صفحة ${index + 1}: $it" }
-                            if (recognized.isNotBlank()) {
-                                if (ocrBuilder.isNotEmpty()) ocrBuilder.append("\n\n")
-                                ocrBuilder.append("صفحة ${index + 1}:\n")
-                                ocrBuilder.append(recognized.take((LocalDocumentReader.MAX_CHARS - ocrBuilder.length).coerceAtLeast(0)))
-                                if (ocrBuilder.length >= LocalDocumentReader.MAX_CHARS) readingNotes += "قراءة جزئية: النص طويل، بقي الأصل كاملاً في الملف."
-                            }
-                            barcodeValues += OpenSourceDocumentTools.decodeBarcodes(cleanedBitmap)
-                        } catch (_: Exception) { readingNotes += "تعذرت قراءة الصفحة ${index + 1}." }
-                    }
-                } else {
-                    if (pdf == null) throw IllegalStateException("PDF result missing")
+                val readScannedPage: (Int, Bitmap) -> Unit = { index, cleanedBitmap ->
+                    try {
+                        val reading = documentReader.readBitmap(cleanedBitmap)
+                        val recognized = reading.text
+                        reading.note?.let { readingNotes += "صفحة ${index + 1}: $it" }
+                        if (recognized.isNotBlank()) {
+                            if (ocrBuilder.isNotEmpty()) ocrBuilder.append("\n\n")
+                            ocrBuilder.append("صفحة ${index + 1}:\n")
+                            ocrBuilder.append(recognized.take((LocalDocumentReader.MAX_CHARS - ocrBuilder.length).coerceAtLeast(0)))
+                            if (ocrBuilder.length >= LocalDocumentReader.MAX_CHARS) readingNotes += "قراءة جزئية: النص طويل، بقي الأصل كاملاً في الملف."
+                        }
+                        barcodeValues += OpenSourceDocumentTools.decodeBarcodes(cleanedBitmap)
+                    } catch (_: Exception) { readingNotes += "تعذرت قراءة الصفحة ${index + 1}." }
+                }
+                val cleanedPageCount = if (pdf != null) {
+                    // The scanner's PDF contains the crop and perspective chosen in its preview.
+                    // Keep those exact page boundaries instead of exporting a second auto-crop.
                     copyUriToFileSafely(pdf.uri, target, 160L * 1024L * 1024L)
-                    val reading = documentReader.readPdf(target)
-                    ocrBuilder.append(reading.text)
-                    reading.note?.let(readingNotes::add)
+                    if (pages.isNotEmpty()) {
+                        DocumentImageEnhancer.forEachScannedPage(
+                            this@MainActivity, pages.map { it.imageUri }, readScannedPage
+                        )
+                    } else {
+                        val reading = documentReader.readPdf(target)
+                        ocrBuilder.append(reading.text)
+                        reading.note?.let(readingNotes::add)
+                    }
                     pdf.pageCount
+                } else {
+                    DocumentImageEnhancer.processPagesToPdf(
+                        this@MainActivity, pages.map { it.imageUri }, target, readScannedPage
+                    )
                 }
                 val ocr = buildString {
                     append(ocrBuilder.toString())

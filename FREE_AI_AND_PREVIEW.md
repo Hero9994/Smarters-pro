@@ -92,7 +92,7 @@ Official key/billing references:
 ## Separate preview and data preservation
 
 - Package `app.masahati.mobile.preview`, launcher label **مساحاتي تجريبي**.
-- Version code 9 / `alpha-0.2-preview`; release-style, not debuggable.
+- Version code 10 / `alpha-0.3-preview` for the scanner fix; release-style, not debuggable.
 - User build targets **arm64-v8a and x86_64** (64-bit phones and ChromeOS).
   Emulator test copies include all dependency-supported architectures.
 - It installs alongside the recovered original `app.masahati.mobile.v07`.
@@ -142,6 +142,20 @@ or provide a public signing endpoint. Future previews must reuse this key and
 increment versionCode. Do not regenerate it if the local workspace is lost.
 GitHub Actions secret management is currently unavailable to the connected token;
 do not weaken that permission boundary to automate signing.
+
+## Scanner page boundaries in 0.3
+
+The built-in ML Kit document scanner in FULL mode finds edges, straightens pages
+and offers a crop editor. The 0.2 app re-ran OpenCV corner finding over the
+already-cropped scanner JPEG and built a new PDF, which could clip a page when an
+internal printed border was selected as the page. In 0.3, save the scanner's PDF
+unchanged as the source document; its JPEG pages are used for local OCR only.
+If a scanner supplies JPEG pages without PDF, build the fallback PDF from those
+pages without a second geometry crop. An instrumentation regression checks that
+an inner printed rectangle does not reduce page dimensions. These checks cannot
+measure ML Kit's automatic edge quality on the user's physical phone; use its
+crop editor when its preview misses a corner. The supplied personal paper photos
+stay local and are never committed to the public repository.
 
 No matching private key for the original installation was recovered. This preview
 does not resolve original-package signing or constitute a production release.

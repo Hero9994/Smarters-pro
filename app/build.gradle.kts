@@ -48,8 +48,8 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "alpha-0.2"
+        versionCode = 10
+        versionName = "alpha-0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

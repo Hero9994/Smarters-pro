@@ -1,3 +1,16 @@
+# Scanner crop correction — 2026-09-30 (Android preview 0.3)
+
+The ML Kit FULL scanner already detects and deskews page borders. Preview 0.2
+discarded its PDF and applied a second OpenCV perspective crop to its JPEG, which
+could select an inner printed border as the page edge. Preview 0.3 saves the
+scanner PDF verbatim, uses JPEG pages for OCR only, and never runs the second
+geometry crop in the JPEG-only fallback. An emulator regression tests a page with
+a prominent inner border; physical-phone results on the supplied paper remain
+unverified. Version code is 10 with the same persistent preview signing key.
+No personal document image is checked into Git.
+
+---
+
 # Gemini activated and verified — 2026-09-30 (current status)
 
 This section supersedes the connection status in the dated historical entries below.

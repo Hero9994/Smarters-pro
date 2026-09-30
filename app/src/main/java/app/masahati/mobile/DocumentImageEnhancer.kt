@@ -24,53 +24,66 @@ object DocumentImageEnhancer {
         target: File,
         onPageReady: (index: Int, bitmap: Bitmap) -> Unit = { _, _ -> }
     ): Int {
-        require(pageUris.isNotEmpty()) { "No scanned pages" }
         val pdf = PdfDocument()
-        var written = 0
         try {
-            pageUris.forEachIndexed { index, uri ->
-                val source = decodeSampled(context, uri, 2200)
-                    ?: throw IllegalStateException("Cannot decode scanned page ${index + 1}")
-                val rectified = OpenCvDocumentRectifier.rectifyIfHelpful(source)
-                val geometryReady = if (rectified === source) source else rectified.also { source.recycle() }
-
-                val candidate = flattenDocumentShadows(geometryReady)
-                val shadowCleaned = if (candidate === geometryReady) {
-                    geometryReady
-                } else {
-                    val originalScore = pageQualityScore(geometryReady)
-                    val correctedScore = pageQualityScore(candidate)
-                    if (preferCorrected(originalScore, correctedScore)) {
-                        geometryReady.recycle()
-                        candidate
-                    } else {
-                        candidate.recycle()
-                        geometryReady
-                    }
-                }
-                val balanced = neutralizePaperCast(shadowCleaned)
-                if (balanced !== shadowCleaned) shadowCleaned.recycle()
-                val enhanced = autoEnhanceReadability(balanced)
-                if (enhanced !== balanced) balanced.recycle()
-                val cleaned = enhanced
-                try {
-                    onPageReady(index, cleaned)
-                    val pageInfo = PdfDocument.PageInfo.Builder(cleaned.width, cleaned.height, index + 1).create()
-                    val page = pdf.startPage(pageInfo)
-                    page.canvas.drawColor(Color.WHITE)
-                    page.canvas.drawBitmap(cleaned, 0f, 0f, null)
-                    pdf.finishPage(page)
-                    written++
-                } finally {
-                    cleaned.recycle()
-                }
+            val written = forEachScannedPage(context, pageUris) { index, cleaned ->
+                onPageReady(index, cleaned)
+                val pageInfo = PdfDocument.PageInfo.Builder(cleaned.width, cleaned.height, index + 1).create()
+                val page = pdf.startPage(pageInfo)
+                page.canvas.drawColor(Color.WHITE)
+                page.canvas.drawBitmap(cleaned, 0f, 0f, null)
+                pdf.finishPage(page)
             }
             target.parentFile?.mkdirs()
             target.outputStream().use { pdf.writeTo(it) }
+            return written
         } finally {
             pdf.close()
         }
-        return written
+    }
+
+    /** Scanner JPEGs are already cropped and deskewed by ML Kit. Never find a new
+     * quadrilateral inside them: a printed box or logo can become a false page edge.
+     */
+    fun forEachScannedPage(
+        context: Context,
+        pageUris: List<Uri>,
+        onPageReady: (index: Int, bitmap: Bitmap) -> Unit
+    ): Int {
+        require(pageUris.isNotEmpty()) { "No scanned pages" }
+        pageUris.forEachIndexed { index, uri ->
+            val source = decodeSampled(context, uri, 2200)
+                ?: throw IllegalStateException("Cannot decode scanned page ${index + 1}")
+            val cleaned = enhanceScannerPage(source)
+            try {
+                onPageReady(index, cleaned)
+            } finally {
+                cleaned.recycle()
+            }
+        }
+        return pageUris.size
+    }
+
+    private fun enhanceScannerPage(source: Bitmap): Bitmap {
+        val candidate = flattenDocumentShadows(source)
+        val shadowCleaned = if (candidate === source) {
+            source
+        } else {
+            val originalScore = pageQualityScore(source)
+            val correctedScore = pageQualityScore(candidate)
+            if (preferCorrected(originalScore, correctedScore)) {
+                source.recycle()
+                candidate
+            } else {
+                candidate.recycle()
+                source
+            }
+        }
+        val balanced = neutralizePaperCast(shadowCleaned)
+        if (balanced !== shadowCleaned) shadowCleaned.recycle()
+        val enhanced = autoEnhanceReadability(balanced)
+        if (enhanced !== balanced) balanced.recycle()
+        return enhanced
     }
 
     private fun decodeSampled(context: Context, uri: Uri, maxSide: Int): Bitmap? {
