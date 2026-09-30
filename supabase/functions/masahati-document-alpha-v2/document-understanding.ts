@@ -113,6 +113,7 @@ export function understandDocument(raw: any, source: string, displayName: string
     const fact = readFact(r, "reference_number");
     return fact ? { ...fact, kind: ["invoice", "contract", "customer", "case", "insurance"].includes(r.kind) ? r.kind : "other" } : null;
   }).filter(Boolean);
+  const actionQuote = completeClause(source, quote(source, raw?.action?.excerpt));
   const dates = list(raw?.dates).flatMap(d => {
     const value = normalizedDate(comparable(clip(d.value, 40))), givenQuote = quote(source, d.excerpt);
     // A model can quote only "zum 31.12.2026". Recover real source context before checking its role.
@@ -121,6 +122,16 @@ export function understandDocument(raw: any, source: string, displayName: string
     if (!value || !excerpt || !dateSupported(value, excerpt, role)) { issues.add("uncertain_date"); return []; }
     return [{ role, label: DATE_LABELS[role], value, excerpt }];
   });
+  // If the model quoted a mandatory contract cancellation clause but omitted its
+  // explicit deadline, recover only the date in that same verified clause.
+  if (docType === "contract" && actionStatus(actionQuote) === "required") {
+    for (const match of comparable(actionQuote).matchAll(DATE_PATTERN)) {
+      const value = normalizedDate(match[0]);
+      if (value && dateSupported(value, actionQuote, "due") && !dates.some(d => d.role === "due" && d.value === value)) {
+        dates.push({ role: "due", label: DATE_LABELS.due, value, excerpt: actionQuote });
+      }
+    }
+  }
   const amounts = list(raw?.amounts).flatMap(a => {
     const value = clip(a.value, 60), excerpt = quote(source, a.excerpt);
     const role = Object.hasOwn(AMOUNT_LABELS, a.role) ? a.role : "other";
@@ -138,9 +149,10 @@ export function understandDocument(raw: any, source: string, displayName: string
   const issued = one(dates, "issue", "conflicting_dates");
   const dueAmount = one(amounts, "due", "conflicting_amounts");
   const amount = dueAmount ?? one(amounts, "total", "conflicting_amounts") ?? one(amounts, "salary", "conflicting_amounts");
-  const actionQuote = completeClause(source, quote(source, raw?.action?.excerpt));
   let status = actionQuote ? actionStatus(actionQuote) : "unknown";
-  if (raw?.action?.status !== status && raw?.action?.status !== "required") status = "unknown";
+  const explicitContractDeadline = docType === "contract" && !!due && !!actionQuote &&
+    status === "required" && dateSupported(due.value, actionQuote, "due");
+  if (raw?.action?.status !== status && raw?.action?.status !== "required" && !explicitContractDeadline) status = "unknown";
   if (raw?.action?.status === "required" && status !== "required") issues.add("uncertain_action");
   if (dueAmount && /^0+(?:[.,]0+)?(?:\s*(?:EUR|€|USD|CHF|GBP))?$/i.test(comparable(dueAmount.value)) && /zahlen|überweisen|pay|ادفع|دفع/iu.test(actionQuote)) status = "none";
   if (options.extractionNote) issues.add("partial_ocr");

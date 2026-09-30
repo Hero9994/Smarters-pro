@@ -5,11 +5,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -49,14 +49,12 @@ class ScannerPagePreservationInstrumentedTest {
             }
             assertEquals(1, written)
             assertEquals(1, processedPages)
-            ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                PdfRenderer(descriptor).use { pdf ->
-                    assertEquals(1, pdf.pageCount)
-                    pdf.openPage(0).use { page ->
-                        assertEquals(source.width, page.width)
-                        assertEquals(source.height, page.height)
-                    }
-                }
+            PDFBoxResourceLoader.init(context)
+            PDDocument.load(output).use { pdf ->
+                assertEquals(1, pdf.numberOfPages)
+                val page = pdf.getPage(0)
+                assertEquals(source.width.toFloat(), page.mediaBox.width, 0.5f)
+                assertEquals(source.height.toFloat(), page.mediaBox.height, 0.5f)
             }
         } finally {
             source.recycle()

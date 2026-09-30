@@ -8,6 +8,16 @@ geometry crop in the JPEG-only fallback. An emulator regression tests a page wit
 a prominent inner border; physical-phone results on the supplied paper remain
 unverified. Version code is 10 with the same persistent preview signing key.
 No personal document image is checked into Git.
+The scanner release gate also exposed a live Gemini omission: an explicit German
+contract cancellation deadline was quoted as action text but not returned as a
+due date. A bounded source-clause check now recovers that date only when the
+model has quoted the complete mandatory contract clause; optional clauses remain
+non-actionable. Document function v11 (`7301f158e13806294de9ad9bba6890ac01608f0b3bb814f3b7e9261ad6047dce`)
+was deployed and both German and Arabic contract examples returned their distinct
+dates and required action. The seven live synthetic semantic checks passed; this
+does not prove accuracy on the supplied personal paper. Android API 26 initially
+rejected a `PdfRenderer` read of the test's generated fallback PDF; the next CI
+run must check PDF structure and page geometry with the app's PDFBox fallback.
 
 ---
 

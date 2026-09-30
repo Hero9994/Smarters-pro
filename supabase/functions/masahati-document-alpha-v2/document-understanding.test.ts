@@ -107,6 +107,26 @@ test("legacy German and Arabic contracts retain explicit distinct fields", () =>
   }
 });
 
+test("a quoted mandatory contract deadline survives a model omission", () => {
+  const text = "MIETVERTRAG. Vertragsende 30.09.2027. Der Mieter muss spätestens bis 15.09.2027 schriftlich kündigen.";
+  const raw = limitedReading(text);
+  raw.dates = raw.dates.filter(d => d.role !== "due");
+  raw.action = { status: "unknown", excerpt: "Der Mieter muss spätestens bis 15.09.2027 schriftlich kündigen." };
+  const result = read(text, raw);
+  assert.equal(result.document.due_date, "2027-09-15");
+  assert.equal(result.document.action_required, true);
+  assert.ok(result.document.evidence.some(item => item.field === "due_date" && item.excerpt === raw.action.excerpt));
+});
+
+test("a conditional cancellation clause remains optional despite a printed deadline", () => {
+  const text = "Mietvertrag. Falls Sie kündigen möchten, müssen Sie spätestens bis 15.09.2027 schriftlich kündigen.";
+  const raw = limitedReading(text);
+  raw.dates = [];
+  raw.action = { status: "required", excerpt: "müssen Sie spätestens bis 15.09.2027 schriftlich kündigen." };
+  const result = read(text, raw);
+  assert.equal(result.document.action_required, false);
+});
+
 test("partial OCR, truncation and multiple documents suppress automatic tasks", () => {
   const text = "Rechnung\nBitte überweisen Sie den offenen Betrag.\nOffener Betrag: 50,00 EUR";
   for (const extra of [{ extractionNote: "page 2 unreadable" }, { truncated: true }]) {
