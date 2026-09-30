@@ -12,7 +12,7 @@ in Supabase server secrets at 17:17:20 UTC. No billing or paid service was enabl
 The key stays outside Git, APKs, reports and model message content.
 
 Both deployed functions now answer through `gemini-3.1-flash-lite`. Document
-version 10 and assistant version 32 are active. Configuration changes and these
+version 11 and assistant version 32 are active. Configuration changes and these
 backend repairs work with the existing corrected preview APK; no rebuild is needed.
 Current evaluation details are in `verification/gemini-free-2026-09-30.json` and
 `MASAHATI_PROJECT_STATE.md`. The earlier sign-in failures below are historical,
@@ -93,6 +93,12 @@ Official key/billing references:
 
 - Package `app.masahati.mobile.preview`, launcher label **مساحاتي تجريبي**.
 - Version code 10 / `alpha-0.3-preview` for the scanner fix; release-style, not debuggable.
+- Current signed preview: https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.3/Masahati-Preview-0.3.apk
+  Source `ed4e6d46df491e3895937fd39f0578e658866864`, CI run `36759821080`,
+  size `327732915`, SHA-256 `d4e0a9a3f2a44b03e015829861459f4466dba6dc1f95b8ba71cbe729134b0361`.
+  The publicly downloaded GitHub asset passed `verify-preview-download.py` with
+  `signing/preview-0.3-verification.json`. It is an update over preview 0.2 with
+  the same certificate; physical Samsung installation still needs confirmation.
 - User build targets **arm64-v8a and x86_64** (64-bit phones and ChromeOS).
   Emulator test copies include all dependency-supported architectures.
 - It installs alongside the recovered original `app.masahati.mobile.v07`.
@@ -125,7 +131,7 @@ publishes the complete APK atomically. The receipt records exact byte length and
 SHA-256. After storing and downloading the actual deliverable, run:
 
 ```
-python scripts/verify-preview-download.py DOWNLOADED_APK signing/preview-0.2-verification.json APKSIGNER_JAR
+python scripts/verify-preview-download.py DOWNLOADED_APK signing/preview-0.3-verification.json APKSIGNER_JAR
 ```
 
 The trusted receipt must come from the signing step or this reviewed repository,

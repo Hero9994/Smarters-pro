@@ -1,0 +1,10 @@
+{
+  "commit": "ed4e6d46df491e3895937fd39f0578e658866864",
+  "ci_run": "36759821080",
+  "application_id": "app.masahati.mobile.preview",
+  "version": "alpha-0.3-preview",
+  "signer_sha256": "134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a",
+  "apk_sha256": "d4e0a9a3f2a44b03e015829861459f4466dba6dc1f95b8ba71cbe729134b0361",
+  "apk_name": "Masahati-Preview-0.3.apk",
+  "apk_size_bytes": 327732915
+}

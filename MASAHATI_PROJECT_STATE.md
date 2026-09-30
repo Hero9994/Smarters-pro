@@ -1,5 +1,18 @@
 # Scanner crop correction — 2026-09-30 (Android preview 0.3)
 
+Signed preview 0.3 is published at
+https://github.com/Hero9994/Smarters-pro/releases/tag/masahati-preview-0.3
+(direct APK: https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.3/Masahati-Preview-0.3.apk).
+Source `ed4e6d46df491e3895937fd39f0578e658866864`, CI `36759821080`:
+build/lint/unit/backend gates passed, and all 46 Android tests passed on each
+API 26 and API 36. Signed size 327,732,915 bytes, SHA-256
+`d4e0a9a3f2a44b03e015829861459f4466dba6dc1f95b8ba71cbe729134b0361`.
+After publication the public GitHub URL was downloaded without authentication
+and passed size, SHA, ZIP CRC, APK signature and 16 KiB native library checks
+against `signing/preview-0.3-verification.json`. This is an in-place update for
+the existing *preview* package; the recovered original remains a separate app.
+Physical Samsung installation and real-paper auto-crop remain unverified.
+
 The ML Kit FULL scanner already detects and deskews page borders. Preview 0.2
 discarded its PDF and applied a second OpenCV perspective crop to its JPEG, which
 could select an inner printed border as the page edge. Preview 0.3 saves the
@@ -16,8 +29,10 @@ non-actionable. Document function v11 (`7301f158e13806294de9ad9bba6890ac01608f0b
 was deployed and both German and Arabic contract examples returned their distinct
 dates and required action. The seven live synthetic semantic checks passed; this
 does not prove accuracy on the supplied personal paper. Android API 26 initially
-rejected a `PdfRenderer` read of the test's generated fallback PDF; the next CI
-run must check PDF structure and page geometry with the app's PDFBox fallback.
+rejected a `PdfRenderer` read of the test's generated fallback PDF; the final CI
+checked PDF structure and page geometry with the app's PDFBox fallback on both
+Android versions successfully. It does not establish PdfRenderer compatibility
+for that rare JPEG-only fallback on Android 8.
 
 ---
 
@@ -35,8 +50,8 @@ The user's free-only decision remains in force; do not enable billing automatica
   `MASAHATI_GEMINI_FREE_TIER_CONFIRMED=true` in Supabase at 17:17:20 UTC that day.
   No paid setup occurred. No key is stored in this repository or the APK.
 - Default and actually reported model: **gemini-3.1-flash-lite**.
-- Active document function `masahati-document-alpha-v2`: **version 10**, bundle
-  SHA-256 `862e7a05d215933f91833e78e65e5c491463b473236943c17d5f7ac05eee83bf`.
+- Active document function `masahati-document-alpha-v2`: **version 11**, bundle
+  SHA-256 `7301f158e13806294de9ad9bba6890ac01608f0b3bb814f3b7e9261ad6047dce`.
 - Active conversation function `masahati-agent-dev`: **version 32**, bundle
   SHA-256 `415760d7bf638d6c6bed2ce7a6503cece6e536b49fa8902015560cebb793b10a`.
 - These are backend-only changes. Use the corrected, already verified preview APK
