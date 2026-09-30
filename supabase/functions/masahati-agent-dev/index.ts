@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { buildConversation, explicitAction, supportedActions, documentDateAnswer, parseModelEnvelope } from "./conversation.ts";
-import { providerConfig } from "./provider.ts";
-import { chatRequest } from "../_shared/chat-provider.ts";
+import { buildConversation, explicitAction, supportedActions, documentDateAnswer } from "./conversation.ts";
+import { providerConfig, requestConversation, unavailableReply } from "./provider.ts";
+import { providerErrorReason } from "../_shared/chat-provider.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -75,26 +75,9 @@ function buildContext(recent: any[]) {
   }).filter((x: any) => x.content);
 }
 
-async function askModel(provider: ReturnType<typeof providerConfig>, timeoutMs: number, messages: any[]) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const r = await fetch(provider.url, {
-      method: "POST",
-      headers: provider.headers,
-      body: JSON.stringify(chatRequest(provider, messages, "conversation")),
-      redirect: "error",
-      signal: controller.signal,
-    });
-    const raw = await r.text();
-    if (!r.ok) return null;
-    let env: any; try { env = JSON.parse(raw); } catch { return null; }
-    return parseModelEnvelope(env);
-  } catch { return null; } finally { clearTimeout(timer); }
-}
-function unavailable(text: string) {
+function unavailable(text: string, reason = "provider_unavailable") {
   return {ok:true, engine:"edge-fallback-v12", model:"rules-v12",
-    reply:"تعذر الحصول على جواب من المساعد الآن. بقيت رسالتك محفوظة، ويمكنك إعادة المحاولة.",
+    reply:unavailableReply(reason), degraded_reason:reason,
     classification:"other", labels:[], keywords:[], summary:text.slice(0,320), confidence:0, actions:[]};
 }
 function extractTime(s: string) {
@@ -358,21 +341,21 @@ Deno.serve(async (req: Request) => {
   if (SERVICE_KEY) {
     const clientHash = await hash(ip + "|masahati-agent-v10");
     const quota = await admin.rpc("consume_agent_dev_quota", { p_client_hash:clientHash, p_limit:500 });
-    if (quota.error || quota.data !== true) return out(unavailable(text));
+    if (quota.error || quota.data !== true) return out(unavailable(text, quota.error ? "app_quota_unavailable" : "app_capacity"));
   }
 
   const messages = buildConversation({ ...body, text, spaceTitle, now: nowRaw, timezone });
-  // One bounded request allows the provider to finish reasoning instead of aborting it after 6.5s.
+  // One deadline includes at most one retry of an explicit transient Gemini server error.
   // Preserve the existing provider and quota. Report the model returned by it (it may route elsewhere).
   let provider;
   try { provider = providerConfig(key => Deno.env.get(key), strategy === "quality"); }
-  catch { return out(unavailable(text)); }
+  catch (error) { return out(unavailable(text, providerErrorReason(error))); }
   const requestedModel = provider.model;
-  const response = await askModel(provider, 24_000, messages);
-  if (response) {
+  const response = await requestConversation(provider, 24_000, messages);
+  if (response.ok) {
     return out({ ok:true, engine:"remote-ai-v12", model:response.model, requestedModel, strategy,
       ...normalize(response.parsed, text), actions:[] });
   }
-  return out(unavailable(text));
+  return out(unavailable(text, response.error));
 
 });

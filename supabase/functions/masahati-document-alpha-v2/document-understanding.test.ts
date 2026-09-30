@@ -64,6 +64,17 @@ test("invoice amount roles cannot borrow an earlier label", () => {
   assert.ok(result.document.issue_codes.includes("uncertain_amount"));
 });
 
+test("short model date quotes regain their real clause without borrowing another date's role", () => {
+  const text = "Wir bestätigen die Kündigung Ihres Vertrags zum 31.12.2026. Es besteht kein Handlungsbedarf.";
+  const result = read(text, { dates: [{ role: "expiry", value: "2026-12-31", excerpt: "zum 31.12.2026" }] });
+  assert.equal(result.document.expiry_date, "2026-12-31");
+  assert.equal(result.document.dates[0].excerpt, text.split(" Es besteht")[0]);
+  const mixed = "Vertragsende 31.12.2026, Frist bis 01.12.2026.";
+  const rejected = read(mixed, { dates: [{ role: "expiry", value: "2026-12-01", excerpt: "01.12.2026" }] });
+  assert.equal(rejected.document.expiry_date, "");
+  assert.ok(rejected.document.issue_codes.includes("uncertain_date"));
+});
+
 test("impossible, guessed and conflicting deadlines are review items, not scheduled dates", () => {
   const text = "Vertrag\nFrist bis 31.02.2027\nFrist bis 15.09.2027\nFrist bis 16.09.2027\nBitte Unterlagen einreichen.";
   const result = read(text);

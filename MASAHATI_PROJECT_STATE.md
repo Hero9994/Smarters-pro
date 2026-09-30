@@ -1,3 +1,63 @@
+# Gemini activated and verified — 2026-09-30 (current status)
+
+This section supersedes the connection status in the dated historical entries below.
+Continue on `alpha/recovery-reliability-2026-09-16` in `Hero9994/Smarters-pro`.
+The user's free-only decision remains in force; do not enable billing automatically.
+
+## Activation and deployed backend
+
+- User explicitly authorized completing setup on September 29. Google AI Studio
+  showed project `my-project-111-390221` as **Free tier**, still offering **Set up
+  billing**. Saved `MASAHATI_GEMINI_API_KEY` and
+  `MASAHATI_GEMINI_FREE_TIER_CONFIRMED=true` in Supabase at 17:17:20 UTC that day.
+  No paid setup occurred. No key is stored in this repository or the APK.
+- Default and actually reported model: **gemini-3.1-flash-lite**.
+- Active document function `masahati-document-alpha-v2`: **version 10**, bundle
+  SHA-256 `862e7a05d215933f91833e78e65e5c491463b473236943c17d5f7ac05eee83bf`.
+- Active conversation function `masahati-agent-dev`: **version 32**, bundle
+  SHA-256 `415760d7bf638d6c6bed2ce7a6503cece6e536b49fa8902015560cebb793b10a`.
+- These are backend-only changes. Use the corrected, already verified preview APK
+  described below; no Android rebuild or reinstall is necessary for Gemini activation.
+
+## Repairs and observed verification
+
+- Gemini document requests now require a structured schema and exact source quotes.
+  The prompt distinguishes school invitations, invoice totals/paid/remaining values
+  (including zero), cancellation confirmations, and complete labelled date clauses.
+- The evidence validator recovers a short date quote's actual source clause before
+  checking the role; it still rejects impossible dates and borrowed labels.
+- An explicit transient Gemini HTTP 500/502/503/504 gets at most one same-provider
+  retry under the same deadline (23 seconds for documents, 24 for conversation).
+  Quota/auth/client errors get no retry or provider change. No paid fallback.
+- Safe failure codes now distinguish capacity, timeout, authentication, blocked,
+  incomplete/malformed output and configuration errors. Conversation failures have
+  zero confidence and no actions; no upstream body or secret is returned or logged.
+- **34/34 pure backend tests passed** on September 30, including retry limits,
+  evidence checks, timeout/auth/quota handling, and sanitization. `git diff --check`
+  passed. No unchanged Android build/emulator suite was rerun.
+- Final full deployed evaluation on September 30: **7/7 document cases passed with
+  semantic Gemini analysis, zero rule fallbacks; 6/6 conversation cases passed**.
+  Receipt: `verification/gemini-free-2026-09-30.json`. These are synthetic examples,
+  not the user's private papers. Documents include cancellation, paid invoice,
+  benefit refusal, medical transport, salary, Arabic school invitation and invalid
+  date. Conversations cover arithmetic, latest correction, pronoun reference,
+  document amount, missing name and negated actions.
+- Preserve the earlier failures in the assessment: September 29's post-fix run
+  passed 6/7 semantic document cases and 5/6 conversation cases; medical transport
+  and the missing-name question fell back without a precise upstream reason. Both
+  passed a targeted September 30 check and the final complete run. Current passing
+  tests do not establish continuous free-service availability or perfect accuracy.
+
+## Remaining hands-on validation
+
+The corrected preview's physical installation on the user's Samsung and real-paper
+scanner/OCR/reminder tests remain unverified. Keep the original app and its data;
+the preview installs separately. Existing derived-text privacy/provenance limits
+documented below are unchanged. Do not describe the whole app as 100% complete or
+production-ready. The app's public key is compatibility gating, not user identity.
+
+---
+
 # Installation-file repair — 2026-09-28
 
 The first user download failed Android installation because the delivered APK was

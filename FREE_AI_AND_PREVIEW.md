@@ -3,11 +3,26 @@
 The user chose free development on 2026-09-26. Do not create billing, top up credit,
 enable a paid provider, or change this decision automatically when tests pass.
 
-## Gemini preparation
+## Gemini is active — verified 2026-09-30
 
-Both Edge Functions use `_shared/chat-provider.ts`. Defaults preserve the existing
-public free route. Gemini is NOT active until a credential from a **Free Tier Google
-project with no linked billing** is installed in Supabase Edge Function secrets:
+On September 29 the user authorized completion. Google AI Studio showed the key's
+project `my-project-111-390221` as **Free tier**, with **Set up billing** still
+offered. The existing key and `MASAHATI_GEMINI_FREE_TIER_CONFIRMED=true` were saved
+in Supabase server secrets at 17:17:20 UTC. No billing or paid service was enabled.
+The key stays outside Git, APKs, reports and model message content.
+
+Both deployed functions now answer through `gemini-3.1-flash-lite`. Document
+version 10 and assistant version 32 are active. Configuration changes and these
+backend repairs work with the existing corrected preview APK; no rebuild is needed.
+Current evaluation details are in `verification/gemini-free-2026-09-30.json` and
+`MASAHATI_PROJECT_STATE.md`. The earlier sign-in failures below are historical,
+not the present connection state.
+
+## Server configuration
+
+Both Edge Functions use `_shared/chat-provider.ts`. Without provider configuration,
+the defaults preserve the existing public free route. Gemini is selected by these
+server-only settings from a **Free Tier Google project with no linked billing**:
 
 ```
 MASAHATI_GEMINI_API_KEY=<entered privately in server secrets>
@@ -19,13 +34,18 @@ The confirmation flag records an operator's actual check of the Google project's
 tier; it is not a billing API check and cannot stop charges if somebody later links
 billing to that Google project. Never set it merely to bypass configuration errors.
 Keep Google billing disabled. Free quotas vary; quota exhaustion returns limited
-analysis or an unavailable reply. There is one bounded request and no automatic
-switch to a different or paid service. No search, image-generation or paid tools.
+analysis or an unavailable reply. Explicit transient Gemini HTTP 500/502/503/504
+errors get at most one retry to the same service under the same total deadline.
+Quota, authentication and other client errors are not retried. There is no automatic
+switch to another provider or paid service. No search, image-generation or paid tools.
 
 Only reviewed text models are accepted. Gemini receives low reasoning effort and
 room for reasoning plus complete JSON, which still goes through the same evidence,
-calendar, action and truncation checks. Model quality remains unverified until live
-synthetic evaluation succeeds. No personal paper is needed for this test:
+calendar, action and truncation checks. Documents use a structured JSON schema and
+verbatim source evidence. Safe failure codes distinguish capacity, timeout,
+authentication, blocked and malformed responses without returning upstream bodies.
+Live synthetic evaluation verifies bounded examples, not perfect accuracy or uptime.
+No personal paper is needed for these tests:
 
 ```
 node --test supabase/functions/_shared/*.test.ts supabase/functions/masahati-agent-dev/*.test.ts supabase/functions/masahati-document-alpha-v2/*.test.ts
@@ -44,12 +64,12 @@ Official documentation reviewed 2026-09-26:
 - https://ai.google.dev/gemini-api/docs/pricing
 - https://supabase.com/docs/guides/functions/secrets
 
-### Completing the free connection (reviewed 2026-09-28)
+### Reconfiguring the free connection if needed
 
-The September 27 and September 28 browser attempts failed at Google sign-in with HTTP 502. Preparing
-provider code is not activation; no Gemini API key has been installed by this work.
-Gmail access also does not grant Gemini API credentials. The account owner can finish
-without sharing a password or API key in the conversation:
+The September 27 and September 28 browser attempts failed at Google sign-in with
+HTTP 502; connection was subsequently completed on September 29. Gmail access does
+not grant Gemini API credentials. For a future key replacement, use the server
+dashboard without sharing a password or key in the conversation:
 
 1. Open https://aistudio.google.com/api-keys and sign in. Create a Gemini API key in
    a project whose plan is **Free Tier**, with **no linked Cloud Billing account**.
@@ -63,9 +83,9 @@ without sharing a password or API key in the conversation:
    current free quota is limited. After the save, run the existing live synthetic
    evaluations and require semantic results before claiming Gemini works.
 
-The deployed provider reads environment secrets; this switch does not require a
-new APK. Account setup and live Gemini quality remain incomplete until those steps
-have actually succeeded. Official key/billing references:
+The deployed provider reads environment secrets; changing them does not require a
+new APK. After any replacement, rerun the semantic checks before claiming it works.
+Official key/billing references:
 - https://ai.google.dev/gemini-api/docs/api-key
 - https://ai.google.dev/gemini-api/docs/billing
 

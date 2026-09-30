@@ -49,3 +49,42 @@ export function chatRequest(provider: ChatProvider, messages: unknown[], task: "
     ...(gemini ? { reasoning_effort: "low" } : {}),
   };
 }
+
+const PROVIDER_ERRORS = new Set([
+  "provider_capacity", "provider_auth", "provider_request", "provider_unavailable", "provider_timeout", "provider_blocked",
+  "incomplete_model_output", "invalid_model_output", "incomplete_provider_configuration", "invalid_provider_url",
+  "ambiguous_provider_configuration", "free_tier_not_confirmed", "unapproved_free_model", "custom_provider_disabled",
+]);
+
+/** Return only stable codes, never upstream response bodies, credentials or document text. */
+export function providerErrorReason(error: unknown): string {
+  if (error instanceof Error) {
+    if (error.name === "TimeoutError" || error.name === "AbortError") return "provider_timeout";
+    if (PROVIDER_ERRORS.has(error.message)) return error.message;
+  }
+  return "provider_unavailable";
+}
+
+export function providerHttpReason(status: number): string {
+  if (status === 429) return "provider_capacity";
+  if (status === 401 || status === 403) return "provider_auth";
+  if (status === 408 || status === 504) return "provider_timeout";
+  if (status >= 400 && status < 500) return "provider_request";
+  return "provider_unavailable";
+}
+
+/** Retry one explicit transient Gemini server failure, within the original deadline.
+ * Quota/auth/client errors and other providers never get extra attempts or rerouting.
+ */
+export async function fetchChat(provider: ChatProvider, body: unknown, timeoutMs: number, fetcher = fetch) {
+  const signal = AbortSignal.timeout(timeoutMs);
+  const init = { method: "POST", headers: provider.headers, signal, redirect: "error" as const, body: JSON.stringify(body) };
+  let response = await fetcher(provider.url, init);
+  if (provider.kind === "gemini_free" && [500, 502, 503, 504].includes(response.status) && !signal.aborted) {
+    await response.body?.cancel();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    signal.throwIfAborted();
+    response = await fetcher(provider.url, init);
+  }
+  return response;
+}

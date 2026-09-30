@@ -1,0 +1,163 @@
+{
+  "checked_at": "2026-09-30T10:15:14.668817+00:00",
+  "scope": "Synthetic OCR and conversations only; no real user documents.",
+  "model": "gemini-3.1-flash-lite",
+  "deployed_versions": {
+    "masahati-document-alpha-v2": 10,
+    "masahati-agent-dev": 32
+  },
+  "checks": {
+    "documents": {
+      "command": "node scripts/evaluate-documents.mjs --live --require-semantic",
+      "exit_code": 0,
+      "results": [
+        {
+          "case": "cancellation",
+          "passed": true,
+          "method": "semantic",
+          "model": "gemini-3.1-flash-lite",
+          "type": "cancellation_confirmation",
+          "amount": "",
+          "action": false,
+          "issues": [],
+          "degradedReason": "",
+          "ms": 18022
+        },
+        {
+          "case": "paid_invoice",
+          "passed": true,
+          "method": "semantic",
+          "model": "gemini-3.1-flash-lite",
+          "type": "invoice",
+          "amount": "0,00 EUR",
+          "action": false,
+          "issues": [],
+          "degradedReason": "",
+          "ms": 6738
+        },
+        {
+          "case": "benefit_refusal",
+          "passed": true,
+          "method": "semantic",
+          "model": "gemini-3.1-flash-lite",
+          "type": "benefits_notice",
+          "amount": "",
+          "action": false,
+          "issues": [],
+          "degradedReason": "",
+          "ms": 6692
+        },
+        {
+          "case": "medical_transport",
+          "passed": true,
+          "method": "semantic",
+          "model": "gemini-3.1-flash-lite",
+          "type": "medical_transport",
+          "amount": "",
+          "action": false,
+          "issues": [],
+          "degradedReason": "",
+          "ms": 6192
+        },
+        {
+          "case": "salary",
+          "passed": true,
+          "method": "semantic",
+          "model": "gemini-3.1-flash-lite",
+          "type": "payslip",
+          "amount": "2.200,00 EUR",
+          "action": false,
+          "issues": [],
+          "degradedReason": "",
+          "ms": 11709
+        },
+        {
+          "case": "school_arabic",
+          "passed": true,
+          "method": "semantic",
+          "model": "gemini-3.1-flash-lite",
+          "type": "school",
+          "amount": "",
+          "action": true,
+          "issues": [],
+          "degradedReason": "",
+          "ms": 10439
+        },
+        {
+          "case": "invalid_date",
+          "passed": true,
+          "method": "semantic",
+          "model": "gemini-3.1-flash-lite",
+          "type": "contract",
+          "amount": "",
+          "action": false,
+          "issues": [
+            "uncertain_date"
+          ],
+          "degradedReason": "",
+          "ms": 11131
+        },
+        {
+          "semantic": 7,
+          "limited": 0,
+          "failed": 0,
+          "note": "Rule fallback results do not establish model reasoning quality."
+        }
+      ]
+    },
+    "assistant": {
+      "command": "node scripts/evaluate-assistant.mjs --live-agent",
+      "exit_code": 0,
+      "results": [
+        {
+          "case": "arithmetic",
+          "passed": true,
+          "ms": 14963,
+          "model": "gemini-3.1-flash-lite",
+          "engine": "remote-ai-v12",
+          "reply": "بدأت بـ 12 كتاباً (3 صناديق × 4 كتب في كل صندوق). بعد أن أعطيت صديقك 5 كتب، بقي لديك 7 كتب."
+        },
+        {
+          "case": "correction",
+          "passed": true,
+          "ms": 6080,
+          "model": "gemini-3.1-flash-lite",
+          "engine": "remote-ai-v12",
+          "reply": "المفاتيح موجودة الآن في الكيس الأخضر بجانب الباب."
+        },
+        {
+          "case": "pronoun",
+          "passed": true,
+          "ms": 10068,
+          "model": "gemini-3.1-flash-lite",
+          "engine": "remote-ai-v12",
+          "reply": "جواز السفر موجود الآن في الشنطة السوداء الموجودة بجانب السرير."
+        },
+        {
+          "case": "document_question",
+          "passed": true,
+          "ms": 6970,
+          "model": "gemini-3.1-flash-lite",
+          "engine": "remote-ai-v12",
+          "reply": "المبلغ المطلوب هو 84,50 يورو."
+        },
+        {
+          "case": "missing_information",
+          "passed": true,
+          "ms": 5676,
+          "model": "gemini-3.1-flash-lite",
+          "engine": "remote-ai-v12",
+          "reply": "لا يذكر المستند المرفق (contract.pdf) اسم صاحب العقد، بل يحتوي فقط على رقم العقد (X-7319) وتاريخ انتهائه (30.09.2027)."
+        },
+        {
+          "case": "negated_action",
+          "passed": true,
+          "ms": 10292,
+          "model": "gemini-3.1-flash-lite",
+          "engine": "remote-ai-v12",
+          "reply": "لقد فهمت توجيهاتك، لن أقوم بنقل أي ملفات أو إنشاء مساحات جديدة. أنا في انتظار تعليماتك القادمة."
+        }
+      ]
+    }
+  }
+}

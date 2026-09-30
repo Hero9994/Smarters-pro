@@ -77,7 +77,7 @@ function amountSupported(value: string, excerpt: string, role: string) {
   const prefix = text.slice(Math.max(0, position - 65), position).split(/[\d\n]/).at(-1) ?? "";
   return role === "other" || !!AMOUNT_ROLES[role]?.test(prefix);
 }
-function completeActionQuote(source: string, excerpt: string) {
+function completeClause(source: string, excerpt: string) {
   if (!excerpt) return "";
   // A real substring can still omit "nicht" / "لا". Recover its complete sentence/line.
   const clause = source.split(/\n+|(?<=[.!?])\s+(?=[\p{L}])/u)
@@ -114,7 +114,9 @@ export function understandDocument(raw: any, source: string, displayName: string
     return fact ? { ...fact, kind: ["invoice", "contract", "customer", "case", "insurance"].includes(r.kind) ? r.kind : "other" } : null;
   }).filter(Boolean);
   const dates = list(raw?.dates).flatMap(d => {
-    const value = normalizedDate(comparable(clip(d.value, 40))), excerpt = quote(source, d.excerpt);
+    const value = normalizedDate(comparable(clip(d.value, 40))), givenQuote = quote(source, d.excerpt);
+    // A model can quote only "zum 31.12.2026". Recover real source context before checking its role.
+    const excerpt = completeClause(source, givenQuote) || givenQuote;
     const role = Object.hasOwn(DATE_LABELS, d.role) ? d.role : "other";
     if (!value || !excerpt || !dateSupported(value, excerpt, role)) { issues.add("uncertain_date"); return []; }
     return [{ role, label: DATE_LABELS[role], value, excerpt }];
@@ -136,7 +138,7 @@ export function understandDocument(raw: any, source: string, displayName: string
   const issued = one(dates, "issue", "conflicting_dates");
   const dueAmount = one(amounts, "due", "conflicting_amounts");
   const amount = dueAmount ?? one(amounts, "total", "conflicting_amounts") ?? one(amounts, "salary", "conflicting_amounts");
-  const actionQuote = completeActionQuote(source, quote(source, raw?.action?.excerpt));
+  const actionQuote = completeClause(source, quote(source, raw?.action?.excerpt));
   let status = actionQuote ? actionStatus(actionQuote) : "unknown";
   if (raw?.action?.status !== status && raw?.action?.status !== "required") status = "unknown";
   if (raw?.action?.status === "required" && status !== "required") issues.add("uncertain_action");

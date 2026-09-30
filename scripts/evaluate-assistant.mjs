@@ -30,7 +30,7 @@ for (const probe of cases.filter(p => !process.argv.find(a => a.startsWith("--ca
     const passed = response.ok && probe.expected.every(re=>re.test(reply)) && !(probe.forbidden||[]).some(re=>re.test(reply)) &&
       Array.isArray(parsed?.actions) && parsed.actions.length === 0 && !(parsed?.engine||"").includes("fallback");
     if (!passed) failed++;
-    console.log(JSON.stringify({case:probe.name,passed,ms:Date.now()-started,model:envelope.model,engine:parsed?.engine,reply,...(!passed ? {finishReason:envelope.choices?.[0]?.finish_reason,rawContent:envelope.choices?.[0]?.message?.content,error:envelope.error} : {})}));
+    console.log(JSON.stringify({case:probe.name,passed,ms:Date.now()-started,model:envelope.model,engine:parsed?.engine,reply,...(!passed ? {degradedReason:envelope.degraded_reason,finishReason:envelope.choices?.[0]?.finish_reason,rawContent:envelope.choices?.[0]?.message?.content,error:envelope.error} : {})}));
   } catch (error) { failed++; console.log(JSON.stringify({case:probe.name,passed:false,error:error.message})); }
 }
 process.exitCode = failed ? 1 : 0;

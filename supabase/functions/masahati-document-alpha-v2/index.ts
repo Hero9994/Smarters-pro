@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { clip, understandDocument } from "./document-understanding.ts";
 import { limitedReading } from "./document-fallback.ts";
 import { semanticReading } from "./document-provider.ts";
+import { providerErrorReason } from "../_shared/chat-provider.ts";
 
 const PUBLISHABLE_KEY = "sb_publishable_BPVsQQO6jXMCp9sx-OadWg_sVGbD7Y3";
 const HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" };
@@ -30,11 +31,8 @@ Deno.serve(async (req: Request) => {
       const result = await semanticReading(source, key => Deno.env.get(key));
       return out(understandDocument(result.raw, source, displayName, { ...options, method: "semantic", model: result.model }));
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "provider_unavailable";
-      const allowed = ["provider_capacity", "provider_unavailable", "incomplete_model_output", "invalid_model_output", "incomplete_provider_configuration", "invalid_provider_url",
-        "ambiguous_provider_configuration", "free_tier_not_confirmed", "unapproved_free_model", "custom_provider_disabled"];
       return out(understandDocument(limitedReading(source), source, displayName, {
-        ...options, method: "rules", model: "rules-document-v3", failure: allowed.includes(reason) ? reason : "analysis_unavailable",
+        ...options, method: "rules", model: "rules-document-v3", failure: providerErrorReason(error),
       }));
     }
   }
