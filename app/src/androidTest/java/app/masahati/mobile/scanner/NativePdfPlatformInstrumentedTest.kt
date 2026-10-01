@@ -9,7 +9,9 @@ import android.util.Base64
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.masahati.mobile.LocalDocumentReader
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -28,9 +30,19 @@ class NativePdfPlatformInstrumentedTest {
             writer.finishPage(page);file.outputStream().use(writer::writeTo)
         } finally { writer.close() }
         assertTrue(file.length()>100)
+        // Run the real import reader on a malformed file, then verify that a
+        // perfectly valid native PDF remains readable in the SAME process.
+        // This reproduces the old API-26 regression without relying on test order.
+        val broken=File(context.cacheDir,"native-pdf-broken-control.pdf").apply { writeText("%PDF-1.4 broken") }
+        try {
+            LocalDocumentReader(context).use { reader -> assertEquals("",reader.readPdf(broken).text) }
+        } finally { broken.delete() }
         try {
             ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                PdfRenderer(fd).use { pdf -> assertTrue(pdf.pageCount==1) }
+                PdfRenderer(fd).use { pdf ->
+                    assertEquals(1,pdf.pageCount)
+                    pdf.openPage(0).use { assertTrue(it.width>0 && it.height>0) }
+                }
             }
             Log.i("ScannerPdfPlatform","NATIVE_CONTROL_OK api="+android.os.Build.VERSION.SDK_INT)
         } catch(error: Exception) {
@@ -38,6 +50,7 @@ class NativePdfPlatformInstrumentedTest {
             // Synthetic test only. Retain independent bytes for a host reader.
             val encoded=Base64.encodeToString(file.readBytes(),Base64.NO_WRAP)
             encoded.chunked(2800).forEachIndexed { i,part -> Log.i("ScannerPdfPlatform","CONTROL_BASE64_"+i+"="+part) }
+            throw error
         } finally { file.delete() }
     }
 }

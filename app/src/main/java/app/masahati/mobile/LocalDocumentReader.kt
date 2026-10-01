@@ -236,6 +236,16 @@ class LocalDocumentReader(context: Context) : Closeable {
         val started = SystemClock.elapsedRealtime()
         try {
             document = runCatching { PDDocument.load(file, MemoryUsageSetting.setupMixed(16L * 1024L * 1024L).setTempDir(app.cacheDir)) }.getOrNull()
+            // Oreo's PdfUtils.initializeLibraryIfNeeded forwards PDFium's previous
+            // error even after FPDF_InitLibrary. Sending a known broken/password-
+            // protected PDF to it can prevent later VALID PDFs from opening in
+            // this process. Preflight with our existing independent parser first.
+            // Newer Android keeps the native-reader fallback for PDFs it supports
+            // when PDFBox cannot parse them. Original files are always retained.
+            if (android.os.Build.VERSION.SDK_INT <= 27 && document == null) {
+                return DocumentReadResult("", "تعذر قراءة PDF؛ قد يكون محمياً بكلمة مرور أو تالفاً.",
+                    totalPages = 0, processedPages = 0)
+            }
             runCatching {
                 descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                 renderer = PdfRenderer(descriptor!!)
