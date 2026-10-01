@@ -55,7 +55,12 @@ class DocQuadDetector(context: Context): AutoCloseable {
                         val std=sqrt(max(1e-8,squares/4096-(sum/4096).pow(2)))
                         val probability=sigmoid(best.toDouble());val z=(best-sum/4096)/std
                         peakProbability.add(probability);prominence.add(z)
-                        confidence.add(probability*(z/6).coerceIn(0.0,1.0))
+                        // Publisher contract: peak sigmoid, with mask agreement
+                        // applied to the overall score. Z prominence is retained
+                        // as a diagnostic; multiplying by z/6 blocked the auto
+                        // shutter even on clean, strongly detected real pages.
+                        // This score is not a calibrated probability of crop safety.
+                        confidence.add(probability)
                     }
                     val mask=FloatArray(4096) { sigmoid(logits[it].toDouble()).toFloat() }
                     if(!ScanGeometry.valid(points)) return DocumentDetection(null,mask,0.0,elapsed(started),"عدّل الزوايا يدويًا")

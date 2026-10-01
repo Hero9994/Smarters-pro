@@ -42,7 +42,30 @@ class ScannerEngine(context: Context): AutoCloseable {
         val report=JSONObject(page.report.toString())
         onStage("التأكد من حدود المحتوى في الصورة الأصلية")
         val rawPreview=ScanSourceImage.preview(store.source(page),page.turns,2200)
-        val rawCodes=try { ScanQualityGuard.barcodes(rawPreview) } finally { rawPreview.recycle() }
+        var cropBaseline: ScanOcrReading?=null
+        val rawCodes=try {
+            val codes=ScanQualityGuard.barcodes(rawPreview)
+            // Source-domain validation is separate from the filter guard. A
+            // reference row removed by the homography is absent from BOTH
+            // rectified/filter images, so a post-filter comparison cannot see it.
+            if(page.quad.area()<.999) {
+                val model=report.optJSONArray("model_polygon")
+                val expected=if(model!=null && model.length()==4) DocumentQuad((0..3).map {
+                    val point=model.getJSONArray(it);ScanPoint(point.getDouble(0),point.getDouble(1))
+                }).takeIf { it.valid() } ?: page.quad else page.quad
+                val paper=expected.copy(points=ScanGeometry.padded(expected.points,rawPreview.width,rawPreview.height,24.0))
+                val regions=runCatching { ScanCropContentGuard.atRisk(ocr.detect(rawPreview),page.quad,paper) }
+                    .getOrElse { warnings.add("تعذر فحص النص قرب حدود القص؛ راجع الأصل والزوايا");emptyList() }
+                if(regions.size>12) {
+                    page.ready=false;page.review=true;store.save()
+                    error("توجد أسطر كثيرة قرب حدود القص أو خارجه؛ وسّع حدود الورقة وراجع الزوايا")
+                }
+                if(regions.isNotEmpty()) cropBaseline=runCatching { ocr.read(rawPreview,regions,12) }
+                    .getOrElse { warnings.add("تعذر فحص الحروف قرب حدود القص؛ راجع الأصل والزوايا");null }
+                report.put("source_boundary_regions",regions.size)
+            }
+            codes
+        } finally { rawPreview.recycle() }
         var base: Bitmap?=null;var changed: Bitmap?=null
         try {
             onStage("تصحيح شكل الورقة")
@@ -63,6 +86,19 @@ class ScannerEngine(context: Context): AutoCloseable {
             var codes=if(cachedKey==key) cachedCodes else warpedCodes
             if(baseline==null) baseline=runCatching { ocr.read(base,maxLines=40) }.getOrElse {
                 warnings.add("تعذرت مقارنة النص؛ حافظنا على تنظيف خفيف وفحص التفاصيل");ScanOcrReading(emptyList(),0,false) }
+            val warpedReading=baseline
+            cropBaseline?.let { sourceReading ->
+                val protectedLines=sourceReading.lines.filter { it.confidence>=.88 }
+                val decision=ScanGuardPolicy.evaluate(protectedLines.map { it.text to it.confidence },
+                    warpedReading.lines.map { it.text to it.confidence },emptySet(),emptySet())
+                report.put("source_boundary_ocr_ms",sourceReading.elapsedMs).put("source_boundary_validated_lines",protectedLines.size)
+                if(!decision.accepted) {
+                    page.ready=false;page.review=true;store.save()
+                    error("القص فقد أو غيّر قراءة نص واضح قرب الحافة؛ وسّع حدود الورقة أو أعد التصوير")
+                }
+                if(protectedLines.size<sourceReading.lines.size || protectedLines.isEmpty())
+                    warnings.add("بعض النص قرب الحافة غير واضح؛ راجع القص في الصورة الأصلية")
+            }
             if(page.dewarp && geometry.curved && geometry.curveConfidence>=.6 && cachedKey!=key) {
                 onStage("تسطيح الانحناء وفحص النتيجة")
                 try {

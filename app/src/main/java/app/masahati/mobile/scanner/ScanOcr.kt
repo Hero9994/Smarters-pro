@@ -56,7 +56,7 @@ class ScanOcr(context: Context): AutoCloseable {
         }
         return ScanOcrReading(lines,(System.nanoTime()-started)/1_000_000,regions.size<=maxLines)
     }
-    private fun detect(source: Bitmap): List<ScanTextBox> {
+    @Synchronized fun detect(source: Bitmap): List<ScanTextBox> {
         check(OpenCvDocumentRectifier.isAvailable())
         val scale=min(1.0,1280.0/max(source.width,source.height))
         val rw=max(32,(source.width*scale).roundToInt());val rh=max(32,(source.height*scale).roundToInt())

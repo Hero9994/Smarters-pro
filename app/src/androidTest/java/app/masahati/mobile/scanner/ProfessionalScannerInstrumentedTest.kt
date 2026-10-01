@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 import org.json.JSONObject
+import org.json.JSONArray
 
 @RunWith(AndroidJUnit4::class)
 class ProfessionalScannerInstrumentedTest {
@@ -227,6 +228,53 @@ class ProfessionalScannerInstrumentedTest {
             }
             store.pages.forEach(store::verifySource)
         } finally { source.recycle();landscape.recycle();store.directory.deleteRecursively();target.delete() }
+    }
+    @Test fun sourceReferenceRemovedByCropIsRejectedBeforeAnyFilter() {
+        val source=Bitmap.createBitmap(1000,1400,Bitmap.Config.ARGB_8888)
+        val store=ScanSessionStore.create(context)
+        try {
+            val canvas=Canvas(source);canvas.drawColor(Color.WHITE)
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK;textSize=42f }
+            canvas.drawText("REFERENCE 73071446",80f,150f,paint)
+            paint.textSize=30f
+            repeat(8) { row -> canvas.drawText("Official document content remains intact.",80f,400f+row*80f,paint) }
+            val page=import(store,source)
+            page.filter=ScanFilter.ORIGINAL
+            page.report.put("model_polygon",JSONArray().apply {
+                DocumentQuad.inset(0.0).points.forEach { put(JSONArray().put(it.x).put(it.y)) }
+            })
+            page.quad=DocumentQuad(listOf(ScanPoint(0.0,.2),ScanPoint(1.0,.2),ScanPoint(1.0,1.0),ScanPoint(0.0,1.0)),1.0)
+            store.save()
+            ScannerEngine(context).use { engine ->
+                var rejected=false
+                try { engine.process(store,page).use { } }
+                catch(error: IllegalStateException) { rejected=error.message.orEmpty().contains("قرب الحافة") }
+                assertTrue("Crop silently removed a readable original reference row",rejected)
+                assertFalse(page.ready);assertTrue(page.review);store.verifySource(page)
+                page.quad=DocumentQuad.inset(0.0).copy(confidence=1.0);page.review=false;store.save()
+                engine.process(store,page).use { assertTrue(it.report.getString("ocr_text").contains("73071446")) }
+                assertTrue(page.ready);store.verifySource(page)
+            }
+        } finally { source.recycle();store.directory.deleteRecursively() }
+    }
+    @Test fun realDocumentModelCanReachStableAutoShutterOnClearFramedPaper() {
+        val source=Bitmap.createBitmap(1200,1600,Bitmap.Config.ARGB_8888)
+        try {
+            val canvas=Canvas(source);canvas.drawColor(Color.rgb(45,50,55))
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE }
+            canvas.drawRect(170f,130f,1030f,1450f,paint)
+            paint.color=Color.BLACK;paint.textSize=30f
+            repeat(30) { row -> canvas.drawText("Official record 73071446, clear document.",210f,230f+row*35f,paint) }
+            val detection=DocQuadDetector(context).use { it.detect(source) }
+            val quad=requireNotNull(detection.quad)
+            assertTrue("Publisher model score blocked a clearly framed paper: "+quad.confidence,quad.confidence>=.78)
+            val quality=ScanQuality.analyze(source,quad)
+            assertTrue("Clear framed paper failed quality checks",quality.acceptable())
+            val gate=StableCaptureGate();var eligible=false
+            repeat(8) { frame -> eligible=gate.observe(quad,quality,10_000L+frame*150) }
+            assertTrue("Real model output could not reach stable auto capture",eligible)
+            assertFalse(gate.observe(quad,quality.copy(focused=false),12_000L))
+        } finally { source.recycle() }
     }
     private fun find(v: View,tag: String): View? {
         if(v.tag==tag) return v
