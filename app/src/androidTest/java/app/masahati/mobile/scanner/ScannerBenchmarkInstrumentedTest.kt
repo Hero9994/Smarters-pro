@@ -29,6 +29,7 @@ class ScannerBenchmarkInstrumentedTest {
         var detected=0;var manual=0;var clipped=0;var unsafeAuto=0;var peakMemory=0L
         val errors=ArrayList<Double>();val initialErrors=ArrayList<Double>();val edges=ArrayList<Double>();val times=ArrayList<Double>()
         val logicalErrors=ArrayList<Double>();val confidences=ArrayList<Double>()
+        val boundaryErrors=ArrayList<Double>();val boundaryEdges=ArrayList<Double>()
         try {
             for(i in 0 until samples.length()) {
                 val sample=samples.getJSONObject(i);val input=File(context.cacheDir,"benchmark-source.jpeg")
@@ -44,6 +45,7 @@ class ScannerBenchmarkInstrumentedTest {
                     detected++;val refinement=FullResolutionEdgeRefiner.refine(input,initial)
                     val pixels=refinement.quad.points.map { ScanPoint(it.x*(info.width-1),it.y*(info.height-1)) }
                     val before=initial.points.map { ScanPoint(it.x*(info.width-1),it.y*(info.height-1)) }
+                    val boundary=refinement.boundaryQuad.points.map { ScanPoint(it.x*(info.width-1),it.y*(info.height-1)) }
                     // SmartDoc labels follow printing orientation; inference follows
                     // image orientation. Match CYCLIC start only, keep adjacency and
                     // winding. Use the same correspondence before/after refinement.
@@ -53,6 +55,12 @@ class ScannerBenchmarkInstrumentedTest {
                     logicalErrors.add(logical);confidences.add(initial.confidence)
                     val corner=gt.zip(pixels).map { (a,b) -> a.distance(b) }.average()
                     val old=gt.zip(before).map { (a,b) -> a.distance(b) }.average()
+                    val rawCorner=gt.zip(boundary).map { (a,b) -> a.distance(b) }.average()
+                    val rawEdge=gt.indices.map { e ->
+                        val line=ScanGeometry.lineThrough(boundary[e],boundary[(e+1)%4])!!
+                        (0..20).map { n -> val a=gt[e];val b=gt[(e+1)%4];val t=n/20.0
+                            line.distance(ScanPoint(a.x*(1-t)+b.x*t,a.y*(1-t)+b.y*t)) }.average() }.average()
+                    boundaryErrors.add(rawCorner);boundaryEdges.add(rawEdge)
                     val edge=gt.indices.map { e ->
                         val line=ScanGeometry.lineThrough(pixels[e],pixels[(e+1)%4])!!
                         (0..20).map { n -> val a=gt[e];val b=gt[(e+1)%4];val t=n/20.0
@@ -65,6 +73,8 @@ class ScannerBenchmarkInstrumentedTest {
                     record.put("corner_error_px",corner).put("model_corner_error_px",old).put("edge_error_px",edge)
                         .put("max_inward_px",inward).put("accepted_edges",refinement.acceptedEdges).put("manual_review",refinement.needsManualReview)
                         .put("refinement_ms",refinement.elapsedMs).put("refined_polygon",polygon(pixels)).put("model_polygon",polygon(before))
+                        .put("boundary_polygon",polygon(boundary)).put("boundary_corner_error_px",rawCorner).put("boundary_edge_error_px",rawEdge)
+                        .put("crop_padding_source_px",refinement.paddingPixels).put("edge_profile_support",JSONArray(refinement.inlierFractions))
                         .put("ground_truth_polygon",polygon(gt)).put("ground_truth_logical_polygon",polygon(logicalGt))
                         .put("cyclic_gt_start",cycle).put("logical_corner_error_px",logical)
                         .put("model_confidence",initial.confidence).put("corner_confidence",JSONArray(initial.cornerConfidence))
@@ -100,6 +110,8 @@ class ScannerBenchmarkInstrumentedTest {
             .put("corner_correspondence","cyclic start aligned to initial polygon; adjacency/winding unchanged")
             .put("legacy_logical_corner_px",stats(logicalErrors)).put("model_confidence",stats(confidences))
             .put("model_corner_px",stats(initialErrors)).put("refined_corner_px",stats(errors)).put("refined_edge_px",stats(edges))
+            .put("boundary_corner_px",stats(boundaryErrors)).put("boundary_edge_px",stats(boundaryEdges))
+            .put("crop_padding_scope","6 original source pixels outward; boundary and final padded crop errors are reported separately")
             .put("diagnostic_total_ms",stats(times)).put("sampled_heap_and_native_bytes",peakMemory)
             .put("memory_scope","phase-boundary samples, not peak PSS").put("timing_scope","detection/refinement and conditional visual output, excludes full pipeline/OCR")
         File(folder,"summary.json").writeText(summary.toString(2))

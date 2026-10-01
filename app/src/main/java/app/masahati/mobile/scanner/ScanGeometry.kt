@@ -19,6 +19,7 @@ data class DocumentQuad(val points: List<ScanPoint>,val confidence: Double=0.0,
     }
 }
 data class EdgeSample(val point: ScanPoint,val weight: Double=1.0)
+data class ProfileEdgeSample(val point: ScanPoint,val profile: Int,val strength: Double)
 data class FittedLine(val nx: Double,val ny: Double,val c: Double,val inlierFraction: Double=0.0,val residualPx: Double=0.0) {
     fun distance(p: ScanPoint)=abs(nx*p.x+ny*p.y+c)
 }
@@ -64,6 +65,48 @@ object ScanGeometry {
         val angle=0.5*atan2(2*xy,xx-yy);val nx=-sin(angle);val ny=cos(angle)
         val line=FittedLine(nx,ny,-(nx*cx+ny*cy),chosen.size.toDouble()/clean.size)
         return line.copy(residualPx=sqrt(chosen.sumOf { line.distance(it.point).pow(2) }/chosen.size))
+    }
+    /** Several transitions per normal profile, but only ONE vote per profile.
+     * Printed texture can produce many stronger peaks than a weak paper edge.
+     * Select a spatially coherent boundary with a localization prior, then TLS.
+     */
+    fun robustProfileLine(samples: List<ProfileEdgeSample>,profileCount: Int,reference: FittedLine,
+        midpoint: ScanPoint,radius: Double): FittedLine? {
+        val clean=samples.filter { it.point.finite() && it.profile in 0 until profileCount && it.strength.isFinite() && it.strength>0 }
+        if(clean.size<40 || profileCount<40 || radius<=0) return null
+        val random=Random(73071446);var best=IntArray(0);var bestScore=-1.0
+        val closest=IntArray(profileCount);val distances=DoubleArray(profileCount)
+        repeat(192) {
+            val a=clean[random.nextInt(clean.size)].point;val b=clean[random.nextInt(clean.size)].point
+            if(a.distance(b)<40) return@repeat
+            val line=lineThrough(a,b) ?: return@repeat
+            if(abs(line.nx*reference.nx+line.ny*reference.ny)<cos(7.5*PI/180)) return@repeat
+            closest.fill(-1);distances.fill(Double.POSITIVE_INFINITY)
+            clean.forEachIndexed { index,sample ->
+                val distance=line.distance(sample.point)
+                if(distance<=2.5 && distance<distances[sample.profile]) {
+                    closest[sample.profile]=index;distances[sample.profile]=distance
+                }
+            }
+            val count=closest.count { it>=0 }
+            if(count<40) return@repeat
+            val score=count*exp(-.5*(line.distance(midpoint)/(radius*.65)).pow(2))
+            if(score>bestScore) { bestScore=score;best=closest.filter { it>=0 }.toIntArray() }
+        }
+        if(best.size<ceil(profileCount*.85).toInt()) return null
+        val chosen=best.map { clean[it] };val weights=chosen.map { (it.strength/70).coerceIn(.4,1.5) }
+        val total=weights.sum()
+        val cx=chosen.indices.sumOf { chosen[it].point.x*weights[it] }/total
+        val cy=chosen.indices.sumOf { chosen[it].point.y*weights[it] }/total
+        var xx=0.0;var yy=0.0;var xy=0.0
+        chosen.indices.forEach { i -> val x=chosen[i].point.x-cx;val y=chosen[i].point.y-cy
+            xx+=weights[i]*x*x;yy+=weights[i]*y*y;xy+=weights[i]*x*y }
+        if(xx+yy<1e-5) return null
+        val angle=.5*atan2(2*xy,xx-yy);val nx=-sin(angle);val ny=cos(angle)
+        val fitted=FittedLine(nx,ny,-nx*cx-ny*cy,chosen.size.toDouble()/profileCount)
+        val residual=sqrt(chosen.sumOf { fitted.distance(it.point).pow(2) }/chosen.size)
+        return fitted.copy(residualPx=residual).takeIf { residual<=2.7 &&
+            abs(it.nx*reference.nx+it.ny*reference.ny)>=cos(7.5*PI/180) && it.distance(midpoint)<=radius*1.15 }
     }
     /** Move each edge OUTWARD in source pixels. Clamp at image borders; never shrink. */
     fun padded(p: List<ScanPoint>,width: Int,height: Int,paddingPx: Double): List<ScanPoint> {

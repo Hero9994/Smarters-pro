@@ -30,7 +30,9 @@ class ScannerEngine(context: Context): AutoCloseable {
         page.report=JSONObject().put("detection_ms",detection.elapsedMs).put("mask_agreement",detection.maskAgreement)
             .put("detection_warning",detection.warning).put("model_polygon",polygon(initial))
             .put("refined_polygon",polygon(refined?.quad)).put("refinement_ms",refined?.elapsedMs)
+            .put("boundary_polygon",polygon(refined?.boundaryQuad)).put("crop_padding_source_px",refined?.paddingPixels)
             .put("accepted_edges",refined?.acceptedEdges ?: 0).put("edge_residual_px",JSONArray(refined?.residualPixels ?: emptyList<Double>()))
+            .put("edge_profile_support",JSONArray(refined?.inlierFractions ?: emptyList<Double>()))
         store.save();detector.close()
     }
     fun process(store: ScanSessionStore,page: ScanPage,onStage: (String)->Unit={}): ScanProcessedPage =

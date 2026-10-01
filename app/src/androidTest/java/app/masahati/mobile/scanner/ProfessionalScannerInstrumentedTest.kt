@@ -195,8 +195,11 @@ class ProfessionalScannerInstrumentedTest {
             assertEquals("Four physical paper edges were not fitted",4,result.acceptedEdges)
             assertFalse(result.needsManualReview)
             val refined=result.quad.points.map { ScanPoint(it.x*1399,it.y*1799) }
+            val boundary=result.boundaryQuad.points.map { ScanPoint(it.x*1399,it.y*1799) }
+            assertTrue("Physical boundary is inaccurate before the explicit safety margin: "+boundary,
+                boundary.zip(truth).all { (a,b) -> a.distance(b)<3 })
             assertTrue("Refined corners missed physical paper edges: "+refined,
-                refined.zip(truth).all { (a,b) -> a.distance(b)<9 })
+                refined.zip(truth).all { (a,b) -> a.distance(b)<12 })
             val inward=truth.maxOf { p -> refined.indices.maxOf { e ->
                 val a=refined[e];val b=refined[(e+1)%4]
                 -((b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x))/a.distance(b)

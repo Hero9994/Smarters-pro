@@ -201,8 +201,10 @@ class ProfessionalScannerActivity: ComponentActivity() {
         val editor=ScanCornerView(this);cornerView=editor;root.addView(editor,LinearLayout.LayoutParams(-1,0,1f))
         editor.quad=page.quad;editor.onChanged={ page.quad=it;page.ready=false;page.review=false;store.save() }
         task("تحميل الصورة الأصلية") { val bitmap=ScanSourceImage.preview(store.source(page),page.turns,2400)
-            done(onDiscard={bitmap.recycle()}) { if(editor!==cornerView) bitmap.recycle() else { originalPreview=bitmap;editor.bitmap=bitmap;editor.quad=page.quad;status.text="راجع الزوايا ثم اضغط تطبيق" } } }
-        row(button("كشف جديد") { task("إعادة كشف الحواف") { engine.detect(store,page);done { editor.quad=page.quad;status.text="راجع الزوايا المكتشفة" } } },
+            done(onDiscard={bitmap.recycle()}) { if(editor!==cornerView) bitmap.recycle() else { originalPreview=bitmap;editor.bitmap=bitmap;editor.quad=page.quad
+                status.text=if(page.review) "لم نتأكد من كل الحواف؛ كبّر وراجع الزوايا الأربع قبل تطبيق القص" else "راجع الزوايا ثم اضغط تطبيق" } } }
+        row(button("كشف جديد") { task("إعادة كشف الحواف") { engine.detect(store,page);done { editor.quad=page.quad
+            status.text=if(page.review) "لم نتأكد من كل الحواف؛ راجع الزوايا الأربع" else "راجع الزوايا المكتشفة" } } },
             button("تدوير") { page.turns=(page.turns+1)%4;page.ready=false;task("تدوير وكشف الورقة") { engine.detect(store,page);done { showCorners(page) } } },
             button("الصورة كاملة") { page.quad=DocumentQuad.inset(0.0).copy(confidence=1.0,origin="manual");page.ready=false;editor.quad=page.quad;store.save() })
         row(button("تطبيق القص","scanner-apply-crop") { page.quad=editor.quad;page.review=false;page.ready=false;store.save();process(page) },

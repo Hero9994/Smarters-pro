@@ -32,4 +32,19 @@ class ScanGeometryTest {
         val p=ScanGeometry.intersection(FittedLine(1.0,0.0,-10.25),FittedLine(0.0,1.0,-30.75))!!
         assertEquals(10.25,p.x,1e-10);assertEquals(30.75,p.y,1e-10)
     }
+    @Test fun multiplePrintedPeaksCannotOutvoteOnePhysicalEdgePerProfile() {
+        val samples=ArrayList<ProfileEdgeSample>()
+        repeat(96) { profile ->
+            val x=profile*10.0
+            samples.add(ProfileEdgeSample(ScanPoint(x,50.0+(profile%3-1)*.15),profile,25.0))
+            // Five very strong printing/background candidates in each profile,
+            // with different offsets in different halves of the page.
+            repeat(5) { peak -> samples.add(ProfileEdgeSample(
+                ScanPoint(x,if(profile<48) 66.0+peak*4 else 32.0+peak*4),profile,180.0)) }
+        }
+        val reference=ScanGeometry.lineThrough(ScanPoint(0.0,54.0),ScanPoint(950.0,54.0))!!
+        val fitted=ScanGeometry.robustProfileLine(samples,96,reference,ScanPoint(475.0,54.0),30.0)!!
+        assertTrue(fitted.distance(ScanPoint(475.0,50.0))<.4)
+        assertTrue(fitted.inlierFraction>.95)
+    }
 }
