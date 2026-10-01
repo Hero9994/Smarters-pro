@@ -100,7 +100,8 @@ object ScanSourceImage {
         var decoder: BitmapRegionDecoder?=null;var result: Bitmap?=null
         try {
             val inv=DoubleArray(9);inverse.get(0,0,inv);val coefficients=DoubleArray(9);homography.get(0,0,coefficients)
-            decoder=BitmapRegionDecoder.newInstance(file.absolutePath,false) ?: error("تعذر فتح مناطق الصورة")
+            val regionDecoder=BitmapRegionDecoder.newInstance(file.absolutePath,false) ?: error("تعذر فتح مناطق الصورة")
+            decoder=regionDecoder
             result=createBitmap(outW,outH);val canvas=Canvas(result);canvas.drawColor(Color.WHITE)
             if(abs(angle)>1e-8) {
                 val clipping=Path();to.toArray().forEachIndexed { i,p ->
@@ -129,7 +130,7 @@ object ScanSourceImage {
                     }
                     return
                 }
-                val patch=decoder.decodeRegion(rect,BitmapFactory.Options().apply { inPreferredConfig=Bitmap.Config.ARGB_8888 }) ?: error("تعذر قراءة جزء من الصورة")
+                val patch=regionDecoder.decodeRegion(rect,BitmapFactory.Options().apply { inPreferredConfig=Bitmap.Config.ARGB_8888 }) ?: error("تعذر قراءة جزء من الصورة")
                 val src=Mat();val dst=Mat();val transform=Mat(3,3,CvType.CV_64F);var tile: Bitmap?=null
                 try {
                     Utils.bitmapToMat(patch,src);patch.recycle()
