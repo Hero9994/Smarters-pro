@@ -26,8 +26,9 @@ class ScannerBenchmarkInstrumentedTest {
         val folder=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
         try {
         val records=JSONArray();val detector=DocQuadDetector(context)
-        var detected=0;var manual=0;var clipped=0;var peakMemory=0L
+        var detected=0;var manual=0;var clipped=0;var unsafeAuto=0;var peakMemory=0L
         val errors=ArrayList<Double>();val initialErrors=ArrayList<Double>();val edges=ArrayList<Double>();val times=ArrayList<Double>()
+        val logicalErrors=ArrayList<Double>();val confidences=ArrayList<Double>()
         try {
             for(i in 0 until samples.length()) {
                 val sample=samples.getJSONObject(i);val input=File(context.cacheDir,"benchmark-source.jpeg")
@@ -35,14 +36,21 @@ class ScannerBenchmarkInstrumentedTest {
                 assertEquals(sample.getString("sha256"),ScanSessionStore.sha256(input))
                 val info=ScanSourceImage.info(input);val bitmap=ScanSourceImage.preview(input,maxSide=1600)
                 val started=System.nanoTime();val detection=try { detector.detect(bitmap) } finally { bitmap.recycle() }
-                val gt=(0..3).map { sample.getJSONArray("corners").getJSONArray(it).let { p -> ScanPoint(p.getDouble(0),p.getDouble(1)) } }
+                val logicalGt=(0..3).map { sample.getJSONArray("corners").getJSONArray(it).let { p -> ScanPoint(p.getDouble(0),p.getDouble(1)) } }
                 val record=JSONObject().put("file",sample.getString("file")).put("sequence",sample.getString("sequence"))
                     .put("category",sample.getString("category")).put("detected",detection.quad!=null).put("detection_ms",detection.elapsedMs)
                 val initial=detection.quad
                 if(initial!=null) {
                     detected++;val refinement=FullResolutionEdgeRefiner.refine(input,initial)
-                    val pixels=refinement.quad.points.map { ScanPoint(it.x*info.width,it.y*info.height) }
-                    val before=initial.points.map { ScanPoint(it.x*info.width,it.y*info.height) }
+                    val pixels=refinement.quad.points.map { ScanPoint(it.x*(info.width-1),it.y*(info.height-1)) }
+                    val before=initial.points.map { ScanPoint(it.x*(info.width-1),it.y*(info.height-1)) }
+                    // SmartDoc labels follow printing orientation; inference follows
+                    // image orientation. Match CYCLIC start only, keep adjacency and
+                    // winding. Use the same correspondence before/after refinement.
+                    val cycle=(0..3).minBy { shift -> before.indices.sumOf { k -> before[k].distance(logicalGt[(k+shift)%4]) } }
+                    val gt=before.indices.map { logicalGt[(it+cycle)%4] }
+                    val logical=logicalGt.zip(pixels).map { (a,b) -> a.distance(b) }.average()
+                    logicalErrors.add(logical);confidences.add(initial.confidence)
                     val corner=gt.zip(pixels).map { (a,b) -> a.distance(b) }.average()
                     val old=gt.zip(before).map { (a,b) -> a.distance(b) }.average()
                     val edge=gt.indices.map { e ->
@@ -52,11 +60,16 @@ class ScannerBenchmarkInstrumentedTest {
                     val inward=gt.maxOf { p -> pixels.indices.maxOf { e ->
                         val a=pixels[e];val b=pixels[(e+1)%4]
                         -((b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x))/a.distance(b) } }
-                    if(inward>2) clipped++;if(refinement.needsManualReview) manual++
+                    if(inward>2) { clipped++;if(!refinement.needsManualReview) unsafeAuto++ };if(refinement.needsManualReview) manual++
                     errors.add(corner);initialErrors.add(old);edges.add(edge)
                     record.put("corner_error_px",corner).put("model_corner_error_px",old).put("edge_error_px",edge)
                         .put("max_inward_px",inward).put("accepted_edges",refinement.acceptedEdges).put("manual_review",refinement.needsManualReview)
                         .put("refinement_ms",refinement.elapsedMs).put("refined_polygon",polygon(pixels)).put("model_polygon",polygon(before))
+                        .put("ground_truth_polygon",polygon(gt)).put("ground_truth_logical_polygon",polygon(logicalGt))
+                        .put("cyclic_gt_start",cycle).put("logical_corner_error_px",logical)
+                        .put("model_confidence",initial.confidence).put("corner_confidence",JSONArray(initial.cornerConfidence))
+                        .put("corner_peak_probability",JSONArray(detection.cornerPeakProbability)).put("corner_prominence_z",JSONArray(detection.cornerProminenceZ))
+                        .put("mask_agreement",detection.maskAgreement).put("edge_residual_px",JSONArray(refinement.residualPixels))
                     if(i%30==0 || corner>18 || inward>8) {
                         val image=ScanSourceImage.preview(input,maxSide=1200)
                         try {
@@ -83,7 +96,9 @@ class ScannerBenchmarkInstrumentedTest {
         val summary=JSONObject().put("dataset",manifest.getString("dataset")).put("attribution",manifest.getString("attribution"))
             .put("real_frames",300).put("independent_documents",30).put("sequences",150).put("training_overlap","unknown")
             .put("device",android.os.Build.FINGERPRINT).put("api",android.os.Build.VERSION.SDK_INT)
-            .put("detected",detected).put("manual_review",manual).put("inward_over_2px",clipped)
+            .put("detected",detected).put("manual_review",manual).put("inward_over_2px",clipped).put("unsafe_auto_crops",unsafeAuto)
+            .put("corner_correspondence","cyclic start aligned to initial polygon; adjacency/winding unchanged")
+            .put("legacy_logical_corner_px",stats(logicalErrors)).put("model_confidence",stats(confidences))
             .put("model_corner_px",stats(initialErrors)).put("refined_corner_px",stats(errors)).put("refined_edge_px",stats(edges))
             .put("diagnostic_total_ms",stats(times)).put("sampled_heap_and_native_bytes",peakMemory)
             .put("memory_scope","phase-boundary samples, not peak PSS").put("timing_scope","detection/refinement and conditional visual output, excludes full pipeline/OCR")

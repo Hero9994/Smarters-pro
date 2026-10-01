@@ -9,7 +9,7 @@ import java.nio.FloatBuffer
 import kotlin.math.*
 
 data class DocumentDetection(val quad: DocumentQuad?,val mask: FloatArray,val maskAgreement: Double,
-    val elapsedMs: Long,val warning: String?)
+    val elapsedMs: Long,val warning: String?,val cornerPeakProbability: List<Double> = emptyList(),val cornerProminenceZ: List<Double> = emptyList())
 
 /** New adapter for MakeACopy's Apache-2.0 DocQuadNet-256 contract, pinned to
  * 01bebd394b9dd6f3a692f28aea7c0638085eb4da. Black letterbox RGB [0,1] NCHW input;
@@ -42,6 +42,7 @@ class DocQuadDetector(context: Context): AutoCloseable {
                     val logits=floats(result.get("mask_logits").get() as OnnxTensor)
                     require(heats.size==16384 && logits.size==4096)
                     val points=ArrayList<ScanPoint>();val confidence=ArrayList<Double>()
+                    val peakProbability=ArrayList<Double>();val prominence=ArrayList<Double>()
                     for(corner in 0..3) {
                         val base=corner*4096;var peak=0;var best=Float.NEGATIVE_INFINITY
                         var sum=0.0;var squares=0.0
@@ -52,7 +53,9 @@ class DocQuadDetector(context: Context): AutoCloseable {
                             val weight=exp((heats[base+y*64+x]-best).toDouble());sx+=(x+.5)*weight;sy+=(y+.5)*weight;total+=weight }
                         points.add(ScanPoint(((sx/total*4-dx)/w).coerceIn(0.0,1.0),((sy/total*4-dy)/h).coerceIn(0.0,1.0)))
                         val std=sqrt(max(1e-8,squares/4096-(sum/4096).pow(2)))
-                        confidence.add(sigmoid(best.toDouble())*((best-sum/4096)/std/6).coerceIn(0.0,1.0))
+                        val probability=sigmoid(best.toDouble());val z=(best-sum/4096)/std
+                        peakProbability.add(probability);prominence.add(z)
+                        confidence.add(probability*(z/6).coerceIn(0.0,1.0))
                     }
                     val mask=FloatArray(4096) { sigmoid(logits[it].toDouble()).toFloat() }
                     if(!ScanGeometry.valid(points)) return DocumentDetection(null,mask,0.0,elapsed(started),"عدّل الزوايا يدويًا")
@@ -64,7 +67,7 @@ class DocQuadDetector(context: Context): AutoCloseable {
                     val agreement=if(union==0) 0.0 else intersection.toDouble()/union
                     val overall=confidence.min()*agreement
                     return DocumentDetection(DocumentQuad(points,overall,confidence,"DocQuadNet-256"),mask,agreement,elapsed(started),
-                        if(overall<.72) "الكشف يحتاج مراجعة الزوايا" else null)
+                        if(overall<.72) "الكشف يحتاج مراجعة الزوايا" else null,peakProbability,prominence)
                 }
             }
         } catch(error: Exception) {

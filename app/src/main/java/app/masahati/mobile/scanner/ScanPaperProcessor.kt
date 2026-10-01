@@ -77,8 +77,9 @@ object ScanPaperProcessor {
                         val index=(yy*w+x)*3;val v=at(x,yy).toDouble();val bg=mapValue(x,top+yy).coerceAtLeast(45.0)
                         val a=(original[index+1].toInt() and 255)-128;val b=(original[index+2].toInt() and 255)-128
                         val chroma=hypot(a.toDouble(),b.toDouble())
-                        val range=maxOf(at(x-1,yy),at(x+1,yy),at(x,yy-1),at(x,yy+1),v.toInt())-
-                            minOf(at(x-1,yy),at(x+1,yy),at(x,yy-1),at(x,yy+1),v.toInt())
+                        val left=at(x-1,yy);val right=at(x+1,yy);val above=at(x,yy-1);val below=at(x,yy+1)
+                        val range=max(max(left,right),max(max(above,below),v.toInt()))-
+                            min(min(left,right),min(min(above,below),v.toInt()))
                         val photo=photoMap[min(mh-1,(top+yy)*mh/h)*mw+min(mw-1,x*mw/w)].toInt()!=0
                         val ratio=(v/bg).coerceIn(0.0,1.4)
                         val colored=chroma>17

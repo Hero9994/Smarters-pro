@@ -61,3 +61,25 @@ The explicit publisher model license does not establish rights to that dataset i
 ## Recovery
 The local execution service went offline during integration. Changes are checkpointed directly to the scanner GitHub branch.
 Fetch/reset or carefully reconcile the remote checkpoint before continuing local development; keep private samples outside Git.
+
+
+## Native-resolution and reader fixes (post-c9 diagnostic)
+- Keep c9's original workflow artifact (300 real frames and overlays). Do not
+  treat its logical-corner mean as geometric localization error: SmartDoc
+  labels follow page printing orientation, while inference follows image
+  orientation. The next benchmark aligns only a cyclic starting corner to the
+  initial detection and uses the same correspondence for the refined result.
+  It exports ground truth, legacy logical error, confidence, peak probabilities,
+  prominence, mask agreement, edge residuals and unsafe automatic crop count.
+- Subdivide output warp tiles adaptively BEFORE decoding native source ROIs.
+  This fixes the 50 MP analysis warp without increasing the 4 MP source-region
+  cap or allocating a full 50 MP bitmap.
+- Scanner-only PDF export now streams lossless RGB Flate data into PDF 1.4,
+  one page at a time, with classic cross-reference byte offsets. Validate the
+  platform PdfRenderer and source-readable QR/barcodes before publishing.
+  PDFBox remains available for the application's existing reader/import paths.
+- New independent tests cover paper-edge refinement despite a printed rectangle
+  and multi-page portrait/landscape PDF geometry. Existing OCR, original hashes,
+  color, tiny punctuation, backup, UI recreation, native warp, 50 MP and both
+  Android API levels must pass again. These changes are NOT acceptance evidence
+  until their workflow completes.

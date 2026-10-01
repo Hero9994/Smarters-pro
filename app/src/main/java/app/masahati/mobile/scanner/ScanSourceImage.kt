@@ -111,15 +111,24 @@ object ScanSourceImage {
                 val d=inv[6]*x+inv[7]*y+inv[8];require(abs(d)>1e-9)
                 return ScanPoint((inv[0]*x+inv[1]*y+inv[2])/d,(inv[3]*x+inv[4]*y+inv[5])/d)
             }
-            for(y in 0 until outH step 256) for(x in 0 until outW step 768) {
+            // A small analysis output can map one output tile onto millions of
+            // source pixels. Subdivide in OUTPUT space before decoding its ROI.
+            fun renderTile(x: Int,y: Int,w: Int,h: Int) {
                 if(Thread.currentThread().isInterrupted) throw InterruptedException()
-                val w=min(768,outW-x);val h=min(256,outH-y)
                 val corners=listOf(source(x.toDouble(),y.toDouble()),source((x+w).toDouble(),y.toDouble()),
                     source((x+w).toDouble(),(y+h).toDouble()),source(x.toDouble(),(y+h).toDouble()))
                 val rect=Rect(max(0,floor(corners.minOf { it.x }).toInt()-4),max(0,floor(corners.minOf { it.y }).toInt()-4),
                     min(info.rawWidth,ceil(corners.maxOf { it.x }).toInt()+5),min(info.rawHeight,ceil(corners.maxOf { it.y }).toInt()+5))
-                if(rect.width()<=0 || rect.height()<=0) continue
-                require(rect.width().toLong()*rect.height()<=4_000_000) { "زاوية التصوير شديدة؛ عدّل الزوايا أو أعد التصوير" }
+                if(rect.width()<=0 || rect.height()<=0) return
+                if(rect.width().toLong()*rect.height()>4_000_000) {
+                    require(w>16 || h>16) { "زاوية التصوير شديدة؛ عدّل الزوايا أو أعد التصوير" }
+                    if(w>=h && w>16) {
+                        val first=w/2;renderTile(x,y,first,h);renderTile(x+first,y,w-first,h)
+                    } else {
+                        val first=h/2;renderTile(x,y,w,first);renderTile(x,y+first,w,h-first)
+                    }
+                    return
+                }
                 val patch=decoder.decodeRegion(rect,BitmapFactory.Options().apply { inPreferredConfig=Bitmap.Config.ARGB_8888 }) ?: error("تعذر قراءة جزء من الصورة")
                 val src=Mat();val dst=Mat();val transform=Mat(3,3,CvType.CV_64F);var tile: Bitmap?=null
                 try {
@@ -131,6 +140,9 @@ object ScanSourceImage {
                     Imgproc.warpPerspective(src,dst,transform,Size(w.toDouble(),h.toDouble()),Imgproc.INTER_CUBIC,Core.BORDER_CONSTANT,Scalar(255.0,255.0,255.0,255.0))
                     tile=createBitmap(w,h);Utils.matToBitmap(dst,tile);canvas.drawBitmap(tile,x.toFloat(),y.toFloat(),null)
                 } finally { if(!patch.isRecycled) patch.recycle();tile?.recycle();src.release();dst.release();transform.release() }
+            }
+            for(y in 0 until outH step 256) for(x in 0 until outW step 768) {
+                renderTile(x,y,min(768,outW-x),min(256,outH-y))
             }
             return result
         } catch(error: Throwable) { result?.recycle();throw error }

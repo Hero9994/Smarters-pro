@@ -174,6 +174,60 @@ class ProfessionalScannerInstrumentedTest {
             Log.i("ScannerMemory",diagnostic.toString());ScannerTestDiagnostics.publish(folder);store.directory.deleteRecursively()
         }
     }
+    @Test fun nativeEdgeRefinementFindsPaperRatherThanPrintedRectangle() {
+        val source=Bitmap.createBitmap(1400,1800,Bitmap.Config.ARGB_8888)
+        val store=ScanSessionStore.create(context)
+        try {
+            val canvas=Canvas(source);canvas.drawColor(Color.rgb(55,70,60))
+            val truth=listOf(ScanPoint(112.0,94.0),ScanPoint(1302.0,136.0),ScanPoint(1248.0,1698.0),ScanPoint(86.0,1652.0))
+            val path=Path();truth.forEachIndexed { i,p -> if(i==0) path.moveTo(p.x.toFloat(),p.y.toFloat()) else path.lineTo(p.x.toFloat(),p.y.toFloat()) };path.close()
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(242,242,237) }
+            canvas.drawPath(path,paint)
+            paint.color=Color.BLACK;paint.style=Paint.Style.STROKE;paint.strokeWidth=2f
+            canvas.drawRect(155f,190f,1180f,1560f,paint)
+            paint.style=Paint.Style.FILL;paint.textSize=31f
+            repeat(28) { row -> canvas.drawText("Record 73071446, punctuation i j.",185f,270f+row*37f,paint) }
+            val page=import(store,source)
+            val normalized=truth.map { ScanPoint(it.x/1399,it.y/1799) }
+            val coarse=normalized.map { p -> ScanPoint(p.x+(if(p.x<.5) 25 else -25)/1399.0,p.y+(if(p.y<.5) 25 else -25)/1799.0) }
+            val result=FullResolutionEdgeRefiner.refine(store.source(page),DocumentQuad(coarse,1.0))
+            assertEquals("Four physical paper edges were not fitted",4,result.acceptedEdges)
+            assertFalse(result.needsManualReview)
+            val refined=result.quad.points.map { ScanPoint(it.x*1399,it.y*1799) }
+            assertTrue("Refined corners missed physical paper edges: "+refined,
+                refined.zip(truth).all { (a,b) -> a.distance(b)<9 })
+            val inward=truth.maxOf { p -> refined.indices.maxOf { e ->
+                val a=refined[e];val b=refined[(e+1)%4]
+                -((b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x))/a.distance(b)
+            } }
+            assertTrue("Crop cut into known paper: "+inward,inward<=.75)
+        } finally { source.recycle();store.directory.deleteRecursively() }
+    }
+    @Test fun multiPagePdfKeepsPortraitAndLandscapeGeometry() {
+        val source=sheet();val landscape=Bitmap.createBitmap(source,0,0,source.width,source.height,Matrix().apply { postRotate(90f) },true)
+        val store=ScanSessionStore.create(context);val target=File(context.cacheDir,"scanner-multi-"+System.nanoTime()+".pdf")
+        try {
+            for(image in listOf(source,landscape)) {
+                val page=import(store,image);store.saveBitmap(image,store.processed(page));page.ready=true;page.review=false
+            }
+            store.save();ScanPdfExporter.export(context,store,target)
+            ParcelFileDescriptor.open(target,ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                PdfRenderer(descriptor).use { pdf ->
+                    assertEquals(2,pdf.pageCount)
+                    for(i in 0..1) pdf.openPage(i).use { page ->
+                        assertEquals(i==0,page.height>page.width)
+                        val input=if(i==0) source else landscape
+                        val rendered=Bitmap.createBitmap(input.width,input.height,Bitmap.Config.ARGB_8888)
+                        try {
+                            page.render(rendered,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            assertTrue(ScanQualityGuard.barcodes(rendered).contains("masahati-preserve-73071446"))
+                        } finally { rendered.recycle() }
+                    }
+                }
+            }
+            store.pages.forEach(store::verifySource)
+        } finally { source.recycle();landscape.recycle();store.directory.deleteRecursively();target.delete() }
+    }
     private fun find(v: View,tag: String): View? {
         if(v.tag==tag) return v
         if(v is ViewGroup) for(i in 0 until v.childCount) find(v.getChildAt(i),tag)?.let { return it };return null
