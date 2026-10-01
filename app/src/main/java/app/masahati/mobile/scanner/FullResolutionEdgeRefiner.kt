@@ -13,7 +13,8 @@ import kotlin.math.*
 
 data class EdgeRefinement(val quad: DocumentQuad,val acceptedEdges: Int,val residualPixels: List<Double>,
     val inlierFractions: List<Double>,val elapsedMs: Long,val needsManualReview: Boolean,
-    val boundaryQuad: DocumentQuad=quad,val paddingPixels: Double=0.0)
+    val boundaryQuad: DocumentQuad=quad,val paddingPixels: Double=0.0,
+    val transitionWidthsPixels: List<Double> = emptyList())
 
 /** Native-resolution Sobel profiles in segmented source corridors. Subpixel peaks,
  * RANSAC/TLS line estimates and intersections. No global findContours/approxPolyDP crop.
@@ -26,7 +27,8 @@ object FullResolutionEdgeRefiner {
         val raw=initial.points.map(info::raw).map { ScanPoint(it.x*(info.rawWidth-1),it.y*(info.rawHeight-1)) }
         val radius=(min(info.rawWidth,info.rawHeight)*.027).coerceIn(20.0,180.0)
         val decoder=BitmapRegionDecoder.newInstance(file.absolutePath,false) ?: error("تعذر قراءة الحواف")
-        val lines=ArrayList<FittedLine>();val residuals=ArrayList<Double>();val fractions=ArrayList<Double>();var accepted=0
+        val lines=ArrayList<FittedLine>();val residuals=ArrayList<Double>();val fractions=ArrayList<Double>()
+        val widths=ArrayList<Double>();var accepted=0
         try {
             for(edge in 0..3) {
                 if(Thread.currentThread().isInterrupted) throw InterruptedException()
@@ -72,7 +74,8 @@ object FullResolutionEdgeRefiner {
                                 val left=value(best-1.0);val mid=value(best.toDouble());val right=value(best+1.0)
                                 val denominator=left-2*mid+right
                                 val delta=if(abs(denominator)>1e-6) (.5*(left-right)/denominator).coerceIn(-.75,.75) else 0.0
-                                samples.add(ProfileEdgeSample(ScanPoint(p.x+nx*(best+delta),p.y+ny*(best+delta)),groupIndex*6+localIndex,strength))
+                                val width=ScanGeometry.halfMaximumWidth(best,mid) { value(it.toDouble()) }
+                                samples.add(ProfileEdgeSample(ScanPoint(p.x+nx*(best+delta),p.y+ny*(best+delta)),groupIndex*6+localIndex,strength,width))
                                 if(selected.size==6) break
                             }
                         }
@@ -86,6 +89,7 @@ object FullResolutionEdgeRefiner {
                     angle<=7.5 && fitted.distance(midpoint)<=radius*1.15
                 if(usable) { lines.add(fitted!!);accepted++;residuals.add(fitted.residualPx);fractions.add(fitted.inlierFraction) }
                 else { lines.add(reference);residuals.add(-1.0);fractions.add(fitted?.inlierFraction ?: 0.0) }
+                widths.add(fitted?.transitionWidthPx ?: -1.0)
             }
         } finally { decoder.recycle() }
         val corners=(0..3).map { ScanGeometry.intersection(lines[(it+3)%4],lines[it]) ?: raw[it] }
@@ -98,7 +102,11 @@ object FullResolutionEdgeRefiner {
         val chosen=if(plausible && accepted==4) candidate else initial
         val padding=6.0
         val safe=chosen.copy(points=ScanGeometry.padded(chosen.points,info.width,info.height,padding))
+        // Broad gradient ridges can fit a very straight line INSIDE a blurred
+        // physical edge. Preserve the same geometry/margin, but require corner
+        // review when the median ridge is wider than the source-pixel margin.
+        val uncertainTransition=widths.any { it>padding }
         return EdgeRefinement(safe,accepted,residuals,fractions,(System.nanoTime()-started)/1_000_000,
-            accepted<4 || !plausible || initial.confidence<.72,chosen,padding)
+            accepted<4 || !plausible || initial.confidence<.72 || uncertainTransition,chosen,padding,widths)
     }
 }

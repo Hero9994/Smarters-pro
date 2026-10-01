@@ -14,6 +14,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.masahati.mobile.AlphaExporter
 import app.masahati.mobile.AlphaImporter
 import app.masahati.mobile.MasahatiDatabase
+import app.masahati.mobile.OpenCvDocumentRectifier
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import org.junit.Assert.*
@@ -25,6 +26,10 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 import org.json.JSONObject
 import org.json.JSONArray
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 
 @RunWith(AndroidJUnit4::class)
 class ProfessionalScannerInstrumentedTest {
@@ -206,6 +211,27 @@ class ProfessionalScannerInstrumentedTest {
             } }
             assertTrue("Crop cut into known paper: "+inward,inward<=.75)
         } finally { source.recycle();store.directory.deleteRecursively() }
+    }
+    @Test fun straightButBlurredPaperEdgesRequireManualReview() {
+        assertTrue(OpenCvDocumentRectifier.isAvailable())
+        val source=Bitmap.createBitmap(1100,1550,Bitmap.Config.ARGB_8888)
+        val mat=Mat();val store=ScanSessionStore.create(context)
+        try {
+            val canvas=Canvas(source);canvas.drawColor(Color.rgb(55,70,60))
+            val paint=Paint().apply { color=Color.rgb(242,242,237) }
+            canvas.drawRect(110f,90f,990f,1440f,paint)
+            Utils.bitmapToMat(source,mat);Imgproc.GaussianBlur(mat,mat,Size(0.0,0.0),6.0);Utils.matToBitmap(mat,source)
+            val page=import(store,source)
+            val coarse=DocumentQuad(listOf(ScanPoint(124.0/1099,104.0/1549),ScanPoint(976.0/1099,104.0/1549),
+                ScanPoint(976.0/1099,1426.0/1549),ScanPoint(124.0/1099,1426.0/1549)),1.0)
+            val result=FullResolutionEdgeRefiner.refine(store.source(page),coarse)
+            assertEquals("Blurred straight edges should still have coherent geometric fits",4,result.acceptedEdges)
+            assertTrue("A straight line residual must not hide a broad physical transition",result.residualPixels.all { it<2.0 })
+            assertTrue("Source-pixel transition uncertainty was not measured",result.transitionWidthsPixels.all { it>6.0 })
+            assertTrue("Broad paper edges cannot be accepted as precise automatically",result.needsManualReview)
+            assertEquals("Do not hide blur by increasing the crop margin",6.0,result.paddingPixels,0.0)
+            store.verifySource(page)
+        } finally { mat.release();source.recycle();store.directory.deleteRecursively() }
     }
     @Test fun multiPagePdfKeepsPortraitAndLandscapeGeometry() {
         val source=sheet();val landscape=Bitmap.createBitmap(source,0,0,source.width,source.height,Matrix().apply { postRotate(90f) },true)

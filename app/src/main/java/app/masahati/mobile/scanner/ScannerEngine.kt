@@ -33,6 +33,7 @@ class ScannerEngine(context: Context): AutoCloseable {
             .put("boundary_polygon",polygon(refined?.boundaryQuad)).put("crop_padding_source_px",refined?.paddingPixels)
             .put("accepted_edges",refined?.acceptedEdges ?: 0).put("edge_residual_px",JSONArray(refined?.residualPixels ?: emptyList<Double>()))
             .put("edge_profile_support",JSONArray(refined?.inlierFractions ?: emptyList<Double>()))
+            .put("edge_transition_width_px",JSONArray(refined?.transitionWidthsPixels ?: emptyList<Double>()))
         store.save();detector.close()
     }
     fun process(store: ScanSessionStore,page: ScanPage,onStage: (String)->Unit={}): ScanProcessedPage =

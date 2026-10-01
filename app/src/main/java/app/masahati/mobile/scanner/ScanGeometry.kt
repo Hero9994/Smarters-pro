@@ -19,8 +19,9 @@ data class DocumentQuad(val points: List<ScanPoint>,val confidence: Double=0.0,
     }
 }
 data class EdgeSample(val point: ScanPoint,val weight: Double=1.0)
-data class ProfileEdgeSample(val point: ScanPoint,val profile: Int,val strength: Double)
-data class FittedLine(val nx: Double,val ny: Double,val c: Double,val inlierFraction: Double=0.0,val residualPx: Double=0.0) {
+data class ProfileEdgeSample(val point: ScanPoint,val profile: Int,val strength: Double,val transitionWidthPx: Double=0.0)
+data class FittedLine(val nx: Double,val ny: Double,val c: Double,val inlierFraction: Double=0.0,val residualPx: Double=0.0,
+    val transitionWidthPx: Double=0.0) {
     fun distance(p: ScanPoint)=abs(nx*p.x+ny*p.y+c)
 }
 object ScanGeometry {
@@ -41,6 +42,17 @@ object ScanGeometry {
         val d=a.distance(b); if(d<1e-8) return null
         val nx=-(b.y-a.y)/d; val ny=(b.x-a.x)/d
         return FittedLine(nx,ny,-(nx*a.x+ny*a.y))
+    }
+    /** Width of the observed gradient ridge, in ORIGINAL source pixels.
+     * A low line-fit residual does not make a broad motion/defocus transition
+     * precisely localized. Capping the search bounds work without hiding blur.
+     */
+    fun halfMaximumWidth(peak: Int,height: Double,response: (Int)->Double): Double {
+        if(!height.isFinite() || height<=0) return 49.0
+        val half=height*.5;var left=0;var right=0
+        while(left<24 && response(peak-left-1)>=half) left++
+        while(right<24 && response(peak+right+1)>=half) right++
+        return (left+right+1).toDouble()
     }
     fun robustLine(samples: List<EdgeSample>,tolerancePx: Double=2.5): FittedLine? {
         val clean=samples.filter { it.point.finite() && it.weight.isFinite() && it.weight>0 }
@@ -103,7 +115,9 @@ object ScanGeometry {
             xx+=weights[i]*x*x;yy+=weights[i]*y*y;xy+=weights[i]*x*y }
         if(xx+yy<1e-5) return null
         val angle=.5*atan2(2*xy,xx-yy);val nx=-sin(angle);val ny=cos(angle)
-        val fitted=FittedLine(nx,ny,-nx*cx-ny*cy,chosen.size.toDouble()/profileCount)
+        val widths=chosen.map { it.transitionWidthPx }.filter { it.isFinite() && it>0 }.sorted()
+        val width=if(widths.isEmpty()) 0.0 else (widths[(widths.size-1)/2]+widths[widths.size/2])/2
+        val fitted=FittedLine(nx,ny,-nx*cx-ny*cy,chosen.size.toDouble()/profileCount,transitionWidthPx=width)
         val residual=sqrt(chosen.sumOf { fitted.distance(it.point).pow(2) }/chosen.size)
         return fitted.copy(residualPx=residual).takeIf { residual<=2.7 &&
             abs(it.nx*reference.nx+it.ny*reference.ny)>=cos(7.5*PI/180) && it.distance(midpoint)<=radius*1.15 }

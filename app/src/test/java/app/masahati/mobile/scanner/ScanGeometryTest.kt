@@ -47,4 +47,14 @@ class ScanGeometryTest {
         assertTrue(fitted.distance(ScanPoint(475.0,50.0))<.4)
         assertTrue(fitted.inlierFraction>.95)
     }
+    @Test fun broadGradientCannotBeCalledPreciseBecauseItsLineIsStraight() {
+        val narrow=ScanGeometry.halfMaximumWidth(0,100.0) { x -> 100*kotlin.math.exp(-.5*x*x) }
+        val broad=ScanGeometry.halfMaximumWidth(0,100.0) { x -> 100*kotlin.math.exp(-.5*(x/6.0)*(x/6.0)) }
+        assertTrue(narrow<=3);assertTrue(broad>12)
+        val reference=ScanGeometry.lineThrough(ScanPoint(0.0,50.0),ScanPoint(950.0,50.0))!!
+        val samples=(0 until 96).map { ProfileEdgeSample(ScanPoint(it*10.0,50.0),it,45.0,broad) }
+        val fitted=ScanGeometry.robustProfileLine(samples,96,reference,ScanPoint(475.0,50.0),30.0)!!
+        assertEquals(0.0,fitted.residualPx,1e-8)
+        assertEquals(broad,fitted.transitionWidthPx,1e-8)
+    }
 }

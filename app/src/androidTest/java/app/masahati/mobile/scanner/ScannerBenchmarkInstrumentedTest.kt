@@ -75,12 +75,13 @@ class ScannerBenchmarkInstrumentedTest {
                         .put("refinement_ms",refinement.elapsedMs).put("refined_polygon",polygon(pixels)).put("model_polygon",polygon(before))
                         .put("boundary_polygon",polygon(boundary)).put("boundary_corner_error_px",rawCorner).put("boundary_edge_error_px",rawEdge)
                         .put("crop_padding_source_px",refinement.paddingPixels).put("edge_profile_support",JSONArray(refinement.inlierFractions))
+                        .put("edge_transition_width_px",JSONArray(refinement.transitionWidthsPixels))
                         .put("ground_truth_polygon",polygon(gt)).put("ground_truth_logical_polygon",polygon(logicalGt))
                         .put("cyclic_gt_start",cycle).put("logical_corner_error_px",logical)
                         .put("model_confidence",initial.confidence).put("corner_confidence",JSONArray(initial.cornerConfidence))
                         .put("corner_peak_probability",JSONArray(detection.cornerPeakProbability)).put("corner_prominence_z",JSONArray(detection.cornerProminenceZ))
                         .put("mask_agreement",detection.maskAgreement).put("edge_residual_px",JSONArray(refinement.residualPixels))
-                    if(i%30==0 || corner>18 || inward>8) {
+                    if(i%30==0 || corner>18 || inward>8 || (inward>2 && !refinement.needsManualReview)) {
                         val image=ScanSourceImage.preview(input,maxSide=1200)
                         try {
                             val canvas=Canvas(image);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE;strokeWidth=3f }
@@ -116,6 +117,7 @@ class ScannerBenchmarkInstrumentedTest {
             .put("memory_scope","phase-boundary samples, not peak PSS").put("timing_scope","detection/refinement and conditional visual output, excludes full pipeline/OCR")
         File(folder,"summary.json").writeText(summary.toString(2))
         assertTrue("Model failed on most documents: "+detected+"/300",detected>=270);assertEquals(300,records.length())
+        assertEquals("An inward crop was incorrectly accepted without manual review; inspect saved overlays",0,unsafeAuto)
         } finally { ScannerTestDiagnostics.publish(folder) }
     }
     private fun polygon(points: List<ScanPoint>)=JSONArray().apply { points.forEach { put(JSONArray().put(it.x).put(it.y)) } }
