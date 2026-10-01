@@ -49,8 +49,8 @@ val prepareScannerModels by tasks.registering {
         "paddle-det.ort" to Pair("app/src/paddle/assets/paddleocr/v5/det.ort", "bfb226a460dee7e50b210e20e7c51becff55798150aea45cb9d047c81bfb9c9a"),
         "paddle-latin.ort" to Pair("app/src/paddle/assets/paddleocr/v5/latin_PP-OCRv5_mobile_rec.ort", "5bb93e0fef6fcde14ddadfec23ff9efbc331531ba1ae54baba85605d7794efda"),
         "paddle-arabic.ort" to Pair("app/src/paddle/assets/paddleocr/v5/arabic_PP-OCRv5_mobile_rec.ort", "17d31ec78b3dd2168c97595031fdf7adeba145c4cfa5f33278f04e8363fdea9d"),
-        "latin_dict.txt" to Pair("app/src/paddle/assets/paddleocr/v5/latin_dict.txt", "b95923300a0656f8169feee90143cbfcdb62d82a37b54e6b12c224c3e584916f"),
-        "arabic_dict.txt" to Pair("app/src/paddle/assets/paddleocr/v5/arabic_dict.txt", "2a215ea5877f01b1f8c8803783cda73707222c39a84d4a6cfee9ef502c48248e")
+        "latin_dict.txt" to Pair("app/src/paddle/assets/paddleocr/v5/latin_PP-OCRv5_mobile_rec_dict.txt", "b95923300a0656f8169feee90143cbfcdb62d82a37b54e6b12c224c3e584916f"),
+        "arabic_dict.txt" to Pair("app/src/paddle/assets/paddleocr/v5/arabic_PP-OCRv5_mobile_rec_dict.txt", "2a215ea5877f01b1f8c8803783cda73707222c39a84d4a6cfee9ef502c48248e")
     )
     inputs.property("revision", revision); inputs.property("assets", assets)
     outputs.dir(scannerAssets)

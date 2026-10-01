@@ -61,15 +61,23 @@ object ScanSourceImage {
      * Homography is applied directly to original JPEG pixels, including all EXIF orientations.
      */
     @Suppress("DEPRECATION")
-    fun perspective(file: File,quad: DocumentQuad,turns: Int=0,maxSide: Int=4200,maxPixels: Int=memoryPixelBudget()): Bitmap {
+    fun perspective(file: File,quad: DocumentQuad,turns: Int=0,maxSide: Int=4200,maxPixels: Int=memoryPixelBudget(),deskewDegrees: Double=0.0): Bitmap {
         require(quad.valid()) { "زوايا الورقة غير صالحة" };check(OpenCvDocumentRectifier.isAvailable())
         val info=info(file,turns)
         var (outW,outH)=ScanGeometry.outputSize(quad.points,info.width,info.height,maxSide)
         val scale=min(1.0,sqrt(maxPixels.toDouble()/(outW.toDouble()*outH)))
         outW=max(32,(outW*scale).roundToInt());outH=max(32,(outH*scale).roundToInt())
+        val angle=deskewDegrees.coerceIn(-3.0,3.0)*PI/180
+        val pageW=outW;val pageH=outH
+        outW=ceil(pageW*abs(cos(angle))+pageH*abs(sin(angle))).toInt()
+        outH=ceil(pageH*abs(cos(angle))+pageW*abs(sin(angle))).toInt()
+        fun target(x: Double,y: Double): Point {
+            val cx=x-(pageW-1)/2.0;val cy=y-(pageH-1)/2.0
+            return Point(cx*cos(angle)-cy*sin(angle)+(outW-1)/2.0,cx*sin(angle)+cy*cos(angle)+(outH-1)/2.0)
+        }
         val points=quad.points.map(info::raw)
         val from=MatOfPoint2f(*points.map { Point(it.x*(info.rawWidth-1),it.y*(info.rawHeight-1)) }.toTypedArray())
-        val to=MatOfPoint2f(Point(0.0,0.0),Point((outW-1).toDouble(),0.0),Point((outW-1).toDouble(),(outH-1).toDouble()),Point(0.0,(outH-1).toDouble()))
+        val to=MatOfPoint2f(target(0.0,0.0),target((pageW-1).toDouble(),0.0),target((pageW-1).toDouble(),(pageH-1).toDouble()),target(0.0,(pageH-1).toDouble()))
         val homography=Imgproc.getPerspectiveTransform(from,to);val inverse=homography.inv()
         var decoder: BitmapRegionDecoder?=null;var result: Bitmap?=null
         try {
@@ -87,7 +95,7 @@ object ScanSourceImage {
                     source((x+w).toDouble(),(y+h).toDouble()),source(x.toDouble(),(y+h).toDouble()))
                 val rect=Rect(max(0,floor(corners.minOf { it.x }).toInt()-4),max(0,floor(corners.minOf { it.y }).toInt()-4),
                     min(info.rawWidth,ceil(corners.maxOf { it.x }).toInt()+5),min(info.rawHeight,ceil(corners.maxOf { it.y }).toInt()+5))
-                require(rect.width()>0 && rect.height()>0)
+                if(rect.width()<=0 || rect.height()<=0) continue
                 require(rect.width().toLong()*rect.height()<=4_000_000) { "زاوية التصوير شديدة؛ عدّل الزوايا أو أعد التصوير" }
                 val patch=decoder.decodeRegion(rect,BitmapFactory.Options().apply { inPreferredConfig=Bitmap.Config.ARGB_8888 }) ?: error("تعذر قراءة جزء من الصورة")
                 val src=Mat();val dst=Mat();val transform=Mat(3,3,CvType.CV_64F);var tile: Bitmap?=null
@@ -97,7 +105,7 @@ object ScanSourceImage {
                     for(row in 0..2) a[row*3+2]=coefficients[row*3]*rect.left+coefficients[row*3+1]*rect.top+coefficients[row*3+2]
                     for(col in 0..2) { a[col]-=x*a[6+col];a[3+col]-=y*a[6+col] }
                     transform.put(0,0,*a)
-                    Imgproc.warpPerspective(src,dst,transform,Size(w.toDouble(),h.toDouble()),Imgproc.INTER_CUBIC,Core.BORDER_REPLICATE,Scalar(255.0,255.0,255.0,255.0))
+                    Imgproc.warpPerspective(src,dst,transform,Size(w.toDouble(),h.toDouble()),Imgproc.INTER_CUBIC,Core.BORDER_CONSTANT,Scalar(255.0,255.0,255.0,255.0))
                     tile=createBitmap(w,h);Utils.matToBitmap(dst,tile);canvas.drawBitmap(tile,x.toFloat(),y.toFloat(),null)
                 } finally { if(!patch.isRecycled) patch.recycle();tile?.recycle();src.release();dst.release();transform.release() }
             }

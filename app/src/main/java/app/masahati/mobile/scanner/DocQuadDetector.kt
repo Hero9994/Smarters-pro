@@ -74,7 +74,7 @@ class DocQuadDetector(context: Context): AutoCloseable {
     @Synchronized override fun close() { session?.close();session=null }
     companion object {
         const val DOCQUAD_SHA="f0f2f52d7d79ff02d346c8f9d0c9e903407366aeea1747cdcff160c401e3e72a"
-        fun floats(tensor: OnnxTensor): FloatArray { val buffer=tensor.floatBuffer.get();return FloatArray(buffer.remaining()).also { buffer.get(it) } }
+        fun floats(tensor: OnnxTensor): FloatArray { val buffer: FloatBuffer=tensor.floatBuffer;return FloatArray(buffer.remaining()).also { buffer.get(it) } }
         private fun sigmoid(v: Double)=1/(1+exp(-v.coerceIn(-40.0,40.0)))
         private fun elapsed(t: Long)=(System.nanoTime()-t)/1_000_000
         private fun inside(p: List<ScanPoint>,x: Double,y: Double)=p.indices.all {
