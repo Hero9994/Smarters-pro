@@ -102,6 +102,10 @@ class ProfessionalScannerInstrumentedTest {
             spaces.add(copied.spaceId);importedFile=File(copied.filePath!!)
             restored=ScanSessionStore.forDocument(context,importedFile!!);assertNotNull(restored)
             assertEquals(page.sourceHash,restored!!.pages.single().sourceHash);restored!!.verifySource(restored!!.pages.single())
+        } catch(error: Exception) {
+            val diagnostic=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+            if(pdf.isFile) pdf.copyTo(File(diagnostic,"pdf-compatibility-api-"+android.os.Build.VERSION.SDK_INT+".pdf"),true)
+            throw error
         } finally { source.recycle();store.directory.deleteRecursively();restored?.directory?.deleteRecursively()
             pdf.delete();importedFile?.delete();spaces.distinct().forEach { db.deleteSpace(it) };db.close() }
     }

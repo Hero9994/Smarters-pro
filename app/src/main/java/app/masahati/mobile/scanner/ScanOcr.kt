@@ -34,7 +34,7 @@ class ScanOcr(context: Context): AutoCloseable {
     }
     private fun vocabulary(name: String)=dictionaries.getOrPut(name) {
         val file=ScanModelAssets.extract(context,"${name}_dict.txt",HASHES.getValue("$name-dict"))
-        listOf("")+file.readLines(Charsets.UTF_8).map { it.removeSuffix("\r") }+listOf(" ")
+        listOf("")+file.readLines(Charsets.UTF_8).map { it.removeSuffix("\r") }.filter { it.isNotEmpty() }
     }
     @Synchronized fun read(source: Bitmap,boxes: List<ScanTextBox>?=null,maxLines: Int=56): ScanOcrReading {
         val started=System.nanoTime();val regions=boxes ?: detect(source)
