@@ -4,6 +4,8 @@ import android.content.Intent
 import android.graphics.*
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.os.Debug
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
@@ -18,6 +20,10 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.*
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.concurrent.thread
+import org.json.JSONObject
 
 @RunWith(AndroidJUnit4::class)
 class ProfessionalScannerInstrumentedTest {
@@ -55,6 +61,7 @@ class ProfessionalScannerInstrumentedTest {
                     val red=result.getPixel(930,1050);assertTrue("Stamp hue lost in "+mode,Color.red(red)>Color.blue(red)*1.8)
                     val blue=result.getPixel(285,1225);assertTrue("Signature hue lost in "+mode,Color.blue(blue)>Color.red(blue)*1.8)
                     assertTrue("Whitening not applied in "+mode,Color.red(result.getPixel(50,800))>=235)
+                    if(mode==ScanFilter.CLEAN_WHITE) assertTrue("Clean White background must reach 250",Color.red(result.getPixel(50,800))>=250)
                     assertTrue("Foreground details lost in "+mode,ScanQualityGuard.detailReasons(source,result,mode).isEmpty())
                 } finally { result.recycle() }
             }
@@ -118,6 +125,54 @@ class ProfessionalScannerInstrumentedTest {
                 scenario.onActivity { assertNotNull(find(it.window.decorView,"scanner-apply-crop")) }
             };ScanSessionStore.open(context,store.id).verifySource(page)
         } finally { store.directory.deleteRecursively() }
+    }
+    @Test fun inkOnWhitePaperDoesNotCountAsGlareOrBlockCapture() {
+        val source=Bitmap.createBitmap(900,1300,Bitmap.Config.ARGB_8888)
+        try {
+            val canvas=Canvas(source);canvas.drawColor(Color.WHITE)
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK;textSize=22f }
+            repeat(42) { row -> canvas.drawText("Official record 73071446, i j 1,234.56; 2026.",55f,65f+row*28f,paint) }
+            val quality=ScanQuality.analyze(source,DocumentQuad.inset(.03))
+            assertTrue("Text was misclassified as glare: "+quality,quality.acceptable())
+            assertFalse(ScanQuality.analyze(source,DocumentQuad.inset(.03),focused=false).acceptable())
+        } finally { source.recycle() }
+    }
+    @Test fun fiftyMegapixelSourceUsesBoundedBuffersAndKeepsOriginal() {
+        val store=ScanSessionStore.create(context)
+        val page=InstrumentationRegistry.getInstrumentation().context.assets.open("scanner-fixtures/large-50mp.jpg").use { store.import(it) }
+        page.quad=DocumentQuad.inset(0.0).copy(confidence=1.0,origin="manual");page.review=false;store.save()
+        val sampling=AtomicBoolean(true);val peakPss=AtomicLong(0);val peakHeapNative=AtomicLong(0)
+        val sampler=thread(name="scanner-memory-sampler",isDaemon=true) {
+            while(sampling.get()) {
+                val memory=Debug.MemoryInfo();Debug.getMemoryInfo(memory)
+                val pss=memory.totalPss.toLong()*1024
+                peakPss.updateAndGet { maxOf(it,pss) }
+                val heap=Runtime.getRuntime().let { it.totalMemory()-it.freeMemory() }+Debug.getNativeHeapAllocatedSize()
+                peakHeapNative.updateAndGet { maxOf(it,heap) };Thread.sleep(25)
+            }
+        }
+        val started=System.nanoTime();val diagnostic=JSONObject().put("synthetic",true).put("source_pixels",50_000_000)
+        try {
+            val info=ScanSourceImage.info(store.source(page));assertEquals(50_000_000L,info.rawWidth.toLong()*info.rawHeight)
+            ScannerEngine(context).use { engine -> engine.process(store,page).use { result ->
+                assertTrue("Output exceeded the bounded pixel budget",result.after.width.toLong()*result.after.height<=7_000_000)
+                assertTrue(result.report.getString("ocr_text").contains("73071446"))
+                val red=result.after.getPixel(result.after.width/25,result.after.height/25)
+                val blue=result.after.getPixel(result.after.width*96/100,result.after.height*94/100)
+                assertTrue("Top-left content lost",Color.red(red)>Color.blue(red)*1.5)
+                assertTrue("Bottom-right content lost",Color.blue(blue)>Color.red(blue)*1.5)
+                diagnostic.put("output_width",result.after.width).put("output_height",result.after.height).put("pipeline",result.report)
+            } }
+            store.verifySource(page);assertTrue(page.ready)
+        } finally {
+            sampling.set(false);sampler.join(1500)
+            diagnostic.put("elapsed_ms",(System.nanoTime()-started)/1_000_000.0)
+                .put("sampled_peak_pss_bytes",peakPss.get()).put("sampled_peak_heap_native_bytes",peakHeapNative.get())
+                .put("memory_scope","25 ms samples on emulator; not a physical-device maximum")
+            val folder=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+            File(folder,"50mp-memory-api-"+android.os.Build.VERSION.SDK_INT+".json").writeText(diagnostic.toString(2))
+            Log.i("ScannerMemory",diagnostic.toString());ScannerTestDiagnostics.publish(folder);store.directory.deleteRecursively()
+        }
     }
     private fun find(v: View,tag: String): View? {
         if(v.tag==tag) return v

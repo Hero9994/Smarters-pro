@@ -36,6 +36,9 @@ Only the 2D sampling grid branch is converted; no texture reconstruction or gene
 Input [1,3,712,488], output [1,2,45,31], opset 17, align_corners=true.
 Checkpoint SHA256 7e90861b8a516eb4bc51f84bd889cb77275743d2d1d3ca8091951ec9f2b7da23.
 Geometry ONNX SHA256 7376bae030f4c5bd75c456fac44cd99e1d36d8b2fdf0d10f7cb4a626a2417cb4.
-ONNX 31,602,475 bytes. Build recipe verifies source/checkpoint/export hashes and numerical grid parity.
+ONNX 31,602,475 bytes. Original source/checkpoint/export hashes and numerical grid parity were reviewed.
+APK builds fetch the fixed [reviewed geometry asset](https://github.com/Hero9994/Smarters-pro/releases/tag/scanner-geometry-assets-v1)
+and verify its SHA-256 plus its conversion receipt; they do not rerun host-dependent ONNX constant folding.
+The original conversion recipe remains in tools/scanner/export_uvdoc.py for a future explicit model audit.
 Android activation is conditional on curvature, available memory, a valid positive-Jacobian grid,
 OCR/QR preservation and a measurable reduction in curvature. Adoption is not a claim of acceptance.

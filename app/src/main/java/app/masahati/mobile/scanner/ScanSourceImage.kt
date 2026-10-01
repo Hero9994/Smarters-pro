@@ -75,10 +75,20 @@ object ScanSourceImage {
         val angle=deskewDegrees.coerceIn(-3.0,3.0)*PI/180
         val expandedPixels=(outW*abs(cos(angle))+outH*abs(sin(angle)))*(outH*abs(cos(angle))+outW*abs(sin(angle)))
         val scale=min(1.0,sqrt(maxPixels.toDouble()/expandedPixels))
-        outW=max(32,(outW*scale).roundToInt());outH=max(32,(outH*scale).roundToInt())
-        val pageW=outW;val pageH=outH
+        outW=max(32,floor(outW*scale).toInt());outH=max(32,floor(outH*scale).toInt())
+        var pageW=outW;var pageH=outH
         outW=ceil(pageW*abs(cos(angle))+pageH*abs(sin(angle))).toInt()
         outH=ceil(pageH*abs(cos(angle))+pageW*abs(sin(angle))).toInt()
+        while(outW.toLong()*outH>maxPixels) {
+            require(pageW>32 || pageH>32) { "حد الذاكرة أصغر من أبعاد الصفحة" }
+            val adjustment=sqrt(maxPixels.toDouble()/(outW.toDouble()*outH))
+            val newW=max(32,floor(pageW*adjustment).toInt());val newH=max(32,floor(pageH*adjustment).toInt())
+            if(newW==pageW && newH==pageH) {
+                if(pageW>=pageH && pageW>32) pageW-- else pageH--
+            } else { pageW=newW;pageH=newH }
+            outW=ceil(pageW*abs(cos(angle))+pageH*abs(sin(angle))).toInt()
+            outH=ceil(pageH*abs(cos(angle))+pageW*abs(sin(angle))).toInt()
+        }
         fun target(x: Double,y: Double): Point {
             val cx=x-(pageW-1)/2.0;val cy=y-(pageH-1)/2.0
             return Point(cx*cos(angle)-cy*sin(angle)+(outW-1)/2.0,cx*sin(angle)+cy*cos(angle)+(outH-1)/2.0)

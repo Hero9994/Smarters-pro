@@ -31,13 +31,17 @@ object ScanQuality {
         for(y in step until h-step step step) {
             bitmap.getPixels(row,0,w,0,y,w,1);bitmap.getPixels(previous,0,w,0,y-step,w,1);bitmap.getPixels(next,0,w,0,y+step,w,1)
             for(x in step until w-step step step) if(inPaper(x,y)) {
-                val v=luminance(row[x]);val lap=4*v-luminance(row[x-step])-luminance(row[x+step])-luminance(previous[x])-luminance(next[x])
+                val v=luminance(row[x]);val left=luminance(row[x-step]);val right=luminance(row[x+step]);val above=luminance(previous[x]);val below=luminance(next[x])
+                val lap=4*v-left-right-above-below
                 lapSum+=lap;lapSquared+=lap*lap;count++
                 if(v<35) dark++
-                // White paper is not automatically glare. Clipped pure-white pixels with
-                // nearby bright gradients suggest a saturated light spot, not uniform paper.
-                if(v>254 && abs(lap)>12) clipped++
-                if(v>251 && abs(lap)>35) glare++
+                // Ink edges on ordinary white paper must not block the shutter.
+                // A highlight proxy requires bright, similar-valued neighbours;
+                // saturated peaks beside dark text are content, not glare.
+                val darkest=min(min(left,right),min(above,below));val brightest=max(max(left,right),max(above,below))
+                val brightNeighbourhood=darkest>=210 && brightest-darkest<24
+                if(brightNeighbourhood && v>254 && abs(lap)>12) clipped++
+                if(brightNeighbourhood && v>251 && abs(lap)>35) glare++
                 val tile=min(7,y*8/h)*8+min(7,x*8/w);tileHist[tile][(v/8).toInt().coerceIn(0,31)]++;tileCounts[tile]++
             }
         }

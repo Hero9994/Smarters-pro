@@ -9,12 +9,10 @@ adb shell run-as app.masahati.mobile.v07 touch files-preserved-marker
 test_result=0
 gradle :app:connectedPreviewAndroidTest -PpreviewCiTest=true -Pandroid.testInstrumentationRunnerArguments.scannerBenchmark="$benchmark" --stacktrace || test_result=$?
 mkdir -p scanner-diagnostics
-adb exec-out run-as app.masahati.mobile.preview sh -c 'cd files && tar cf - scanner-benchmark-report' > scanner-diagnostics/results.tar || true
+adb pull /data/local/tmp/masahati-scanner-diagnostics scanner-diagnostics/report || true
 benchmark_result=0
 if [ "$benchmark" = true ]; then
-  adb exec-out run-as app.masahati.mobile.preview cat files/scanner-benchmark-report/summary.json > scanner-diagnostics/summary.json || true
-  adb exec-out run-as app.masahati.mobile.preview cat files/scanner-benchmark-report/records.json > scanner-diagnostics/records.json || true
-  python3 - scanner-diagnostics <<'PY' || benchmark_result=$?
+  python3 - scanner-diagnostics/report <<'PY' || benchmark_result=$?
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 try:
@@ -31,6 +29,7 @@ PY
 fi
 adb shell run-as app.masahati.mobile.v07 cat files-preserved-marker
 adb shell pm path app.masahati.mobile.v07
+adb logcat -d -s ScannerMemory:I
 if [ "$test_result" -ne 0 ]; then
   adb logcat -d -s MasahatiOCR:W ScannerRegression:I AndroidRuntime:E
   exit "$test_result"

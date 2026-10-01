@@ -51,9 +51,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            app/build/uvdoc-converter
             app/build/generated/uvdocAssets
-          key: uvdoc-grid-4c9b82b5-torch210-py312-opset17-v1
+          key: uvdoc-reviewed-7376bae0-v2
 
       - name: Set up Gradle 9.5.0
         uses: gradle/actions/setup-gradle@v4
@@ -151,9 +150,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            app/build/uvdoc-converter
             app/build/generated/uvdocAssets
-          key: uvdoc-grid-4c9b82b5-torch210-py312-opset17-v1
+          key: uvdoc-reviewed-7376bae0-v2
 
       - name: Set up Gradle 9.5.0
         uses: gradle/actions/setup-gradle@v4

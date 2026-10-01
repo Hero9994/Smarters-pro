@@ -24,6 +24,7 @@ class ScannerBenchmarkInstrumentedTest {
         val manifest=JSONObject(assets.open("benchmark/manifest.json").bufferedReader().use { it.readText() })
         val samples=manifest.getJSONArray("samples");assertEquals(300,samples.length())
         val folder=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+        try {
         val records=JSONArray();val detector=DocQuadDetector(context)
         var detected=0;var manual=0;var clipped=0;var peakMemory=0L
         val errors=ArrayList<Double>();val initialErrors=ArrayList<Double>();val edges=ArrayList<Double>();val times=ArrayList<Double>()
@@ -88,6 +89,7 @@ class ScannerBenchmarkInstrumentedTest {
             .put("memory_scope","phase-boundary samples, not peak PSS").put("timing_scope","detection/refinement and conditional visual output, excludes full pipeline/OCR")
         File(folder,"summary.json").writeText(summary.toString(2))
         assertTrue("Model failed on most documents: "+detected+"/300",detected>=270);assertEquals(300,records.length())
+        } finally { ScannerTestDiagnostics.publish(folder) }
     }
     private fun polygon(points: List<ScanPoint>)=JSONArray().apply { points.forEach { put(JSONArray().put(it.x).put(it.y)) } }
 }
