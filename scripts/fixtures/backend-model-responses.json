@@ -1,0 +1,40 @@
+{
+  "provenance": "Hand-authored synthetic provider envelopes. No real/user documents or captured credentials. These test parsing and evidence validation, not model reasoning quality.",
+  "german_contract": {
+    "model": "fixture-document-model",
+    "raw": {
+      "doc_type": "contract", "topic": "housing", "language": "de", "classification_excerpt": "MIETVERTRAG.",
+      "organization": {"value": "Beispiel GmbH", "excerpt": "Vermieter: Beispiel GmbH."},
+      "person_names": [{"value": "Max Mustermann", "excerpt": "Mieter: Max Mustermann."}],
+      "references": [{"kind": "contract", "value": "MV-4488", "excerpt": "Vertragsnummer MV-4488."}],
+      "dates": [
+        {"role": "expiry", "value": "2027-09-30", "excerpt": "Vertragsende 30.09.2027."},
+        {"role": "due", "value": "2027-09-15", "excerpt": "Der Mieter muss spätestens bis 15.09.2027 schriftlich kündigen."}
+      ],
+      "amounts": [], "issues": [],
+      "action": {"status": "required", "excerpt": "Der Mieter muss spätestens bis 15.09.2027 schriftlich kündigen."}
+    }
+  },
+  "arabic_contract": {
+    "model": "fixture-document-model",
+    "raw": {
+      "doc_type": "contract", "topic": "housing", "language": "ar", "classification_excerpt": "عقد إيجار.",
+      "organization": {"value": "شركة المثال", "excerpt": "الشركة: شركة المثال."}, "person_names": [],
+      "references": [{"kind": "contract", "value": "AR-991", "excerpt": "رقم العقد: AR-991."}],
+      "dates": [
+        {"role": "expiry", "value": "2027-09-30", "excerpt": "تاريخ الانتهاء: 30.09.2027."},
+        {"role": "due", "value": "2027-09-15", "excerpt": "آخر موعد: 15.09.2027."}
+      ],
+      "amounts": [], "issues": [],
+      "action": {"status": "required", "excerpt": "يجب إرسال طلب الإلغاء قبل الموعد."}
+    }
+  },
+  "agent_search": {
+    "model": "fixture-agent-model",
+    "raw": {"reply": "سأبحث عن عقد الإيجار.", "classification": "search", "actions": [{"type": "search", "args": {"query": "عقد الإيجار"}, "requires_confirmation": false}]}
+  },
+  "agent_contract_expiry": {
+    "model": "fixture-agent-model",
+    "raw": {"reply": "بحسب العقد، ينتهي بتاريخ 30.09.2027.", "classification": "document", "actions": []}
+  }
+}
