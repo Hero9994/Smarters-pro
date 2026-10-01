@@ -59,11 +59,13 @@ object ScanPdfExporter {
                 try {
                     val w=(image.width*72.0/200).roundToInt().coerceAtLeast(1)
                     val h=(image.height*72.0/200).roundToInt().coerceAtLeast(1)
-                    PdfDocument().use { native ->
+                    val native=PdfDocument()
+                    try {
                         val sheet=native.startPage(PdfDocument.PageInfo.Builder(w,h,1).create())
-                        sheet.canvas.drawBitmap(image,null,RectF(0f,0f,w.toFloat(),h.toFloat()),Paint(Paint.FILTER_BITMAP_FLAG))
-                        native.finishPage(sheet);part.outputStream().use { native.writeTo(it) }
-                    }
+                        try { sheet.canvas.drawBitmap(image,null,RectF(0f,0f,w.toFloat(),h.toFloat()),Paint(Paint.FILTER_BITMAP_FLAG)) }
+                        finally { native.finishPage(sheet) }
+                        part.outputStream().use { native.writeTo(it) }
+                    } finally { native.close() }
                     PDDocument.load(part,MemoryUsageSetting.setupTempFileOnly().setTempDir(context.cacheDir)).use { single ->
                         merger.appendDocument(combined,single)
                     }
