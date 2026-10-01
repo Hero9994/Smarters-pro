@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import androidx.core.graphics.createBitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import java.io.File
@@ -97,7 +98,7 @@ object ScanPdfExporter {
                 for((i,info) in pages.withIndex()) {
                     if(info.codes.isEmpty()) continue
                     reader.openPage(i).use { page ->
-                        val rendered=Bitmap.createBitmap(info.width,info.height,Bitmap.Config.ARGB_8888)
+                        val rendered=createBitmap(info.width,info.height)
                         try {
                             rendered.eraseColor(Color.WHITE)
                             page.render(rendered,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)

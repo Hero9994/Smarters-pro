@@ -7,6 +7,8 @@ gradle :app:assembleDebug --stacktrace
 adb install app/build/outputs/apk/debug/app-debug.apk
 adb shell run-as app.masahati.mobile.v07 touch files-preserved-marker
 test_result=0
+gradle :app:connectedPreviewAndroidTest -PpreviewCiTest=true -Pandroid.testInstrumentationRunnerArguments.class=app.masahati.mobile.scanner.NativePdfPlatformInstrumentedTest --stacktrace
+adb logcat -d -s ScannerPdfPlatform:I
 gradle :app:connectedPreviewAndroidTest -PpreviewCiTest=true -Pandroid.testInstrumentationRunnerArguments.scannerBenchmark="$benchmark" --stacktrace || test_result=$?
 mkdir -p scanner-diagnostics
 adb pull /data/local/tmp/masahati-scanner-diagnostics scanner-diagnostics/report || true
@@ -30,6 +32,7 @@ fi
 adb shell run-as app.masahati.mobile.v07 cat files-preserved-marker
 adb shell pm path app.masahati.mobile.v07
 adb logcat -d -s ScannerMemory:I
+adb logcat -d -s ScannerPdfPlatform:I
 if [ "$test_result" -ne 0 ]; then
   adb logcat -d -s MasahatiOCR:W ScannerRegression:I AndroidRuntime:E
   exit "$test_result"
