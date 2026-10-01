@@ -63,3 +63,33 @@ An incorrect fact always wins over a simultaneous fallback/transient condition:
 it remains `data_mismatch`/exit 1. Stable provider codes identify what the server
 reported, not the root cause of earlier runs, nor proof that an error will clear
 on retry. A later successful probe does not erase an earlier failure.
+
+## First diagnosed live run
+
+For commit `c205c6eb1353ba7d6e9885e1111c0886c667b3f6`, the required
+`backend-regression` job in [Android CI 36916316467](https://github.com/Hero9994/Smarters-pro/actions/runs/36916316467)
+passed all 46 unit tests, seven conservative-reading cases and four offline
+fixtures. The independent [live run 36916316705](https://github.com/Hero9994/Smarters-pro/actions/runs/36916316705)
+failed with exit 1, preserving all four single-request probe results:
+
+| Probe | Actual facts that differ from the expectation | Outcome |
+| --- | --- | --- |
+| German contract | `expiry_date: ""` instead of `2027-09-30`; `action_required: false` instead of `true` | `data_mismatch`, HTTP 200, semantic, `uncertain_date` |
+| Arabic contract | `due_date: ""` instead of `2027-09-15` | `data_mismatch`, HTTP 200, semantic |
+| Agent document search | No assertion mismatch | Passed supported search behavior |
+| Agent explicit contract expiry | No assertion mismatch | Passed source-grounded date reply |
+
+Both document replies report `gemini-3.1-flash-lite` and an empty
+`degraded_reason`. They were not rule-based capacity fallbacks. This records
+what the endpoint returned; it does not show the raw model facts/excerpts or
+prove why the date was omitted/rejected. No live retry or production deployment
+was used to change these results. A read-only fetch confirmed that all six files
+of the deployed document function (version 11) exactly match the checked-in
+source, ruling out document-function source drift in this run.
+
+The [complete sanitized results](diagnostics/c205c6e/results.json) and
+[provenance including source hashes](diagnostics/c205c6e/PROVENANCE.json)
+are retained. These newly identified fields cannot retrospectively identify
+the mismatches in the two earlier runs. The next backend task is to reproduce
+the date omissions/evidence rejection with controlled provider fixtures and
+fix them without weakening source-date validation or the live assertions.

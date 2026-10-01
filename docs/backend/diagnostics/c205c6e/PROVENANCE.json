@@ -1,0 +1,28 @@
+{
+  "commit": "c205c6eb1353ba7d6e9885e1111c0886c667b3f6",
+  "workflow_run": 36916316705,
+  "workflow": "Backend live smoke",
+  "job": 110551053716,
+  "artifact_id": 11189018936,
+  "artifact_zip_sha256": "4b73c40f4b87f3b55c1d56c40c75c9f9a6f23351aa4f25d8c2b0e6b21798f10f",
+  "inputs": "Only four fixed synthetic probes from scripts/backend-probes.mjs; no private documents.",
+  "deployment_changed": false,
+  "document_deployment": {
+    "slug": "masahati-document-alpha-v2",
+    "version": 11,
+    "files_match_current_source": true,
+    "source_sha256": {
+      "masahati-document-alpha-v2/index.ts": "4f2f5af4bfe66aa6697b546925d4c539520d0979525450be605cd2c7b727d1bc",
+      "masahati-document-alpha-v2/document-understanding.ts": "dbafeb985c03dc751cbfb7a08965cdcace4cfede2a7fbececf6d523e028f1309",
+      "masahati-document-alpha-v2/document-dates.ts": "e33f0f329884303d77afccd425638d6e6d54319c96128cd9f95de8154d500d3c",
+      "masahati-document-alpha-v2/document-fallback.ts": "fe88fcc399de72386177763c988777da44eb10dccd27e685baa2ffdc4bb62c39",
+      "masahati-document-alpha-v2/document-provider.ts": "c3c48fab93b0fc45191243dae141303cc8527fe7a607a2125adeb373ccf5da94",
+      "_shared/chat-provider.ts": "c1e69facc8ed58ed845bb334374dad88d30310ffee3d444e68e89975e466fc85"
+    }
+  },
+  "limitations": [
+    "Does not identify the fields that failed in older opaque jq runs.",
+    "Does not record raw provider output or prove a particular model/excerpt root cause.",
+    "A passing fixture does not prove live semantic model quality."
+  ]
+}

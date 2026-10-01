@@ -1,0 +1,166 @@
+{
+  "mode": "live",
+  "synthetic_only": true,
+  "live_provider_contacted": true,
+  "semantic_quality_claim": false,
+  "results": [
+    {
+      "case": "german_contract",
+      "passed": false,
+      "status": "data_mismatch",
+      "exit_code": 1,
+      "transient": false,
+      "http_status": 200,
+      "transport_error": null,
+      "elapsed_ms": 4611,
+      "expected": {
+        "ok": true,
+        "document.doc_type": "contract",
+        "document.reference_number": "MV-4488",
+        "document.expiry_date": "2027-09-30",
+        "document.due_date": "2027-09-15",
+        "document.action_required": true,
+        "analysis_method": "semantic",
+        "document.analysis_method": "semantic"
+      },
+      "actual": {
+        "ok": true,
+        "document.doc_type": "contract",
+        "document.reference_number": "MV-4488",
+        "document.expiry_date": "",
+        "document.due_date": "2027-09-15",
+        "document.action_required": false,
+        "analysis_method": "semantic",
+        "document.analysis_method": "semantic"
+      },
+      "mismatches": [
+        {
+          "field": "document.expiry_date",
+          "expected": "2027-09-30",
+          "actual": "",
+          "passed": false
+        },
+        {
+          "field": "document.action_required",
+          "expected": true,
+          "actual": false,
+          "passed": false
+        }
+      ],
+      "analysis_method": "semantic",
+      "document_analysis_method": "semantic",
+      "analysis_status": "needs_review",
+      "model": "gemini-3.1-flash-lite",
+      "engine": "masahati-document-v3",
+      "degraded_reason": "",
+      "issue_codes": [
+        "uncertain_date"
+      ]
+    },
+    {
+      "case": "arabic_contract",
+      "passed": false,
+      "status": "data_mismatch",
+      "exit_code": 1,
+      "transient": false,
+      "http_status": 200,
+      "transport_error": null,
+      "elapsed_ms": 5272,
+      "expected": {
+        "ok": true,
+        "document.doc_type": "contract",
+        "document.reference_number": "AR-991",
+        "document.expiry_date": "2027-09-30",
+        "document.due_date": "2027-09-15",
+        "document.action_required": true,
+        "analysis_method": "semantic",
+        "document.analysis_method": "semantic"
+      },
+      "actual": {
+        "ok": true,
+        "document.doc_type": "contract",
+        "document.reference_number": "AR-991",
+        "document.expiry_date": "2027-09-30",
+        "document.due_date": "",
+        "document.action_required": true,
+        "analysis_method": "semantic",
+        "document.analysis_method": "semantic"
+      },
+      "mismatches": [
+        {
+          "field": "document.due_date",
+          "expected": "2027-09-15",
+          "actual": "",
+          "passed": false
+        }
+      ],
+      "analysis_method": "semantic",
+      "document_analysis_method": "semantic",
+      "analysis_status": "analyzed",
+      "model": "gemini-3.1-flash-lite",
+      "engine": "masahati-document-v3",
+      "degraded_reason": "",
+      "issue_codes": []
+    },
+    {
+      "case": "agent_search",
+      "passed": true,
+      "status": "passed",
+      "exit_code": 0,
+      "transient": false,
+      "http_status": 200,
+      "transport_error": null,
+      "elapsed_ms": 233,
+      "expected": {
+        "ok": true,
+        "classification": "search",
+        "actions.search_query": "عقد الإيجار"
+      },
+      "actual": {
+        "ok": true,
+        "classification": "search",
+        "actions.search_query": [
+          "عقد الإيجار"
+        ]
+      },
+      "mismatches": [],
+      "analysis_method": null,
+      "document_analysis_method": null,
+      "analysis_status": null,
+      "model": "rules-v6",
+      "engine": "edge-fallback-v6",
+      "degraded_reason": null,
+      "issue_codes": []
+    },
+    {
+      "case": "agent_contract_expiry",
+      "passed": true,
+      "status": "passed",
+      "exit_code": 0,
+      "transient": false,
+      "http_status": 200,
+      "transport_error": null,
+      "elapsed_ms": 182,
+      "expected": {
+        "ok": true,
+        "reply.contains": "30.09.2027"
+      },
+      "actual": {
+        "ok": true,
+        "reply.contains": "تاريخ الانتهاء الظاهر في النص المقروء: 30.09.2027."
+      },
+      "mismatches": [],
+      "analysis_method": null,
+      "document_analysis_method": null,
+      "analysis_status": null,
+      "model": "deterministic",
+      "engine": "hybrid-router-v3",
+      "degraded_reason": null,
+      "issue_codes": []
+    }
+  ],
+  "passed": 2,
+  "failed": 2,
+  "exit_code": 1,
+  "note": "Each document must be semantic and match the expected facts. Transient failures still fail; there are no runner retries."
+}

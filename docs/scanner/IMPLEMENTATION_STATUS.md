@@ -13,6 +13,13 @@ Read the [detailed Arabic evidence report](SCANNER_EVIDENCE_2026-10-01.md),
 and [signed APK receipt](delivery-0.4.json).
 This checkpoint is a usable preview, **not full scanner acceptance**.
 
+Backend CI now separates 46 unit tests, seven conservative-reading cases and
+four offline provider fixtures from a strict semantic live workflow. The first
+diagnosed live run returned wrong/missing contract dates despite HTTP 200 and
+semantic analysis. That failure is preserved, not retried into a pass; see the
+[backend diagnostics](../backend/REGRESSION.md). The document backend source
+was not changed or redeployed by this test-design fix.
+
 ## Implemented and checked
 
 - CameraX/Camera2 live document/focus/stability checks and optional stable auto capture.
