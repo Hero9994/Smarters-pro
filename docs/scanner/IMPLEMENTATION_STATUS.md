@@ -1,85 +1,62 @@
-# Scanner development checkpoint — 2026-10-01
-This is unfinished development, not an acceptance or release report.
+# Scanner checkpoint — 2026-10-01
 
-## Existing scanner
-Preview 0.3 uses Google's ML Kit scanner UI. Its delivered PDF is kept verbatim to avoid a second crop.
-The optional older OpenCV rectifier uses Canny/contours/approxPolyDP at <=1280px and was removed from the main export path.
-Existing file import, local text classification/search, consent for cloud document analysis and old scanner remain.
+Signed development preview: **alpha-0.4-preview**, versionCode 11, source
+`a146ef5deee1886676d7d784aa68961d93ae6217`.
+The complete [CI run](https://github.com/Hero9994/Smarters-pro/actions/runs/36881972854)
+passed build/lint/JVM tests, Android APIs 26 and 36, and backend regression.
+Android 16: 60 passed tests. Android 8: 59 passed, with the real-frame diagnostic
+intentionally skipped there and executed on API 36.
 
-## Added pipeline
-CameraX 1.6.2 preview + continuous AF state + supported high-quality lens correction + 1x back camera
--> preview DocQuadNet mask/corners + sharpness/exposure/glare/shadow checks
--> stable complete corners for >=8 frames and >=900ms before optional auto shutter
--> durable original -> full-resolution segmented Sobel corridors / subpixel peaks / RANSAC / TLS
--> edge intersections + conservative margin -> manual zoom/magnifier corner review
--> tiled native-source homography and composed fine deskew
--> conditional MIT UVDoc coordinate-grid remap when curvature evidence and validation support it
--> deterministic tiled LAB illumination normalization / content masks / whitening
--> Original / Auto / Clean White / Clear Text / B&W / Photo modes
--> PP-OCRv5 number/text consistency + ZXing + local stroke/chroma preservation
--> weaker cleanup or unchanged rectified image if guard fails
--> identical-geometry before/after slider -> lossless PNG -> PDFBox temp-backed multipage PDF.
+Read the [detailed Arabic evidence report](SCANNER_EVIDENCE_2026-10-01.md),
+[all 300 measurements](benchmarks/a146ef5/records.json),
+[public visual cases](benchmarks/a146ef5/visual/README.md),
+and [signed APK receipt](delivery-0.4.json).
+This checkpoint is a usable preview, **not full scanner acceptance**.
 
-Original captures, recipes and processed pages are included in ZIP backups; restore checks names, image bounds and source hashes.
-Reopening a saved PDF exposes the original and allows exporting a new PDF. Previous PDFs retain access to original sessions.
+## Implemented and checked
 
-## License review
-See THIRD_PARTY_NOTICES.md and packaged licenses. Source commits/checksums are pinned.
-DocQuad/PP-OCR weights have explicit Apache grants in MakeACopy.
-UVDoc checkpoint is tracked under the original repository's root MIT license, without a restrictive override.
-FSENet code is MIT, but external weights lack a clear weight grant: NOT DISTRIBUTED.
-GCDRNet code is MIT; author's weight download requires further retrieval and comparison: NOT DISTRIBUTED.
-MakeACopy lists DTD with unknown dataset provenance; no dataset is bundled or newly used for training.
-The explicit publisher model license does not establish rights to that dataset itself.
+- CameraX/Camera2 live document/focus/stability checks and optional stable auto capture.
+- Apache-licensed DocQuad/Paddle inference assets, single ONNX Runtime, conditional MIT UVDoc geometry grid.
+- Native source-region Sobel/subpixel peaks; one vote per normal profile in RANSAC/TLS.
+- Coherent four-edge fit, explicit 6-source-pixel outward margin, broad-gradient localization check and manual zoom/corners.
+- Native tiled homography, bounded 50 MP source handling, conservative deskew.
+- Conditional dewarp with valid Jacobian, OCR/QR and measured-curvature guards.
+- Tiled LAB illumination/content masks/whitening; six explicit modes and before/after comparison.
+- Source-domain boundary OCR and barcode checks, plus post-filter text/code/detail guards.
+- Durable immutable originals, recipes, safe restore, reopened scans and prior-PDF aliases.
+- Scanner-only streaming lossless PDF 1.4; native-renderer/code validation before publication.
+- Android 8 malformed-PDF preflight prevents PDFium's prior-error state poisoning a later valid document.
 
-## Evidence so far
-- Geometry/filter/guard unit tests and debug build/lint passed locally at the pre-UI checkpoint.
-- Geometry engine compiled locally before scanner UI integration.
-- UVDoc geometry-only ONNX: 31,602,475 bytes; PyTorch/ORT max coordinate difference 3.5763e-7.
-- Desktop CPU conversion diagnostic ~185–193ms, NOT phone latency.
-- CI 1095c3b: original regression suites passed on Android APIs 26 and 36; preview dex build failed with Java heap OOM.
-- Build heap raised to 4GB with two workers; new full regression is required.
-- 300 real SmartDoc video frames selected from 150 sequences, 30 independent documents; 15,274,894 image bytes.
-  SmartDoc appears in training provenance; overlap is UNKNOWN. This is a diagnostic, not unseen-data accuracy.
-- New Android tests cover PNG/PDF rendering, backup originals, OCR digits, QR/color/tiny marks, editor recreation.
-- Numeric benchmark records corners/edges, inward crop error, manual review, sampled memory and failures/overlays.
-  NO BENCHMARK RESULT OR PHYSICAL DEVICE MEASUREMENT IS CLAIMED YET.
+## Actual geometry results
 
-## Still required before acceptance
-- Run all new tests and fix failures, then repeat old regressions.
-- Examine 300-frame error distributions and bad-case images; tune on separate sequences and retest held-out cases.
-- Private German folded-letter visual evaluation; never upload personal images to GitHub.
-- Add real receipt/card/white-on-white/yellow/strong-shadow/curved/stamp/small-text cases beyond SmartDoc.
-- Curved-book/page benchmark and character/QR preservation for UVDoc.
-- Actual 12–50MP memory stress and medium physical Android phone timing; live focus/rotation/capture validation.
-- Adaptive multi-exposure alignment/fusion with ghosting rejection: not implemented; ZSL is not HDR fusion.
-- GCDRNet appearance comparison when weights are retrievable; FSENet remains blocked on explicit weight licensing.
-- Complete stage visual reports, model/APK size and 16KB native alignment checks.
-- Version 11 alpha-0.4 remains an unsigned development candidate until complete CI, persistent signing and verified delivery.
-- Do not label this scanner production-ready, millimetre-accurate or equivalent to CamScanner based on compilation.
+SmartDoc 2015 challenge 1 v2.0.0: 300 real frames, 150 sequences, 30 independent
+documents. Training overlap UNKNOWN, so these are not unseen-data accuracy claims.
+Detection 300/300; **148 manual-review suggestions**, 81 suggestions with inward
+error >2 px, **0 such inward errors accepted as confident** on this dataset.
+Raw boundary edge mean 2.67 px, p95 6.60 px; corner mean 5.07 px.
+Final padded-crop edge mean 5.98 px and corner mean 9.51 px, reported separately.
+All images still pass through the crop editor before the user applies the crop.
+The earlier `4f25e62` failure is retained with its measurements and pictures.
 
-## Recovery
-The local execution service went offline during integration. Changes are checkpointed directly to the scanner GitHub branch.
-Fetch/reset or carefully reconcile the remote checkpoint before continuing local development; keep private samples outside Git.
+Synthetic 50 MP test on API 36: 3741x1870 output, 4782 ms pipeline,
+5322 ms entire fixture, sampled PSS 389,063,680 bytes. Emulator diagnostics only;
+not phone speed or a guarantee against OOM on every source/device.
+Signed APK: 448,031,288 bytes. Same package and signing certificate as Preview 0.3.
+ZIP CRC, SHA-256, signature v2/v3 and 16 KB alignment of all 28 native libraries pass.
 
+## Acceptance work still open
 
-## Native-resolution and reader fixes (post-c9 diagnostic)
-- Keep c9's original workflow artifact (300 real frames and overlays). Do not
-  treat its logical-corner mean as geometric localization error: SmartDoc
-  labels follow page printing orientation, while inference follows image
-  orientation. The next benchmark aligns only a cyclic starting corner to the
-  initial detection and uses the same correspondence for the refined result.
-  It exports ground truth, legacy logical error, confidence, peak probabilities,
-  prominence, mask agreement, edge residuals and unsafe automatic crop count.
-- Subdivide output warp tiles adaptively BEFORE decoding native source ROIs.
-  This fixes the 50 MP analysis warp without increasing the 4 MP source-region
-  cap or allocating a full 50 MP bitmap.
-- Scanner-only PDF export now streams lossless RGB Flate data into PDF 1.4,
-  one page at a time, with classic cross-reference byte offsets. Validate the
-  platform PdfRenderer and source-readable QR/barcodes before publishing.
-  PDFBox remains available for the application's existing reader/import paths.
-- New independent tests cover paper-edge refinement despite a printed rectangle
-  and multi-page portrait/landscape PDF geometry. Existing OCR, original hashes,
-  color, tiny punctuation, backup, UI recreation, native warp, 50 MP and both
-  Android API levels must pass again. These changes are NOT acceptance evidence
-  until their workflow completes.
+- Improve uncertain boundaries on clutter/low contrast; manual fallback is not accurate automatic detection.
+- Independent real receipts/cards/white-on-white/yellow/strong-shadow/stamp/curved-book test cases.
+- Establish real curved-page quality and text/code preservation; the user's private folded letter remains private and is not an acceptance success.
+- Physical medium Android/Samsung camera, focus/rotation, thermal, timing and memory profiling.
+- Adaptive multi-exposure alignment/fusion and ghosting rejection; **ZSL is not HDR fusion**.
+- FSENet is excluded because external weights lack an explicit grant. GCDRNet weights were not retrievable or benchmarked.
+- OCR is partial above its line limit and explicitly warned; it does not prove preservation of every glyph/signature.
+- Heavy stain/ink removal remains conservative so small real characters are not erased.
+
+No Non-Commercial/Research-Only inference asset or generative text restoration is included.
+Source URLs, pinned commits, asset hashes, rights and packaged licenses are in
+[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+The local execution outage interrupted development; recovery and all results are
+now saved in the repository. No merge into the main branch is required for this preview.

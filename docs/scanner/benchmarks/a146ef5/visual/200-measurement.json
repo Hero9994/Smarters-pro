@@ -1,0 +1,17 @@
+{
+  "file": "background04_magazine001_frame_0039.jpeg",
+  "manual_review": true,
+  "accepted_edges": 0,
+  "boundary_corner_error_px": 11.78302784460332,
+  "boundary_edge_error_px": 5.4101815094938495,
+  "corner_error_px": 15.427099187092558,
+  "edge_error_px": 8.81537018060856,
+  "max_inward_px": 13.96157202365941,
+  "crop_padding_source_px": 6,
+  "edge_transition_width_px": [
+    -1,
+    -1,
+    -1,
+    -1
+  ]
+}

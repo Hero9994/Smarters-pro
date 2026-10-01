@@ -1,0 +1,11 @@
+{
+  "file": "background05_paper001_frame_0020.jpeg",
+  "manual_review": true,
+  "accepted_edges": 0,
+  "boundary_corner_error_px": 9.341216236862738,
+  "boundary_edge_error_px": 6.322144005146717,
+  "corner_error_px": 9.817601061248814,
+  "edge_error_px": 6.777731771833238,
+  "max_inward_px": 12.93324992201871,
+  "crop_padding_source_px": 6
+}

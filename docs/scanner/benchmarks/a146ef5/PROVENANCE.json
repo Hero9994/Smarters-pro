@@ -1,0 +1,32 @@
+{
+  "source_commit": "a146ef5deee1886676d7d784aa68961d93ae6217",
+  "workflow_run": 36881972854,
+  "artifact_id": 11172451660,
+  "artifact_zip_sha256": "5f1ba50d5fe5e0d379da8a8dda5b160482cf7f5118ca6b0af40e90002f4405ff",
+  "dataset_license": "CC-BY-4.0",
+  "dataset_source": "https://github.com/jchazalon/smartdoc15-ch1-dataset",
+  "measurement_scope": "Actual Android API 36 geometry diagnostics on 300 frames; full-pipeline tests are separate",
+  "private_user_images": "Excluded",
+  "instrumentation_results": [
+    {
+      "api": "36",
+      "tests": "60",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "113.257",
+      "timestamp": "2026-10-01T15:23:18",
+      "hostname": "localhost"
+    },
+    {
+      "api": "26",
+      "tests": "60",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "1",
+      "time": "75.204",
+      "timestamp": "2026-10-01T15:19:42",
+      "hostname": "localhost"
+    }
+  ]
+}

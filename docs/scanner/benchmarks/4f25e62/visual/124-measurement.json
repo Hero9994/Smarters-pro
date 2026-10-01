@@ -1,0 +1,11 @@
+{
+  "file": "background03_datasheet003_frame_0047.jpeg",
+  "manual_review": false,
+  "accepted_edges": 4,
+  "boundary_corner_error_px": 4.025250157926774,
+  "boundary_edge_error_px": 2.0398296452800624,
+  "corner_error_px": 8.979354672977347,
+  "edge_error_px": 5.738427268228245,
+  "max_inward_px": 2.0956957187449645,
+  "crop_padding_source_px": 6
+}

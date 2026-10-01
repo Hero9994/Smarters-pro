@@ -1,0 +1,17 @@
+{
+  "file": "background05_tax005_frame_0059.jpeg",
+  "manual_review": true,
+  "accepted_edges": 0,
+  "boundary_corner_error_px": 8.084961659546636,
+  "boundary_edge_error_px": 3.900724436425891,
+  "corner_error_px": 11.12631950989688,
+  "edge_error_px": 6.31004841104442,
+  "max_inward_px": 8.767900453452325,
+  "crop_padding_source_px": 6,
+  "edge_transition_width_px": [
+    -1,
+    -1,
+    -1,
+    -1
+  ]
+}

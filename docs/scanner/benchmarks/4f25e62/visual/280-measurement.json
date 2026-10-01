@@ -1,0 +1,11 @@
+{
+  "file": "background05_patent001_frame_0023.jpeg",
+  "manual_review": true,
+  "accepted_edges": 0,
+  "boundary_corner_error_px": 27.33518418247551,
+  "boundary_edge_error_px": 13.615013434243057,
+  "corner_error_px": 25.16755256382435,
+  "edge_error_px": 12.9760040398282,
+  "max_inward_px": 29.550824122417545,
+  "crop_padding_source_px": 6
+}
