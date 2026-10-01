@@ -40,6 +40,47 @@ val prepareOcrModels by tasks.registering {
 }
 tasks.named("preBuild").configure { dependsOn(prepareOcrModels) }
 
+// Published, explicitly licensed inference assets; pin both source commit and SHA-256.
+val scannerAssets = layout.buildDirectory.dir("generated/scannerAssets")
+val prepareScannerModels by tasks.registering {
+    val revision = "01bebd394b9dd6f3a692f28aea7c0638085eb4da"
+    val assets = mapOf(
+        "docquad.ort" to Pair("app/src/main/assets/docquad/docquadnet256_trained_opset17.ort", "f0f2f52d7d79ff02d346c8f9d0c9e903407366aeea1747cdcff160c401e3e72a"),
+        "paddle-det.ort" to Pair("app/src/paddle/assets/paddleocr/v5/det.ort", "bfb226a460dee7e50b210e20e7c51becff55798150aea45cb9d047c81bfb9c9a"),
+        "paddle-latin.ort" to Pair("app/src/paddle/assets/paddleocr/v5/latin_PP-OCRv5_mobile_rec.ort", "5bb93e0fef6fcde14ddadfec23ff9efbc331531ba1ae54baba85605d7794efda"),
+        "paddle-arabic.ort" to Pair("app/src/paddle/assets/paddleocr/v5/arabic_PP-OCRv5_mobile_rec.ort", "17d31ec78b3dd2168c97595031fdf7adeba145c4cfa5f33278f04e8363fdea9d"),
+        "latin_dict.txt" to Pair("app/src/paddle/assets/paddleocr/v5/latin_dict.txt", "b95923300a0656f8169feee90143cbfcdb62d82a37b54e6b12c224c3e584916f"),
+        "arabic_dict.txt" to Pair("app/src/paddle/assets/paddleocr/v5/arabic_dict.txt", "2a215ea5877f01b1f8c8803783cda73707222c39a84d4a6cfee9ef502c48248e")
+    )
+    inputs.property("revision", revision); inputs.property("assets", assets)
+    outputs.dir(scannerAssets)
+    doLast {
+        val directory = scannerAssets.get().dir("scanner/models").asFile.apply { mkdirs() }
+        fun digest(file: File): String {
+            val hash = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { stream ->
+                val buffer = ByteArray(65536)
+                while (true) { val count = stream.read(buffer); if (count < 0) break; hash.update(buffer, 0, count) }
+            }
+            return hash.digest().joinToString("") { "%02x".format(it) }
+        }
+        assets.forEach { (name, source) ->
+            val target = directory.resolve(name)
+            if (!target.isFile || digest(target) != source.second) {
+                val temporary = directory.resolve("$name.download")
+                val connection = URI("https://raw.githubusercontent.com/egdels/makeacopy/$revision/${source.first}").toURL().openConnection()
+                connection.connectTimeout = 30_000; connection.readTimeout = 90_000
+                try {
+                    connection.getInputStream().use { input -> temporary.outputStream().use { input.copyTo(it) } }
+                    check(digest(temporary) == source.second) { "Scanner asset checksum mismatch: $name" }
+                    temporary.copyTo(target, overwrite = true)
+                } finally { temporary.delete() }
+            }
+        }
+    }
+}
+tasks.named("preBuild").configure { dependsOn(prepareScannerModels) }
+
 android {
     namespace = "app.masahati.mobile"
     compileSdk = 36
@@ -54,6 +95,7 @@ android {
     }
 
     sourceSets.getByName("main").assets.directories.add(ocrAssets.get().asFile.absolutePath)
+    sourceSets.getByName("main").assets.directories.add(scannerAssets.get().asFile.absolutePath)
 
     buildTypes {
         debug {
@@ -114,6 +156,10 @@ dependencies {
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("com.github.anrwatchdog:anrwatchdog:1.4.0")
     implementation("org.opencv:opencv:4.12.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.1")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
