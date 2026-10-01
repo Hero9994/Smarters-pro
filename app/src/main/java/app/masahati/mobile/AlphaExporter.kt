@@ -1,6 +1,7 @@
 package app.masahati.mobile
 
 import android.content.Context
+import app.masahati.mobile.scanner.ScanSessionStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedOutputStream
@@ -139,6 +140,18 @@ object AlphaExporter {
                 zip.putArchiveEntry(ZipArchiveEntry("files/${m.id}-$safeName"))
                 file.inputStream().use { it.copyTo(zip) }
                 zip.closeArchiveEntry()
+                ScanSessionStore.forDocument(context,file)?.let { session ->
+                    val names=linkedSetOf("session.json")
+                    session.pages.forEach { page ->
+                        session.verifySource(page);names.add(page.source)
+                        if(session.rectified(page).isFile) names.add(session.rectified(page).name)
+                        if(session.processed(page).isFile) names.add(session.processed(page).name)
+                    }
+                    names.forEach { name ->
+                        zip.putArchiveEntry(ZipArchiveEntry("scans/"+m.id+"/"+name))
+                        session.file(name).inputStream().use { it.copyTo(zip) };zip.closeArchiveEntry()
+                    }
+                }
             }
             val readme = """
 مساحاتي alpha backup

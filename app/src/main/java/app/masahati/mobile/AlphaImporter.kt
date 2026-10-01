@@ -1,6 +1,7 @@
 package app.masahati.mobile
 
 import android.content.Context
+import app.masahati.mobile.scanner.ScanSessionStore
 import android.os.storage.StorageManager
 import org.json.JSONObject
 import java.io.File
@@ -72,6 +73,7 @@ object AlphaImporter {
             }
 
             val importedFiles = mutableListOf<File>()
+            val importedScanDirectories=mutableListOf<File>()
             return try {
                 db.runInTransaction {
                 val oldToNewSpace = mutableMapOf<Long, Long>()
@@ -150,6 +152,10 @@ object AlphaImporter {
                         )
                         if (newId <= 0L) continue
                         db.updateExtractionNote(newId, item.optNullableString("extraction_note"))
+                        if(importedFile!=null) {
+                            val scanBackup=File(tempRoot,"scans/"+oldId)
+                            if(scanBackup.isDirectory) importedScanDirectories.add(ScanSessionStore.restore(context,scanBackup,File(importedFile)).directory)
+                        }
                         oldToNewMessage[oldId] = newId
                         messageCount++
 
@@ -295,6 +301,7 @@ object AlphaImporter {
                 }
             } catch (error: Exception) {
                 importedFiles.forEach { file -> runCatching { file.delete() } }
+                importedScanDirectories.forEach { directory -> runCatching { directory.deleteRecursively() } }
                 throw error
             }
         } finally {
@@ -317,7 +324,8 @@ object AlphaImporter {
         if (!(normalized == "README.txt" ||
                 normalized == "data/masahati.json" ||
                 normalized == "data/masahati.md" ||
-                normalized.startsWith("files/"))
+                normalized.startsWith("files/") ||
+                normalized.matches(Regex("scans/[1-9][0-9]*/(session\\.json|[0-9a-f-]{36}-(original\\.jpg|processed\\.png|rectified\\.png))")))
         ) return null
         return normalized
     }

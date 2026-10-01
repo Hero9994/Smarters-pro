@@ -1,6 +1,9 @@
 package app.masahati.mobile
 
 import android.Manifest
+import app.masahati.mobile.scanner.ProfessionalScannerActivity
+import app.masahati.mobile.scanner.ScanSessionStore
+import app.masahati.mobile.scanner.ScanPdfExporter
 import app.masahati.mobile.ai.HybridLocalAi
 import app.masahati.mobile.ai.AssistantEnginePolicy
 import app.masahati.mobile.ai.MasahatiAiRequest
@@ -119,6 +122,11 @@ class MainActivity : ComponentActivity() {
         if (result.resultCode != RESULT_OK) return@registerForActivityResult
         val scan = GmsDocumentScanningResult.fromActivityResultIntent(result.data) ?: return@registerForActivityResult
         handleScan(scan)
+    }
+
+    private val professionalScannerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if(result.resultCode==RESULT_FIRST_USER) startLegacyScanner()
+        else if(result.resultCode==RESULT_OK) result.data?.getStringExtra(ProfessionalScannerActivity.EXTRA_SESSION)?.let(::handleProfessionalScan)
     }
 
     private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -1363,12 +1371,63 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startSmartScanner() {
+        val drafts=ScanSessionStore.drafts(this)
+        if(drafts.isNotEmpty()) {
+            AlertDialog.Builder(this).setTitle("يوجد مسح غير محفوظ")
+                .setMessage("يمكنك إكمال "+drafts.first().visiblePages.size+" صفحة أو بدء مستند جديد.")
+                .setPositiveButton("إكمال المسح") { _,_ -> launchProfessionalScanner(drafts.first().id) }
+                .setNegativeButton("مسح جديد") { _,_ -> launchProfessionalScanner(null) }.show()
+        } else launchProfessionalScanner(null)
+    }
+    private fun launchProfessionalScanner(sessionId: String?) {
+        professionalScannerLauncher.launch(Intent(this,ProfessionalScannerActivity::class.java).apply {
+            sessionId?.let { putExtra(ProfessionalScannerActivity.EXTRA_SESSION,it) }
+        })
+    }
+    private fun startLegacyScanner() {
         setBusyToast("جاري تجهيز السكانر الذكي…")
         scanner.getStartScanIntent(this)
             .addOnSuccessListener { sender -> scannerLauncher.launch(IntentSenderRequest.Builder(sender).build()) }
             .addOnFailureListener { e ->
                 Toast.makeText(this, "تعذر تشغيل السكانر: ${e.localizedMessage ?: "غير متاح"}", Toast.LENGTH_LONG).show()
             }
+    }
+
+    private fun handleProfessionalScan(sessionId: String) {
+        val spaceId=currentSpaceId ?: return;val spaceTitle=currentSpaceTitle
+        busyCount++;renderMessages(spaceId)
+        worker.execute {
+            try {
+                val store=ScanSessionStore.open(this,sessionId)
+                val name="Scan-"+SimpleDateFormat("yyyyMMdd-HHmmss",Locale.US).format(Date())+".pdf"
+                val target=newDocumentFile(name);ScanPdfExporter.export(this,store,target)
+                val codes=linkedSetOf<String>();val notices=linkedSetOf<String>()
+                val ocr=buildString {
+                    store.visiblePages.forEachIndexed { index,page ->
+                        if(isNotEmpty()) append("\n\n")
+                        append("صفحة "+(index+1)+":\n");append(page.report.optString("ocr_text"))
+                        if(!page.report.optBoolean("ocr_complete")) notices.add("قراءة النص جزئية؛ أصل جميع الصفحات محفوظ")
+                        page.report.optJSONArray("barcodes")?.let { list -> for(i in 0 until list.length()) codes.add(list.getString(i)) }
+                        page.report.optJSONArray("warnings")?.let { list -> for(i in 0 until list.length()) notices.add(list.getString(i)) }
+                    }
+                    if(codes.isNotEmpty()) { append("\n\nQR/Barcode:\n");append(codes.joinToString("\n")) }
+                }.take(LocalDocumentReader.MAX_CHARS)
+                val id=db.insertFile(spaceId,"user",name,target.absolutePath,"application/pdf",ocr)
+                db.updateExtractionNote(id,notices.take(4).joinToString("\n").takeIf { it.isNotBlank() })
+                val indexed=AlphaDocumentProcessor.indexNewFile(db,id,target,ocr)
+                val duplicate=indexed.duplicate?.let { "\nيوجد مستند مشابه محفوظ باسم "+it.displayName.orEmpty()+"." }.orEmpty()
+                val signals=OpenSourceDocumentTools.signals(this,ocr,codes.toList()).asPromptHint()
+                val request="مستند ممسوح ضوئيًا باسم "+name+". صنفه اعتمادًا على النص المقروء فقط، دون اختراع محتوى:\n"+ocr.take(4800)+"\n"+signals+duplicate
+                runOnUiThread {
+                    busyCount=(busyCount-1).coerceAtLeast(0)
+                    if(!isFinishing && !isDestroyed) { if(currentSpaceId==spaceId) renderMessages(spaceId);confirmCloudDocumentAnalysis(id,request,spaceTitle) }
+                }
+            } catch(error: Exception) { runOnUiThread {
+                busyCount=(busyCount-1).coerceAtLeast(0)
+                if(!isFinishing && !isDestroyed) { if(currentSpaceId==spaceId) renderMessages(spaceId)
+                    Toast.makeText(this,"تعذر حفظ PDF؛ الصور الأصلية محفوظة: "+error.localizedMessage.orEmpty(),Toast.LENGTH_LONG).show() }
+            } }
+        }
     }
 
     private fun handleScan(scan: GmsDocumentScanningResult) {
@@ -2950,6 +3009,7 @@ class MainActivity : ComponentActivity() {
         PopupMenu(this, anchor).apply {
             if (m.kind == "file") {
                 if (m.filePath != null) menu.add("فتح")
+                if(m.filePath?.let { ScanSessionStore.forDocument(this@MainActivity,File(it)) }!=null) menu.add("الأصل وتعديل المسح")
                 menu.add("تفاصيل المستند")
                 menu.add("إعداد التحليل الذكي")
                 if (m.mimeType?.startsWith("image/") == true || m.mimeType == "application/pdf" ||
@@ -2966,6 +3026,7 @@ class MainActivity : ComponentActivity() {
             setOnMenuItemClickListener { item ->
                 when (item.title.toString()) {
                     "فتح" -> openSavedFile(m)
+                    "الأصل وتعديل المسح" -> m.filePath?.let { path -> ScanSessionStore.forDocument(this@MainActivity,File(path))?.let { launchProfessionalScanner(it.id) } }
                     "تفاصيل المستند" -> showDocumentDetails(m)
                     "إعداد التحليل الذكي" -> confirmCloudDocumentAnalysis(
                         m.id,

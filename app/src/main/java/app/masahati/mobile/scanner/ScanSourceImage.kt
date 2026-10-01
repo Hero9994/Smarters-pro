@@ -44,7 +44,7 @@ object ScanSourceImage {
         val info=info(file,turns);var sample=1
         while(max(info.rawWidth,info.rawHeight)/sample>maxSide) sample*=2
         val bitmap=BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply {
-            inSampleSize=sample;inPreferredConfig=Bitmap.Config.ARGB_8888 }) ?: error("تعذر فتح الصورة")
+            inSampleSize=sample;inPreferredConfig=Bitmap.Config.ARGB_8888;inMutable=true }) ?: error("تعذر فتح الصورة")
         if(info.orientation==1 && turns.mod(4)==0) return bitmap
         val w=if(info.swapped) bitmap.height else bitmap.width;val h=if(info.swapped) bitmap.width else bitmap.height
         var output: Bitmap?=null
@@ -65,9 +65,10 @@ object ScanSourceImage {
         require(quad.valid()) { "زوايا الورقة غير صالحة" };check(OpenCvDocumentRectifier.isAvailable())
         val info=info(file,turns)
         var (outW,outH)=ScanGeometry.outputSize(quad.points,info.width,info.height,maxSide)
-        val scale=min(1.0,sqrt(maxPixels.toDouble()/(outW.toDouble()*outH)))
-        outW=max(32,(outW*scale).roundToInt());outH=max(32,(outH*scale).roundToInt())
         val angle=deskewDegrees.coerceIn(-3.0,3.0)*PI/180
+        val expandedPixels=(outW*abs(cos(angle))+outH*abs(sin(angle)))*(outH*abs(cos(angle))+outW*abs(sin(angle)))
+        val scale=min(1.0,sqrt(maxPixels.toDouble()/expandedPixels))
+        outW=max(32,(outW*scale).roundToInt());outH=max(32,(outH*scale).roundToInt())
         val pageW=outW;val pageH=outH
         outW=ceil(pageW*abs(cos(angle))+pageH*abs(sin(angle))).toInt()
         outH=ceil(pageH*abs(cos(angle))+pageW*abs(sin(angle))).toInt()
@@ -84,6 +85,11 @@ object ScanSourceImage {
             val inv=DoubleArray(9);inverse.get(0,0,inv);val coefficients=DoubleArray(9);homography.get(0,0,coefficients)
             decoder=BitmapRegionDecoder.newInstance(file.absolutePath,false) ?: error("تعذر فتح مناطق الصورة")
             result=createBitmap(outW,outH);val canvas=Canvas(result);canvas.drawColor(Color.WHITE)
+            if(abs(angle)>1e-8) {
+                val clipping=Path();to.toArray().forEachIndexed { i,p ->
+                    if(i==0) clipping.moveTo(p.x.toFloat(),p.y.toFloat()) else clipping.lineTo(p.x.toFloat(),p.y.toFloat()) }
+                clipping.close();canvas.clipPath(clipping)
+            }
             fun source(x: Double,y: Double): ScanPoint {
                 val d=inv[6]*x+inv[7]*y+inv[8];require(abs(d)>1e-9)
                 return ScanPoint((inv[0]*x+inv[1]*y+inv[2])/d,(inv[3]*x+inv[4]*y+inv[5])/d)

@@ -27,6 +27,7 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
     val directory=File(root(context),id).apply { mkdirs() }
     val pages=mutableListOf<ScanPage>()
     var documentName: String?=null
+    val documentNames=linkedSetOf<String>()
     val visiblePages: List<ScanPage> get()=pages.filterNot { it.deleted }
     init { require(validId(id)) }
     fun file(name: String): File {
@@ -34,8 +35,8 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
         return File(directory,name)
     }
     fun source(p: ScanPage)=file(p.source)
-    fun processed(p: ScanPage)=file("${p.id}-processed.jpg")
-    fun rectified(p: ScanPage)=file("${p.id}-rectified.jpg")
+    fun processed(p: ScanPage)=file("${p.id}-processed.png")
+    fun rectified(p: ScanPage)=file("${p.id}-rectified.png")
     fun import(uri: Uri): ScanPage = context.contentResolver.openInputStream(uri)?.use { import(it) } ?: error("تعذر فتح الصورة")
     fun import(input: InputStream): ScanPage {
         require(visiblePages.size<20) { "الحد الأقصى 20 صفحة" }
@@ -52,12 +53,14 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
     fun saveBitmap(bitmap: Bitmap,target: File) {
         require(target.parentFile?.canonicalFile==directory.canonicalFile)
         val temporary=file("${target.name}.partial")
-        try { temporary.outputStream().buffered().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG,97,it)) }
+        bitmap.setHasAlpha(false)
+        try { temporary.outputStream().buffered().use { check(bitmap.compress(Bitmap.CompressFormat.PNG,100,it)) }
             check(temporary.renameTo(target)) { "تعذر حفظ الصفحة" } } finally { temporary.delete() }
     }
-    fun bindDocument(document: File) { documentName=document.name;save() }
+    fun bindDocument(document: File) { documentName=document.name;documentNames.add(document.name);save() }
     @Synchronized fun save() {
         val value=JSONObject().put("format","masahati-scanner-v1").put("id",id).put("document_name",documentName)
+            .put("document_names",JSONArray(documentNames.toList()))
             .put("updated_at",System.currentTimeMillis()).put("pages",JSONArray().apply {
                 pages.forEach { p -> put(JSONObject().put("id",p.id).put("source",p.source).put("source_sha256",p.sourceHash)
                     .put("turns",p.turns).put("filter",p.filter.name).put("deleted",p.deleted).put("ready",p.ready)
@@ -76,7 +79,10 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
             require(validId(id));val store=ScanSessionStore(context.applicationContext,id)
             val manifest=store.file("session.json");require(manifest.length() in 1..2_000_000)
             val value=JSONObject(manifest.readText());require(value.optString("format")=="masahati-scanner-v1")
+            require(value.getString("id")==id)
             store.documentName=value.optString("document_name").takeUnless { it=="null" || it.isBlank() }
+            value.optJSONArray("document_names")?.let { names -> for(i in 0 until names.length()) store.documentNames.add(names.getString(i)) }
+            store.documentName?.let { store.documentNames.add(it) }
             val entries=value.getJSONArray("pages");require(entries.length()<=100)
             for(i in 0 until entries.length()) {
                 val p=entries.getJSONObject(i);val pageId=p.getString("id");require(validId(pageId))
@@ -84,7 +90,8 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                 val q=p.getJSONArray("quad");require(q.length()==4)
                 val quad=DocumentQuad((0..3).map { q.getJSONArray(it).let { a -> ScanPoint(a.getDouble(0),a.getDouble(1)) } },
                     p.optDouble("confidence",0.0),origin=p.optString("origin","manual"))
-                store.pages.add(ScanPage(pageId,source,p.getString("source_sha256"),if(quad.valid()) quad else DocumentQuad.inset(),
+                val sourceHash=p.getString("source_sha256");require(sourceHash.matches(Regex("[0-9a-f]{64}")))
+                store.pages.add(ScanPage(pageId,source,sourceHash,if(quad.valid()) quad else DocumentQuad.inset(),
                     p.optInt("turns").mod(4),runCatching { ScanFilter.valueOf(p.optString("filter")) }.getOrDefault(ScanFilter.AUTO),
                     p.optBoolean("deleted"),p.optBoolean("ready"),p.optBoolean("review",true),p.optBoolean("dewarp",true),
                     p.optJSONObject("report") ?: JSONObject()))
@@ -93,10 +100,31 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
         }
         fun forDocument(context: Context,document: File): ScanSessionStore? = root(context).listFiles().orEmpty().asSequence()
             .filter { it.isDirectory && validId(it.name) }.mapNotNull { runCatching { open(context,it.name) }.getOrNull() }
-            .firstOrNull { it.documentName==document.name }
+            .firstOrNull { document.name in it.documentNames }
         fun drafts(context: Context): List<ScanSessionStore> = root(context).listFiles().orEmpty()
             .filter { it.isDirectory && validId(it.name) }.mapNotNull { runCatching { open(context,it.name) }.getOrNull() }
             .filter { it.documentName==null && it.visiblePages.isNotEmpty() }.sortedByDescending { it.file("session.json").lastModified() }
+        fun restore(context: Context,backup: File,document: File): ScanSessionStore {
+            val manifest=File(backup,"session.json");require(manifest.length() in 1..2_000_000)
+            val value=JSONObject(manifest.readText());require(value.getString("format")=="masahati-scanner-v1")
+            val store=create(context)
+            try {
+                value.put("id",store.id).put("document_name",document.name).put("document_names",JSONArray().put(document.name))
+                store.file("session.json").writeText(value.toString())
+                val validated=open(context,store.id)
+                for(page in validated.pages) {
+                    val source=File(backup,page.source)
+                    require(source.isFile && source.length()<=128_000_000 && sha256(source)==page.sourceHash)
+                    ScanSourceImage.info(source);source.copyTo(validated.source(page),false)
+                    listOf(validated.rectified(page),validated.processed(page)).forEach { target ->
+                        val old=File(backup,target.name)
+                        if(old.isFile) { require(old.length()<=128_000_000);ScanSourceImage.info(old);old.copyTo(target,false) }
+                    }
+                    page.ready=page.ready && validated.processed(page).isFile
+                }
+                validated.save();return validated
+            } catch(error: Throwable) { store.directory.deleteRecursively();throw error }
+        }
         fun sha256(file: File): String {
             val digest=MessageDigest.getInstance("SHA-256")
             file.inputStream().buffered().use { input -> val buffer=ByteArray(65536)

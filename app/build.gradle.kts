@@ -81,6 +81,15 @@ val prepareScannerModels by tasks.registering {
 }
 tasks.named("preBuild").configure { dependsOn(prepareScannerModels) }
 
+val prepareUvDocModel by tasks.registering(Exec::class) {
+    val output=layout.buildDirectory.file("generated/uvdocAssets/scanner/models/uvdoc-grid.onnx").get().asFile
+    inputs.files(rootProject.file("tools/scanner/prepare_uvdoc.py"),rootProject.file("tools/scanner/export_uvdoc.py"))
+    outputs.file(output)
+    commandLine("python3",rootProject.file("tools/scanner/prepare_uvdoc.py"),"--output",output,
+        "--cache",layout.buildDirectory.dir("uvdoc-converter").get().asFile)
+}
+tasks.named("preBuild").configure { dependsOn(prepareUvDocModel) }
+
 android {
     namespace = "app.masahati.mobile"
     compileSdk = 36
@@ -89,13 +98,15 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "alpha-0.3"
+        versionCode = 11
+        versionName = "alpha-0.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     sourceSets.getByName("main").assets.directories.add(ocrAssets.get().asFile.absolutePath)
     sourceSets.getByName("main").assets.directories.add(scannerAssets.get().asFile.absolutePath)
+    sourceSets.getByName("main").assets.directories.add(layout.buildDirectory.dir("generated/uvdocAssets").get().asFile.absolutePath)
+    sourceSets.getByName("androidTest").assets.directories.add(layout.buildDirectory.dir("generated/scannerBenchmarkAssets").get().asFile.absolutePath)
 
     buildTypes {
         debug {

@@ -20,9 +20,22 @@ MakeACopy explicitly grants Apache-2.0 for its independently exported inference 
 
 | Candidate | Source commit | Review status |
 | --- | --- | --- |
-| UVDoc | `4c9b82b537057aff2526e6dd118a847cdd072e82` | Root MIT; check checkpoint coverage, conversion, training lineage and Android grid remapping before inclusion. |
+| UVDoc | `4c9b82b537057aff2526e6dd118a847cdd072e82` | Included conditionally as geometry-only ONNX. Source/checkpoint/export hashes and numerical parity checked; Android effectiveness still under test. |
 | FSENet / DocShadow-SD7K | `b9395ed333c916051d7ae58be212ac62119b61f5` | Archived MIT code. External release weights lack an explicit separate grant in the release description; do not infer permission from the conversion repository. |
 | DocShadow ONNX conversion | `ec926bf36b4ac0778f836a2d34e27021447df27c` | MIT conversion code; no independent upstream weight grant. Published performance is NVIDIA-specific. |
 | GCDRNet | `415c97a9a64d0a796dbbad43485ce2ab102f2a7d` | MIT. Author response in [issue 8](https://github.com/ZZZHANG-jx/GCDRNet/issues/8) addresses redistribution of converted pretrained weights. Benchmark/content preservation still required. |
 
 Non-Commercial, Research-Only and unknown-license inference assets must not be distributed. License review and quality acceptance are independent gates.
+
+
+## UVDoc integration
+Source https://github.com/tanguymagne/UVDoc, commit 4c9b82b537057aff2526e6dd118a847cdd072e82.
+Root MIT license covers the checkpoint tracked within the same repository (no separate restrictive override found).
+Copyright Tanguy Magne 2023; full original MIT text packaged in scanner/licenses/UVDoc-MIT.txt.
+Only the 2D sampling grid branch is converted; no texture reconstruction or generative image model is used.
+Input [1,3,712,488], output [1,2,45,31], opset 17, align_corners=true.
+Checkpoint SHA256 7e90861b8a516eb4bc51f84bd889cb77275743d2d1d3ca8091951ec9f2b7da23.
+Geometry ONNX SHA256 7376bae030f4c5bd75c456fac44cd99e1d36d8b2fdf0d10f7cb4a626a2417cb4.
+ONNX 31,602,475 bytes. Build recipe verifies source/checkpoint/export hashes and numerical grid parity.
+Android activation is conditional on curvature, available memory, a valid positive-Jacobian grid,
+OCR/QR preservation and a measurable reduction in curvature. Adoption is not a claim of acceptance.
