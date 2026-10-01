@@ -18,7 +18,7 @@ enum class ScanFilter(val title: String) {
 data class ScanPage(val id: String,val source: String,val sourceHash: String,
     var quad: DocumentQuad=DocumentQuad.inset(),var turns: Int=0,var filter: ScanFilter=ScanFilter.AUTO,
     var deleted: Boolean=false,var ready: Boolean=false,var review: Boolean=true,
-    var dewarp: Boolean=true,var report: JSONObject=JSONObject())
+    var dewarp: Boolean=true,var report: JSONObject=JSONObject(),var paperRatio: Double?=null)
 
 /** Originals are immutable, durable files. A separate recipe survives process death.
  * Deleted/reordered pages keep their raw sources. All paths are internal and validated.
@@ -64,7 +64,7 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
             .put("updated_at",System.currentTimeMillis()).put("pages",JSONArray().apply {
                 pages.forEach { p -> put(JSONObject().put("id",p.id).put("source",p.source).put("source_sha256",p.sourceHash)
                     .put("turns",p.turns).put("filter",p.filter.name).put("deleted",p.deleted).put("ready",p.ready)
-                    .put("review",p.review).put("dewarp",p.dewarp).put("report",p.report)
+                    .put("review",p.review).put("dewarp",p.dewarp).put("report",p.report).put("paper_ratio",p.paperRatio)
                     .put("quad",JSONArray().apply { p.quad.points.forEach { put(JSONArray().put(it.x).put(it.y)) } })
                     .put("confidence",p.quad.confidence).put("origin",p.quad.origin)) } })
         val atomic=AtomicFile(file("session.json"));val stream=atomic.startWrite()
@@ -94,7 +94,7 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                 store.pages.add(ScanPage(pageId,source,sourceHash,if(quad.valid()) quad else DocumentQuad.inset(),
                     p.optInt("turns").mod(4),runCatching { ScanFilter.valueOf(p.optString("filter")) }.getOrDefault(ScanFilter.AUTO),
                     p.optBoolean("deleted"),p.optBoolean("ready"),p.optBoolean("review",true),p.optBoolean("dewarp",true),
-                    p.optJSONObject("report") ?: JSONObject()))
+                    p.optJSONObject("report") ?: JSONObject(),p.optDouble("paper_ratio",Double.NaN).takeIf { it.isFinite() && it in .03..35.0 }))
             }
             return store
         }

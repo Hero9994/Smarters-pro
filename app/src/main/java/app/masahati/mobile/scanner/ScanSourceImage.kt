@@ -61,10 +61,17 @@ object ScanSourceImage {
      * Homography is applied directly to original JPEG pixels, including all EXIF orientations.
      */
     @Suppress("DEPRECATION")
-    fun perspective(file: File,quad: DocumentQuad,turns: Int=0,maxSide: Int=4200,maxPixels: Int=memoryPixelBudget(),deskewDegrees: Double=0.0): Bitmap {
+    fun perspective(file: File,quad: DocumentQuad,turns: Int=0,maxSide: Int=4200,maxPixels: Int=memoryPixelBudget(),deskewDegrees: Double=0.0,paperRatio: Double?=null): Bitmap {
         require(quad.valid()) { "زوايا الورقة غير صالحة" };check(OpenCvDocumentRectifier.isAvailable())
         val info=info(file,turns)
         var (outW,outH)=ScanGeometry.outputSize(quad.points,info.width,info.height,maxSide)
+        if(paperRatio!=null) {
+            require(paperRatio.isFinite() && paperRatio in .03..35.0)
+            val area=outW.toDouble()*outH
+            outW=max(32,sqrt(area*paperRatio).roundToInt());outH=max(32,sqrt(area/paperRatio).roundToInt())
+            val limit=min(1.0,maxSide.toDouble()/max(outW,outH))
+            outW=max(32,(outW*limit).roundToInt());outH=max(32,(outH*limit).roundToInt())
+        }
         val angle=deskewDegrees.coerceIn(-3.0,3.0)*PI/180
         val expandedPixels=(outW*abs(cos(angle))+outH*abs(sin(angle)))*(outH*abs(cos(angle))+outW*abs(sin(angle)))
         val scale=min(1.0,sqrt(maxPixels.toDouble()/expandedPixels))

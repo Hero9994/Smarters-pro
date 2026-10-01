@@ -38,7 +38,7 @@ class ScannerEngine(context: Context): AutoCloseable {
     private fun processLocked(store: ScanSessionStore,page: ScanPage,onStage: (String)->Unit): ScanProcessedPage {
         store.verifySource(page);require(page.quad.valid())
         val started=System.nanoTime();val warnings=mutableListOf<String>()
-        val key=page.sourceHash+page.turns+page.quad.points.toString()+page.dewarp
+        val key=page.sourceHash+page.turns+page.quad.points.toString()+page.dewarp+page.paperRatio
         val report=JSONObject(page.report.toString())
         onStage("التأكد من حدود المحتوى في الصورة الأصلية")
         val rawPreview=ScanSourceImage.preview(store.source(page),page.turns,2200)
@@ -47,11 +47,11 @@ class ScannerEngine(context: Context): AutoCloseable {
         try {
             onStage("تصحيح شكل الورقة")
             val warpStart=System.nanoTime()
-            val analysis=ScanSourceImage.perspective(store.source(page),page.quad,page.turns,1100,1_300_000)
+            val analysis=ScanSourceImage.perspective(store.source(page),page.quad,page.turns,1100,1_300_000,paperRatio=page.paperRatio)
             val geometry=try { ScanPageGeometry.analyze(analysis) } finally { analysis.recycle() }
-            base=ScanSourceImage.perspective(store.source(page),page.quad,page.turns,deskewDegrees=geometry.deskewDegrees)
+            base=ScanSourceImage.perspective(store.source(page),page.quad,page.turns,deskewDegrees=geometry.deskewDegrees,paperRatio=page.paperRatio)
             report.put("perspective_ms",elapsed(warpStart)).put("deskew_degrees",geometry.deskewDegrees)
-                .put("curved",geometry.curved).put("curve_confidence",geometry.curveConfidence)
+                .put("curved",geometry.curved).put("curve_confidence",geometry.curveConfidence).put("paper_ratio",page.paperRatio)
                 .put("curved_lines",geometry.curvedLines).put("dewarp_applied",false)
             onStage("فحص النص والرموز قبل التنظيف")
             val warpedCodes=ScanQualityGuard.barcodes(base)
@@ -114,7 +114,7 @@ class ScannerEngine(context: Context): AutoCloseable {
                 .put("output_width",stableBase.width).put("output_height",stableBase.height).put("total_ms",elapsed(started))
             if(Thread.currentThread().isInterrupted) throw InterruptedException()
             val latest=ScanSessionStore.open(ENGINE_CONTEXT,store.id).pages.first { it.id==page.id }
-            require(latest.quad.points==page.quad.points && latest.turns==page.turns && latest.filter==page.filter && latest.dewarp==page.dewarp) { "تغيرت إعدادات الصفحة؛ أعد تطبيق القص" }
+            require(latest.quad.points==page.quad.points && latest.turns==page.turns && latest.filter==page.filter && latest.dewarp==page.dewarp && latest.paperRatio==page.paperRatio) { "تغيرت إعدادات الصفحة؛ أعد تطبيق القص" }
             store.saveBitmap(stableBase,store.rectified(page));store.saveBitmap(checkNotNull(changed),store.processed(page))
             if(Thread.currentThread().isInterrupted) throw InterruptedException()
             page.report=report;page.ready=true;page.review=false;store.save()

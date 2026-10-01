@@ -33,7 +33,7 @@ import kotlin.math.*
 /** Native scanner screen. Raw captures are durable before detection starts.
  * All pages require crop review; manual zoom corners and the old scanner remain.
  */
-@OptIn(ExperimentalCamera2Interop::class,TransformExperimental::class)
+@OptIn(ExperimentalCamera2Interop::class,TransformExperimental::class,ExperimentalZeroShutterLag::class)
 class ProfessionalScannerActivity: ComponentActivity() {
     private lateinit var store: ScanSessionStore
     private lateinit var root: LinearLayout
@@ -206,7 +206,22 @@ class ProfessionalScannerActivity: ComponentActivity() {
             button("تدوير") { page.turns=(page.turns+1)%4;page.ready=false;task("تدوير وكشف الورقة") { engine.detect(store,page);done { showCorners(page) } } },
             button("الصورة كاملة") { page.quad=DocumentQuad.inset(0.0).copy(confidence=1.0,origin="manual");page.ready=false;editor.quad=page.quad;store.save() })
         row(button("تطبيق القص","scanner-apply-crop") { page.quad=editor.quad;page.review=false;page.ready=false;store.save();process(page) },
-            button("الصفحات") { showPages() },button("إضافة") { showCamera() })
+            button("المقاس") { chooseRatio(page) },button("إضافة") { showCamera() })
+    }
+    private fun chooseRatio(page: ScanPage) {
+        val choices=arrayOf("تلقائي / إيصال / مقاس حر","A4","Letter","بطاقة أفقية","بطاقة عمودية","نسبة مخصصة")
+        android.app.AlertDialog.Builder(this).setTitle("مقاس الورقة").setItems(choices) { _,which ->
+            if(which==5) {
+                val field=EditText(this).apply { hint="العرض ÷ الارتفاع، مثل 0.7071";inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL }
+                android.app.AlertDialog.Builder(this).setTitle("نسبة العرض إلى الارتفاع").setView(field)
+                    .setPositiveButton("تطبيق") { _,_ -> val ratio=field.text.toString().toDoubleOrNull()
+                        if(ratio!=null && ratio in .03..35.0) { page.paperRatio=ratio;page.ready=false;store.save();status.text="تم اختيار المقاس؛ اضغط تطبيق القص" }
+                        else Toast.makeText(this,"أدخل نسبة بين 0.03 و35",Toast.LENGTH_LONG).show() }.setNegativeButton("إلغاء",null).show()
+            } else {
+                page.paperRatio=when(which) { 1->210.0/297;2->8.5/11;3->85.6/53.98;4->53.98/85.6;else->null }
+                page.ready=false;store.save();status.text="تم اختيار المقاس؛ اضغط تطبيق القص"
+            }
+        }.show()
     }
     private fun process(page: ScanPage) {
         cornerView?.bitmap=null;originalPreview?.recycle();originalPreview=null

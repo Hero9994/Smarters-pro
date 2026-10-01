@@ -78,7 +78,7 @@ class ScannerBenchmarkInstrumentedTest {
                 records.put(record);File(folder,"records.json").writeText(records.toString(2));input.delete()
             }
         } finally { detector.close() }
-        fun stats(v: List<Double>)=JSONObject().put("mean",v.average()).put("p95",v.sorted()[floor((v.size-1)*.95).toInt()]).put("max",v.maxOrNull())
+        fun stats(v: List<Double>)=JSONObject().put("count",v.size).apply { if(v.isNotEmpty()) put("mean",v.average()).put("p95",v.sorted()[floor((v.size-1)*.95).toInt()]).put("max",v.maxOrNull()) }
         val summary=JSONObject().put("dataset",manifest.getString("dataset")).put("attribution",manifest.getString("attribution"))
             .put("real_frames",300).put("independent_documents",30).put("sequences",150).put("training_overlap","unknown")
             .put("device",android.os.Build.FINGERPRINT).put("api",android.os.Build.VERSION.SDK_INT)
