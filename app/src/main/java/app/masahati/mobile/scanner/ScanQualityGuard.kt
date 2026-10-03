@@ -2,10 +2,15 @@ package app.masahati.mobile.scanner
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import app.masahati.mobile.OpenCvDocumentRectifier
 import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.multi.GenericMultipleBarcodeReader
 import java.text.Normalizer
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 import kotlin.math.*
 
 data class ScanGuardDecision(val accepted: Boolean,val reasons: List<String>,val lostBarcodes: Set<String>,val numericChanges: Int)
@@ -58,26 +63,50 @@ object ScanQualityGuard {
     fun detailReasons(before: Bitmap,after: Bitmap,mode: ScanFilter): List<String> {
         require(before.width==after.width && before.height==after.height)
         val w=before.width;val h=before.height;val step=max(1,max(w,h)/1400)
-        val a=IntArray(w);val b=IntArray(w);var colored=0;var keptColors=0;var marks=0;var keptMarks=0
+        val b=IntArray(w);var colored=0;var keptColors=0;var marks=0;var keptMarks=0
         fun lum(p: Int)=(Color.red(p)*306+Color.green(p)*601+Color.blue(p)*117)/1024
         fun spread(p: Int)=maxOf(Color.red(p),Color.green(p),Color.blue(p))-minOf(Color.red(p),Color.green(p),Color.blue(p))
-        for(y in step until h-step step step) {
-            before.getPixels(a,0,w,0,y,w,1);after.getPixels(b,0,w,0,y,w,1)
-            for(x in step until w-step step step) {
-                val value=lum(a[x]);val neighbor=max(lum(a[x-step]),lum(a[x+step]))
-                if(neighbor-value>=12 && value<neighbor*.85) {
-                    marks++;val changed=lum(b[x]);val changedNeighbor=max(lum(b[x-step]),lum(b[x+step]))
-                    if(changedNeighbor-changed>=max(6.0,(neighbor-value)*.3)) keptMarks++
-                }
-                if(mode!=ScanFilter.BLACK_WHITE && spread(a[x])>55 && value<220) {
-                    colored++
-                    val r=Color.red(a[x])-Color.green(a[x]);val bb=Color.blue(a[x])-Color.green(a[x])
-                    val rr=Color.red(b[x])-Color.green(b[x]);val bbb=Color.blue(b[x])-Color.green(b[x])
-                    val angle=abs(atan2(bb.toDouble(),r.toDouble())-atan2(bbb.toDouble(),rr.toDouble()))
-                    if(spread(b[x])>=spread(a[x])*.45 && (angle<.5 || angle>2*PI-.5)) keptColors++
-                }
+        check(OpenCvDocumentRectifier.isAvailable())
+        // A one-sided dark-to-bright transition may be a shadow, not a glyph.
+        // Estimate the original local paper with a source-resolution closing:
+        // thin dark strokes are filled in the GUIDE ONLY, whereas a broad
+        // illumination step keeps its level on each side. The actual image and
+        // all color checks stay unchanged. Rectangular closing is separable;
+        // row tiles plus its complete 30-pixel dependency halo bound the RAM.
+        val kernel=Imgproc.getStructuringElement(Imgproc.MORPH_RECT,Size(31.0,31.0))
+        try {
+            for(start in 0 until h step 128) {
+                if(Thread.currentThread().isInterrupted) throw InterruptedException()
+                val top=max(0,start-30);val bottom=min(h,start+128+30);val rows=bottom-top
+                val original=IntArray(w*rows);before.getPixels(original,0,w,0,top,w,rows)
+                val source=Mat(rows,w,CvType.CV_8U);val background=Mat()
+                try {
+                    val luminance=ByteArray(original.size) { lum(original[it]).toByte() }
+                    source.put(0,0,luminance);Imgproc.morphologyEx(source,background,Imgproc.MORPH_CLOSE,kernel)
+                    val guide=ByteArray(original.size);background.get(0,0,guide)
+                    val first=max(step,start).let { ((it+step-1)/step)*step }
+                    for(y in first until min(h-step,start+128) step step) {
+                        val offset=(y-top)*w;after.getPixels(b,0,w,0,y,w,1)
+                        for(x in step until w-step step step) {
+                            val p=original[offset+x];val value=lum(p)
+                            val neighbor=max(lum(original[offset+x-step]),lum(original[offset+x+step]))
+                            val paper=guide[offset+x].toInt() and 255
+                            if(neighbor-value>=12 && value<neighbor*.85 && paper-value>=12 && value<paper*.85) {
+                                marks++;val changed=lum(b[x]);val changedNeighbor=max(lum(b[x-step]),lum(b[x+step]))
+                                if(changedNeighbor-changed>=max(6.0,(neighbor-value)*.3)) keptMarks++
+                            }
+                            if(mode!=ScanFilter.BLACK_WHITE && spread(p)>55 && value<220) {
+                                colored++
+                                val r=Color.red(p)-Color.green(p);val bb=Color.blue(p)-Color.green(p)
+                                val rr=Color.red(b[x])-Color.green(b[x]);val bbb=Color.blue(b[x])-Color.green(b[x])
+                                val angle=abs(atan2(bb.toDouble(),r.toDouble())-atan2(bbb.toDouble(),rr.toDouble()))
+                                if(spread(b[x])>=spread(p)*.45 && (angle<.5 || angle>2*PI-.5)) keptColors++
+                            }
+                        }
+                    }
+                } finally { source.release();background.release() }
             }
-        }
+        } finally { kernel.release() }
         return buildList {
             if(marks>=50 && keptMarks.toDouble()/marks<.94) add("انخفضت تفاصيل الحروف والعلامات الصغيرة")
             if(colored>=25 && keptColors.toDouble()/colored<.94) add("ضعفت بعض الألوان المهمة")

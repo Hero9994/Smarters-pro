@@ -1,0 +1,9 @@
+{
+  "scope": "Paired desktop diagnosis of actual Android synthetic pixels",
+  "legacy_marks": 16789,
+  "legacy_kept_fraction": 0.8789683721484305,
+  "source_ink_marks": 14757,
+  "ink_kept_fraction": 0.9998644710984618,
+  "illumination_edges_excluded": 2032,
+  "unchanged_acceptance_threshold": 0.94
+}

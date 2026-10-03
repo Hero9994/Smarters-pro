@@ -1,0 +1,13 @@
+Source: bf190afc4fb5f8f8f158ab4ccb36198f2667f534
+CI: https://github.com/Hero9994/Smarters-pro/actions/runs/37125971742
+Both API 26 and API 36: one failure in the shadow detail validator.
+Hard shadow whitespace, OCR numbers, QR and the punctuation dot passed.
+Bold text whitespace and grayscale photo contrast test passed.
+Original/HDR restore and the remaining application tests passed.
+Threshold 94% is unchanged; the guide distinguishes original ink from a broad illumination boundary.
+A new negative control must reject deliberately removed gray text.
+
+API 26: {'tests': '66', 'failures': '1', 'errors': '0', 'skipped': '1'}
+sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk: java.lang.AssertionError: Stamp or signature weakened in AUTO
+API 36: {'tests': '66', 'failures': '1', 'errors': '0', 'skipped': '0'}
+sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk: java.lang.AssertionError: Stamp or signature weakened in AUTO

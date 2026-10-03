@@ -141,11 +141,38 @@ class ProfessionalScannerInstrumentedTest {
                         val after=ocr.read(image,maxLines=40)
                         val guard=ScanGuardPolicy.evaluate(before.lines.map { it.text to it.confidence },after.lines.map { it.text to it.confidence },emptySet(),emptySet())
                         assertTrue("Numbers or punctuation changed in $mode: ${guard.reasons}",guard.accepted)
-                        assertTrue("Stamp or signature weakened in $mode",ScanQualityGuard.detailReasons(source,image,mode).isEmpty())
+                        val details=ScanQualityGuard.detailReasons(source,image,mode)
+                        assertTrue("Stamp or signature weakened in $mode: $details",details.isEmpty())
+                        val red=image.getPixel(930,1050);assertTrue("Stamp hue lost in $mode",Color.red(red)>Color.blue(red)*1.8)
+                        val blue=image.getPixel(285,1225);assertTrue("Signature hue lost in $mode",Color.blue(blue)>Color.red(blue)*1.8)
                     } finally { image.recycle() }
                 }
             }
         } finally { ScannerTestDiagnostics.publish(diagnostics);source.recycle() }
+    }
+    @Test fun qualityGuardIgnoresARealIlluminationStepButRejectsRemovedGrayInk() {
+        val before=Bitmap.createBitmap(700,900,Bitmap.Config.ARGB_8888)
+        val preserved=Bitmap.createBitmap(700,900,Bitmap.Config.ARGB_8888)
+        val removed=Bitmap.createBitmap(700,900,Bitmap.Config.ARGB_8888)
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG)
+        try {
+            val a=Canvas(before);a.drawColor(Color.rgb(202,202,202));paint.color=Color.rgb(105,105,105)
+            a.drawRect(0f,0f,350f,900f,paint)
+            val b=Canvas(preserved);b.drawColor(Color.WHITE)
+            fun ink(canvas: Canvas) {
+                paint.color=Color.rgb(65,65,65);paint.textSize=29f;paint.typeface=Typeface.DEFAULT
+                repeat(8) { row -> canvas.drawText("Gray ink i j 1,234.56;",35f,100f+row*65f,paint) }
+                paint.color=Color.BLACK
+                repeat(60) { dot -> canvas.drawCircle(50f+(dot%10)*23f,650f+(dot/10)*25f,2f,paint) }
+            }
+            ink(a);ink(b)
+            assertTrue("Removing illumination alone failed the ink guard",ScanQualityGuard.detailReasons(before,preserved,ScanFilter.CLEAN_WHITE).isEmpty())
+            // Keep the small black dots: losing the gray words must still fail.
+            val c=Canvas(removed);c.drawBitmap(preserved,0f,0f,null);paint.color=Color.WHITE
+            c.drawRect(20f,50f,345f,610f,paint)
+            assertTrue("Removed gray text passed the ink guard",ScanQualityGuard.detailReasons(before,removed,ScanFilter.CLEAN_WHITE)
+                .contains("انخفضت تفاصيل الحروف والعلامات الصغيرة"))
+        } finally { before.recycle();preserved.recycle();removed.recycle() }
     }
     @Test fun cleanWhiteNeutralizesMildAgedPaperTintAndKeepsColoredStampsAndSmallInk() {
         val source=sheet();val row=IntArray(source.width)
