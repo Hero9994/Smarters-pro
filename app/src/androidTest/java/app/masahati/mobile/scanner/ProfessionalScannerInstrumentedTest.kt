@@ -266,11 +266,25 @@ class ProfessionalScannerInstrumentedTest {
         } finally { source.recycle();store.directory.deleteRecursively() }
     }
     @Test fun sharperRealFrameIsAlignedValidatedAndKeepsTheFirstOriginal() {
-        val sharp=sheet();val source=Bitmap.createBitmap(sharp)
+        // A camera frame includes the whole paper and a surrounding surface.
+        // A quad at the exact raster border legitimately fails registration
+        // when even subpixel movement would put an edge outside the second frame.
+        val paper=sheet();val margin=60
+        val sharp=Bitmap.createBitmap(paper.width+2*margin,paper.height+2*margin,Bitmap.Config.ARGB_8888)
+        Canvas(sharp).apply { drawColor(Color.rgb(40,48,55));drawBitmap(paper,margin.toFloat(),margin.toFloat(),null) }
+        paper.recycle()
+        val source=Bitmap.createBitmap(sharp)
         val input=Mat();val blurred=Mat();val store=ScanSessionStore.create(context)
         try {
             Utils.bitmapToMat(source,input);Imgproc.GaussianBlur(input,blurred,Size(5.0,5.0),1.1);Utils.matToBitmap(blurred,source)
-            val page=import(store,source);val bytes=ByteArrayOutputStream();sharp.compress(Bitmap.CompressFormat.PNG,100,bytes)
+            val page=import(store,source)
+            val left=margin.toDouble()/(source.width-1);val top=margin.toDouble()/(source.height-1)
+            val right=(source.width-margin-1).toDouble()/(source.width-1)
+            val bottom=(source.height-margin-1).toDouble()/(source.height-1)
+            page.quad=DocumentQuad(listOf(ScanPoint(left,top),ScanPoint(right,top),ScanPoint(right,bottom),ScanPoint(left,bottom)),
+                confidence=1.0,origin="manual-camera-fixture")
+            store.save()
+            val bytes=ByteArrayOutputStream();sharp.compress(Bitmap.CompressFormat.PNG,100,bytes)
             store.attachBest(page,ByteArrayInputStream(bytes.toByteArray()))
             ScannerEngine(context).use { engine -> engine.process(store,page).use { result ->
                 assertTrue("Safer sharper capture was not adopted: ${result.report}",result.report.getBoolean("best_frame_applied"))
