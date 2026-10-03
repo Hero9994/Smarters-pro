@@ -70,7 +70,7 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$META"
           test -f "$APK"
-          jq -e '.applicationId == "app.masahati.mobile.v07" and .elements[0].versionCode == 12 and .elements[0].versionName == "alpha-0.5-dev"' "$META"
+          jq -e '.applicationId == "app.masahati.mobile.v07" and .elements[0].versionCode == 13 and .elements[0].versionName == "alpha-0.6-dev"' "$META"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
 
       - name: Prepare separate preview for persistent signing
@@ -79,7 +79,7 @@ jobs:
           set -euo pipefail
           META="app/build/outputs/apk/preview/output-metadata.json"
           APK="app/build/outputs/apk/preview/app-preview-unsigned.apk"
-          jq -e '.applicationId == "app.masahati.mobile.preview" and .elements[0].versionCode == 12 and .elements[0].versionName == "alpha-0.5-preview"' "$META"
+          jq -e '.applicationId == "app.masahati.mobile.preview" and .elements[0].versionCode == 13 and .elements[0].versionName == "alpha-0.6-preview"' "$META"
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$APK"
           if "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK" 2>/dev/null; then
             echo 'Preview artifact must remain unsigned until persistent signing.' >&2
@@ -120,7 +120,7 @@ jobs:
 
   instrumented:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

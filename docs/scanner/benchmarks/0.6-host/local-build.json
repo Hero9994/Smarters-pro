@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-03",
+  "build": "success",
+  "jvm_tests": 117,
+  "failures": 0,
+  "errors": 0,
+  "android_test_kotlin_compilation": "passed",
+  "lint_debug_preview": "passed on phase-capture source; repeated in final CI",
+  "scope": "Isolated local snapshot; full native acceptance and distribution require source-commit CI."
+}

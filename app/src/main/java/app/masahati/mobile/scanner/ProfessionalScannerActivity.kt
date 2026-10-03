@@ -207,8 +207,11 @@ class ProfessionalScannerActivity: ComponentActivity() {
     }
     private fun takePhoto() {
         val photo=capture ?: return;if(occupied || !cameraVisible) return
+        val captureStarted=SystemClock.elapsedRealtime();val frameQuality=lastQuality;val frameStable=lastStable
+        val frameAge=captureStarted-lastQualityAt
+        val zsl=runCatching { camera?.cameraInfo?.isZslSupported==true }.getOrDefault(false)
         val attemptHdr=ScanHdrPolicy.shouldAttempt(hdrSupported,hdrLatency,lastStable,lastQuality,
-            SystemClock.elapsedRealtime()-lastQualityAt)
+            frameAge)
         occupied=true;gate.reset();status.text="جارٍ حفظ الصورة الأصلية"
         val target=File(cacheDir,"scan-capture-"+java.util.UUID.randomUUID()+".jpg")
         photo.takePicture(ImageCapture.OutputFileOptions.Builder(target).build(),ContextCompat.getMainExecutor(this),object: ImageCapture.OnImageSavedCallback {
@@ -216,14 +219,17 @@ class ProfessionalScannerActivity: ComponentActivity() {
             override fun onImageSaved(result: ImageCapture.OutputFileResults) {
                 if(isDestroyed || isFinishing || worker.isShutdown) { target.delete();return }
                 val request=generation
+                val firstMs=SystemClock.elapsedRealtime()-captureStarted
+                val attemptBest=!attemptHdr && ScanFramePolicy.shouldAttempt(zsl,frameStable,frameQuality,frameAge,firstMs)
                 worker.execute {
                     try {
                         val page=target.inputStream().use { store.import(it) };target.delete()
                         page.report.put("capture",JSONObject().put("normal_saved_first",true).put("hdr_requested",attemptHdr)
-                            .put("hdr_supported",hdrSupported).put("hdr_estimated_max_ms",hdrLatency));store.save()
+                            .put("hdr_supported",hdrSupported).put("hdr_estimated_max_ms",hdrLatency)
+                            .put("normal_capture_ms",firstMs).put("best_frame_requested",attemptBest).put("zsl_supported",zsl));store.save()
                         ui {
                             if(request!=generation || isDestroyed) { occupied=false;return@ui }
-                            if(attemptHdr) takeHdr(page,request) else finishCapture(page)
+                            if(attemptHdr) takeHdr(page,request) else if(attemptBest) takeSharper(page,photo,request) else finishCapture(page)
                         }
                     } catch(error: Exception) { target.delete();ui { occupied=false;status.text=error.localizedMessage ?: "تعذر حفظ الصورة" } }
                 }
@@ -233,6 +239,38 @@ class ProfessionalScannerActivity: ComponentActivity() {
     private fun finishCapture(page: ScanPage) {
         occupied=false;stopCamera()
         task("كشف الورقة وتدقيق الحواف") { engine.detect(store,page);done { showCorners(page) } }
+    }
+    private fun takeSharper(page: ScanPage,photo: ImageCapture,request: Int) {
+        val completed=AtomicBoolean(false);val handler=Handler(Looper.getMainLooper())
+        val target=File(cacheDir,"scan-best-"+java.util.UUID.randomUUID()+".jpg")
+        val report=page.report.optJSONObject("capture") ?: JSONObject();val started=SystemClock.elapsedRealtime()
+        fun finish(reason: String?) {
+            if(!completed.compareAndSet(false,true)) return
+            report.put("best_frame_capture_ms",SystemClock.elapsedRealtime()-started).put("best_frame_capture_fallback",reason)
+            page.report.put("capture",report);store.save();target.delete()
+            if(request==generation && !isDestroyed) finishCapture(page) else { stopCamera();occupied=false }
+        }
+        val timeout=Runnable { finish("اللقطة الإضافية بطيئة؛ بقي الأصل") }
+        handler.postDelayed(timeout,1300);status.text="اختيار لقطة أوضح • حافظ على ثبات الهاتف"
+        try {
+            photo.takePicture(ImageCapture.OutputFileOptions.Builder(target).build(),ContextCompat.getMainExecutor(this),object: ImageCapture.OnImageSavedCallback {
+                override fun onError(error: ImageCaptureException) { handler.removeCallbacks(timeout);finish("تعذرت اللقطة الإضافية؛ بقي الأصل") }
+                override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                    handler.removeCallbacks(timeout)
+                    if(!completed.compareAndSet(false,true)) { target.delete();return }
+                    if(request!=generation || isDestroyed || isFinishing || worker.isShutdown) { target.delete();return }
+                    stopCamera()
+                    worker.execute {
+                        try {
+                            target.inputStream().use { store.attachBest(page,it) }
+                            report.put("best_frame_capture_ms",SystemClock.elapsedRealtime()-started).put("best_frame_source_saved",true)
+                        } catch(_: Exception) { report.put("best_frame_capture_fallback","تعذر حفظ اللقطة الإضافية؛ بقي الأصل") }
+                        finally { target.delete();page.report.put("capture",report);store.save()
+                            ui { if(request==generation) finishCapture(page) else occupied=false } }
+                    }
+                }
+            })
+        } catch(_: Exception) { handler.removeCallbacks(timeout);finish("اللقطة الإضافية غير متاحة؛ بقي الأصل") }
     }
     private fun takeHdr(page: ScanPage,request: Int) {
         val manager=extensions;val p=provider;val view=preview

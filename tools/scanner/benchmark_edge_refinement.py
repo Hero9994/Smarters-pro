@@ -76,10 +76,24 @@ def fit(points, profiles, strengths, widths, reference, midpoint, radius, minimu
 
 
 def refine(image, initial, variant):
+    if variant == 'color_fallback':
+        ordinary = refine(image, initial, 'partial_strong')
+        if ordinary[2] == 4:
+            return ordinary
+        colored = refine(image, initial, 'color_combined')
+        if colored[2] != 4:
+            return ordinary
+        # This is an experimental editor suggestion, always reviewed. Do not
+        # change acceptance thresholds or disguise uncertainty with padding.
+        return (*colored[:-1], True)
     h, w = image.shape[:2]
     gray = cv2.GaussianBlur(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (3, 3), .6)
     gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    if variant == 'color_combined':
+        color = cv2.GaussianBlur(image.astype(np.float32), (3, 3), .6)
+        cx = cv2.Sobel(color, cv2.CV_32F, 1, 0, ksize=3)
+        cy = cv2.Sobel(color, cv2.CV_32F, 0, 1, ksize=3)
     radius = float(np.clip(min(w, h) * .027, 20, 180))
     r = round(radius)
     lines, residuals, supports, ridge_widths = [], [], [], []
@@ -96,6 +110,8 @@ def refine(image, initial, variant):
             ok = (coords[:, 0] >= 1) & (coords[:, 0] < w - 1) & (coords[:, 1] >= 1) & (coords[:, 1] < h - 1)
             clipped = np.clip(coords, [0, 0], [w - 1, h - 1])
             response = np.abs(gx[clipped[:, 1], clipped[:, 0]] * n[0] + gy[clipped[:, 1], clipped[:, 0]] * n[1])
+            if variant == 'color_combined':
+                response = np.linalg.norm(cx[clipped[:, 1], clipped[:, 0]] * n[0] + cy[clipped[:, 1], clipped[:, 0]] * n[1], axis=1) / math.sqrt(3)
             response[~ok] = 0
             lum = gray[clipped[:, 1], clipped[:, 0]].astype(float)
             base = r + 32
@@ -106,6 +122,8 @@ def refine(image, initial, variant):
                 if response[k] < (12 if variant == 'weak_guarded' else 24) or not ok[k - 5] or not ok[k + 5]:
                     continue
                 step = abs(lum[k - 5] - lum[k + 5])
+                if variant == 'color_combined':
+                    step = float(np.linalg.norm(color[clipped[k - 5, 1], clipped[k - 5, 0]] - color[clipped[k + 5, 1], clipped[k + 5, 0]]) / math.sqrt(3))
                 if step < (3 if variant == 'weak_guarded' else 4):
                     continue
                 # Persistent two-sided contrast distinguishes a physical material

@@ -145,6 +145,7 @@ object AlphaExporter {
                     session.pages.forEach { page ->
                         session.verifySource(page);names.add(page.source)
                         session.hdr(page)?.let { session.verifyHdr(page);names.add(it.name) }
+                        session.best(page)?.let { session.verifyBest(page);names.add(it.name) }
                         if(session.rectified(page).isFile) names.add(session.rectified(page).name)
                         if(session.processed(page).isFile) names.add(session.processed(page).name)
                     }

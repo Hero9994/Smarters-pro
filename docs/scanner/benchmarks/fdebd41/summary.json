@@ -1,0 +1,67 @@
+{
+  "dataset": "SmartDoc 2015 challenge 1 v2.0.0",
+  "attribution": "Burie, Chazalon, Coustaty, Eskenazi, Luqman, Mehri, Nayef, Ogier, Un and Rusinol; ICDAR 2015 SmartDoc competition",
+  "real_frames": 300,
+  "independent_documents": 30,
+  "sequences": 150,
+  "training_overlap": "unknown",
+  "device": "google\/sdk_gphone64_x86_64\/emu64xa:16\/BE2A.250530.026.F3\/13894323:userdebug\/dev-keys",
+  "api": 36,
+  "detected": 300,
+  "manual_review": 148,
+  "inward_over_2px": 79,
+  "unsafe_auto_crops": 0,
+  "corner_correspondence": "cyclic start aligned to initial polygon; adjacency\/winding unchanged",
+  "legacy_logical_corner_px": {
+    "count": 300,
+    "mean": 120.7190663147593,
+    "p95": 590.5239237563193,
+    "max": 669.0979422553592
+  },
+  "model_confidence": {
+    "count": 300,
+    "mean": 0.9165291963754104,
+    "p95": 0.9652403077853672,
+    "max": 0.9742363180484149
+  },
+  "model_corner_px": {
+    "count": 300,
+    "mean": 7.1363795707951025,
+    "p95": 12.078796780074244,
+    "max": 53.63777833273498
+  },
+  "refined_corner_px": {
+    "count": 300,
+    "mean": 9.465845900698252,
+    "p95": 14.924515554860426,
+    "max": 54.57033151282536
+  },
+  "refined_edge_px": {
+    "count": 300,
+    "mean": 5.974630364664448,
+    "p95": 8.84619536643332,
+    "max": 23.3713605363315
+  },
+  "boundary_corner_px": {
+    "count": 300,
+    "mean": 4.9601043787482375,
+    "p95": 11.78302784460332,
+    "max": 53.63777833273498
+  },
+  "boundary_edge_px": {
+    "count": 300,
+    "mean": 2.6120595650526037,
+    "p95": 6.604286282154672,
+    "max": 22.386031659803034
+  },
+  "crop_padding_scope": "6 original source pixels outward; boundary and final padded crop errors are reported separately",
+  "diagnostic_total_ms": {
+    "count": 300,
+    "mean": 139.04935858333332,
+    "p95": 187.116886,
+    "max": 304.43459
+  },
+  "sampled_heap_and_native_bytes": 103289328,
+  "memory_scope": "phase-boundary samples, not peak PSS",
+  "timing_scope": "detection\/refinement and conditional visual output, excludes full pipeline\/OCR"
+}

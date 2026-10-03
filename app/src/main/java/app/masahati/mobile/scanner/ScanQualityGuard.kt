@@ -20,13 +20,29 @@ object ScanGuardPolicy {
         barcodesBefore: Set<String>,barcodesAfter: Set<String>): ScanGuardDecision {
         val lost=barcodesBefore-barcodesAfter;val reasons=mutableListOf<String>();var changed=0
         if(lost.isNotEmpty()) reasons.add("أصبحت قراءة QR أو Barcode أضعف")
-        val afterNumbers=after.filter { it.second>=.65 }.flatMap { numbers(it.first) }.toSet()
-        val afterText=after.filter { it.second>=.65 }.map { canonical(it.first) }
-        for((text,confidence) in before.filter { it.second>=.88 }) {
-            val missing=numbers(text).count { it !in afterNumbers }
-            if(missing>0) changed+=missing
-            val original=canonical(text)
-            if(original.length>=8 && afterText.none { editDistance(original,it).toDouble()/max(1,original.length)<=.12 })
+        val originals=before.filter { it.second>=.88 }
+        val candidates=after.filter { it.second>=.65 }
+        val originalText=originals.map { canonical(it.first) }
+        val candidateText=candidates.map { canonical(it.first) }
+        val assignments=IntArray(originals.size) { -1 };val used=BooleanArray(candidates.size)
+        // Match complete lines one-to-one, exact matches first. A reference that
+        // survives elsewhere must not hide a changed/removed copy of that number.
+        for(i in originals.indices) {
+            val match=candidates.indices.firstOrNull { !used[it] && candidateText[it]==originalText[i] }
+            if(match!=null) { assignments[i]=match;used[match]=true }
+        }
+        val pairs=originals.indices.filter { assignments[it]<0 }.flatMap { i ->
+            candidates.indices.filter { !used[it] }.map { j ->
+                Triple(i,j,editDistance(originalText[i],candidateText[j]).toDouble()/max(1,originalText[i].length)) }
+        }.sortedBy { it.third }
+        for((i,j,_) in pairs) if(assignments[i]<0 && !used[j]) { assignments[i]=j;used[j]=true }
+        for(i in originals.indices) {
+            val j=assignments[i];val remaining=if(j<0) mutableListOf() else numbers(candidates[j].first).toMutableList()
+            changed+=numbers(originals[i].first).count { !remaining.remove(it) }
+            if(j>=0 && candidates[j].second<originals[i].second*.75)
+                reasons.add("انخفض وضوح قراءة نص كان واضحًا في الأصل")
+            if(originalText[i].length>=8 && (j<0 ||
+                    editDistance(originalText[i],candidateText[j]).toDouble()/originalText[i].length>.12))
                 reasons.add("تغيرت قراءة سطر واضح؛ يلزم تنظيف أخف")
         }
         if(changed>0) reasons.add("ظهرت قراءة مختلفة للأرقام بعد المعالجة")

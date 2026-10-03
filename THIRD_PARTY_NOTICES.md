@@ -1,5 +1,12 @@
 # Scanner third-party notices
 
+Audit rechecked 2026-10-03 against original publisher repository HEADs. Preview
+0.6 adds first-party capture/content-validation code only; no new runtime or
+weights. FSENet is excluded pending an explicit external-weight grant; GCDRNet
+is excluded pending verifiable access to original weights and a preservation/
+performance benchmark. See `docs/scanner/UPGRADE_0.6.md` for exact reviewed commits
+and the rejected RGB edge-refinement experiment.
+
 No training datasets are bundled. Geometry models predict coordinates/grids; no generative text rendering is used. Original images remain immutable.
 
 | Component | Pinned source | Code license | Weight license / attribution |

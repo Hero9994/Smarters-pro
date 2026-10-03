@@ -19,7 +19,7 @@ data class ScanPage(val id: String,val source: String,val sourceHash: String,
     var quad: DocumentQuad=DocumentQuad.inset(),var turns: Int=0,var filter: ScanFilter=ScanFilter.AUTO,
     var deleted: Boolean=false,var ready: Boolean=false,var review: Boolean=true,
     var dewarp: Boolean=true,var report: JSONObject=JSONObject(),var paperRatio: Double?=null,
-    var hdrSource: String?=null,var hdrHash: String?=null)
+    var hdrSource: String?=null,var hdrHash: String?=null,var bestSource: String?=null,var bestHash: String?=null)
 
 /** Originals are immutable, durable files. A separate recipe survives process death.
  * Deleted/reordered pages keep their raw sources. All paths are internal and validated.
@@ -39,18 +39,31 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
     fun processed(p: ScanPage)=file("${p.id}-processed.png")
     fun rectified(p: ScanPage)=file("${p.id}-rectified.png")
     fun hdr(p: ScanPage): File?=p.hdrSource?.let(::file)
+    fun best(p: ScanPage): File?=p.bestSource?.let(::file)
+    fun verifyBest(p: ScanPage) { val source=best(p) ?: error("لا توجد لقطة إضافية")
+        check(sha256(source)==p.bestHash) { "تغيرت اللقطة الإضافية؛ بقيت الصورة الأصلية محفوظة" } }
     fun verifyHdr(p: ScanPage) { val source=hdr(p) ?: error("لا توجد صورة HDR")
         check(sha256(source)==p.hdrHash) { "تغيرت صورة HDR؛ بقيت الصورة الأصلية محفوظة" } }
     fun attachHdr(p: ScanPage,input: InputStream) {
         require(p in pages && p.hdrSource==null)
-        val target=file("${p.id}-capture-hdr.jpg");require(!target.exists())
-        val partial=file("${p.id}-capture-hdr.partial")
+        attachCapture(p,input,"hdr")
+    }
+    fun attachBest(p: ScanPage,input: InputStream) {
+        require(p in pages && p.bestSource==null)
+        attachCapture(p,input,"best")
+    }
+    private fun attachCapture(p: ScanPage,input: InputStream,kind: String) {
+        require(kind=="hdr" || kind=="best")
+        val target=file("${p.id}-capture-$kind.jpg");require(!target.exists())
+        val partial=file("${p.id}-capture-$kind.partial")
         try {
             partial.outputStream().buffered().use { output -> val buffer=ByteArray(65536);var total=0L
                 while(true) { val n=input.read(buffer);if(n<0) break;total+=n
                     require(total<=128_000_000);output.write(buffer,0,n) } }
             ScanSourceImage.info(partial);val hash=sha256(partial);check(partial.renameTo(target))
-            p.hdrSource=target.name;p.hdrHash=hash;save()
+            if(kind=="hdr") { p.hdrSource=target.name;p.hdrHash=hash }
+            else { p.bestSource=target.name;p.bestHash=hash }
+            save()
         } finally { partial.delete() }
     }
     fun import(uri: Uri): ScanPage = context.contentResolver.openInputStream(uri)?.use { import(it) } ?: error("تعذر فتح الصورة")
@@ -82,6 +95,7 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                     .put("turns",p.turns).put("filter",p.filter.name).put("deleted",p.deleted).put("ready",p.ready)
                     .put("review",p.review).put("dewarp",p.dewarp).put("report",p.report).put("paper_ratio",p.paperRatio)
                     .put("hdr_source",p.hdrSource).put("hdr_sha256",p.hdrHash)
+                    .put("best_source",p.bestSource).put("best_sha256",p.bestHash)
                     .put("quad",JSONArray().apply { p.quad.points.forEach { put(JSONArray().put(it.x).put(it.y)) } })
                     .put("confidence",p.quad.confidence).put("origin",p.quad.origin)) } })
         val atomic=AtomicFile(file("session.json"));val stream=atomic.startWrite()
@@ -112,10 +126,14 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                 val hdrHash=p.optString("hdr_sha256").takeUnless { it.isBlank() || it=="null" }
                 require((hdrSource==null)==(hdrHash==null))
                 require(hdrSource==null || (hdrSource=="$pageId-capture-hdr.jpg" && hdrHash!!.matches(Regex("[0-9a-f]{64}"))))
+                val bestSource=p.optString("best_source").takeUnless { it.isBlank() || it=="null" }
+                val bestHash=p.optString("best_sha256").takeUnless { it.isBlank() || it=="null" }
+                require((bestSource==null)==(bestHash==null))
+                require(bestSource==null || (bestSource=="$pageId-capture-best.jpg" && bestHash!!.matches(Regex("[0-9a-f]{64}"))))
                 store.pages.add(ScanPage(pageId,source,sourceHash,if(quad.valid()) quad else DocumentQuad.inset(),
                     p.optInt("turns").mod(4),runCatching { ScanFilter.valueOf(p.optString("filter")) }.getOrDefault(ScanFilter.AUTO),
                     p.optBoolean("deleted"),p.optBoolean("ready"),p.optBoolean("review",true),p.optBoolean("dewarp",true),
-                    p.optJSONObject("report") ?: JSONObject(),p.optDouble("paper_ratio",Double.NaN).takeIf { it.isFinite() && it in .03..35.0 },hdrSource,hdrHash))
+                    p.optJSONObject("report") ?: JSONObject(),p.optDouble("paper_ratio",Double.NaN).takeIf { it.isFinite() && it in .03..35.0 },hdrSource,hdrHash,bestSource,bestHash))
             }
             return store
         }
@@ -140,6 +158,11 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                     validated.hdr(page)?.let { target ->
                         val original=File(backup,target.name)
                         require(original.isFile && original.length()<=128_000_000 && sha256(original)==page.hdrHash)
+                        ScanSourceImage.info(original);original.copyTo(target,false)
+                    }
+                    validated.best(page)?.let { target ->
+                        val original=File(backup,target.name)
+                        require(original.isFile && original.length()<=128_000_000 && sha256(original)==page.bestHash)
                         ScanSourceImage.info(original);original.copyTo(target,false)
                     }
                     listOf(validated.rectified(page),validated.processed(page)).forEach { target ->

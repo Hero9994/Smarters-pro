@@ -12,6 +12,8 @@ class AlphaImporterSafetyTest {
         assertEquals("README.txt", AlphaImporter.sanitizeEntry("README.txt"))
         val hdr="scans/12/12345678-1234-1234-1234-123456789abc-capture-hdr.jpg"
         assertEquals(hdr,AlphaImporter.sanitizeEntry(hdr))
+        val best="scans/12/12345678-1234-1234-1234-123456789abc-capture-best.jpg"
+        assertEquals(best,AlphaImporter.sanitizeEntry(best))
     }
 
     @Test

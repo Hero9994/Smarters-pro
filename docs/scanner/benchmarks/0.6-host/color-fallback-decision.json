@@ -1,0 +1,97 @@
+{
+  "n": 300,
+  "improved": 8,
+  "regressed": 3,
+  "unchanged": 289,
+  "decision": "Rejected: mean edge/corner error regressed. No production edge code changed. All changed suggestions remained manual.",
+  "changes": [
+    {
+      "file": "background01_datasheet005_frame_0177.jpeg",
+      "before": 0.7389467536933776,
+      "after": 0.8019801866882281,
+      "difference": 0.06303343299485054,
+      "inward_before": -4.2922225051105025,
+      "inward_after": -4.483860935900621
+    },
+    {
+      "file": "background01_letter001_frame_0146.jpeg",
+      "before": 1.7551340110694111,
+      "after": 1.6198481436591323,
+      "difference": -0.13528586741027882,
+      "inward_before": -0.7062203803646634,
+      "inward_after": -3.1329638241825197
+    },
+    {
+      "file": "background01_paper001_frame_0148.jpeg",
+      "before": 1.2235729618841265,
+      "after": 1.005441405457724,
+      "difference": -0.21813155642640236,
+      "inward_before": -2.5692326381293134,
+      "inward_after": -3.5470720299159493
+    },
+    {
+      "file": "background01_patent004_frame_0057.jpeg",
+      "before": 1.962189055558371,
+      "after": 1.4775829096004192,
+      "difference": -0.4846061459579518,
+      "inward_before": 2.2367595212156526,
+      "inward_after": -2.579125323119581
+    },
+    {
+      "file": "background01_patent005_frame_0051.jpeg",
+      "before": 1.4463610530746713,
+      "after": 0.9081524122563491,
+      "difference": -0.5382086408183222,
+      "inward_before": -1.0033900744931774,
+      "inward_after": -1.5215875317777383
+    },
+    {
+      "file": "background01_tax001_frame_0052.jpeg",
+      "before": 1.3282870997380316,
+      "after": 1.0743467764292332,
+      "difference": -0.25394032330879845,
+      "inward_before": -3.767376199321089,
+      "inward_after": -3.933790999461131
+    },
+    {
+      "file": "background01_tax002_frame_0053.jpeg",
+      "before": 1.6701857779193987,
+      "after": 1.4488057298248664,
+      "difference": -0.22138004809453227,
+      "inward_before": 0.9139648010599036,
+      "inward_after": -0.505271058845605
+    },
+    {
+      "file": "background02_patent005_frame_0053.jpeg",
+      "before": 1.6562460709741824,
+      "after": 1.1716370432481784,
+      "difference": -0.484609027726004,
+      "inward_before": 4.386924061550696,
+      "inward_after": -3.324263517225159
+    },
+    {
+      "file": "background04_datasheet002_frame_0043.jpeg",
+      "before": 4.248924797517587,
+      "after": 6.433315201299694,
+      "difference": 2.184390403782107,
+      "inward_before": 5.249179064719763,
+      "inward_after": 13.322363505693028
+    },
+    {
+      "file": "background04_magazine003_frame_0126.jpeg",
+      "before": 3.0976807172102685,
+      "after": 5.984228673679413,
+      "difference": 2.886547956469144,
+      "inward_before": 0.6371824994807459,
+      "inward_after": 12.945697052699586
+    },
+    {
+      "file": "background04_magazine004_frame_0035.jpeg",
+      "before": 5.869126260749306,
+      "after": 5.209494321531321,
+      "difference": -0.6596319392179852,
+      "inward_before": 9.09871725636365,
+      "inward_after": 12.331742840057084
+    }
+  ]
+}

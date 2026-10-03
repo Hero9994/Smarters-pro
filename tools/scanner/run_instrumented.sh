@@ -20,13 +20,18 @@ root = pathlib.Path(sys.argv[1])
 try:
     summary = json.loads((root / 'summary.json').read_text())
     records = json.loads((root / 'records.json').read_text())
+    processing = json.loads((root / 'processing-summary.json').read_text())
+    processing_records = json.loads((root / 'processing-records.json').read_text())
 except (OSError, ValueError) as error:
     raise SystemExit('Real-frame benchmark did not produce valid diagnostics: ' + str(error))
 print('SCANNER_BENCHMARK_SUMMARY=' + json.dumps(summary, ensure_ascii=False, sort_keys=True))
+print('SCANNER_PROCESSING_SUMMARY=' + json.dumps(processing, ensure_ascii=False, sort_keys=True))
 worst = sorted(records, key=lambda r: r.get('max_inward_px', float('inf')), reverse=True)[:20]
 print('SCANNER_BENCHMARK_WORST_INWARD=' + json.dumps(worst, ensure_ascii=False, sort_keys=True))
 if summary.get('real_frames') != 300 or len(records) != 300:
     raise SystemExit('The required 300 real-frame benchmark was incomplete')
+if processing.get('real_frames') != 300 or len(processing_records) != 300:
+    raise SystemExit('The required 300 real-paper processing benchmark was incomplete')
 PY
 fi
 adb shell run-as app.masahati.mobile.v07 cat files-preserved-marker

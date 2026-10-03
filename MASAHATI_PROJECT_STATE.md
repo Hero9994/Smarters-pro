@@ -1,3 +1,26 @@
+# Current scanner work — 2026-10-03, preview 0.6 candidate
+
+Source work is on `alpha/scanner-professional-2026-10-01`. Version code 13;
+preview package `app.masahati.mobile.preview`. Latest published APK is still
+[0.5](https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.5/Masahati-Preview-0.5.apk)
+until the complete 0.6 CI gates and persistent-key signing/public-download check pass.
+
+0.6 adds one-to-one number/OCR protection, four-corner Jacobian and source-ink
+coverage validation for UVDoc, adaptive real-JPEG best-frame capture with
+registration/content guard, immutable second capture with backup restoration,
+Code 128/curved-page/content-loss negative tests, and 300-frame native paper
+processing diagnostics. Local build/native-test compilation passed and all
+117 JVM tests passed. API 26/36 full regression is pending. No new weights or
+runtime; FSENet external weight grant remains unresolved, original GCDRNet weights
+remain inaccessible anonymously. The experimental RGB edge fallback was rejected
+by measured regression; existing crop engine remains. See `docs/scanner/UPGRADE_0.6.md`.
+
+Recovered verified 0.5 baseline artifacts are in `docs/scanner/benchmarks/fdebd41`.
+Signing certificate remains `134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a`.
+Never replace the key or publish an APK before all CI jobs succeed.
+
+---
+
 # Scanner crop correction — 2026-09-30 (Android preview 0.3)
 
 Signed preview 0.3 is published at

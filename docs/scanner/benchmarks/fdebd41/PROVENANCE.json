@@ -1,0 +1,10 @@
+{
+  "source_commit": "fdebd411bb0287bb6f343f2d3b37af4035a079a1",
+  "workflow_run": 37127777968,
+  "artifacts": {
+    "api36": 11275074242,
+    "api26": 11276205745
+  },
+  "restore_date": "2026-10-03",
+  "scope": "Unmodified native baseline records. Source and input dataset licenses audited. No personal documents."
+}

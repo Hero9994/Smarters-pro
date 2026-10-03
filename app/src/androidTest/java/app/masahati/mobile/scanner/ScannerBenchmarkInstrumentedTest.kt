@@ -18,6 +18,67 @@ import kotlin.math.*
  */
 @RunWith(AndroidJUnit4::class)
 class ScannerBenchmarkInstrumentedTest {
+    @Test fun diagnostic300RealPaperProcessing() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("scannerBenchmark")=="true")
+        val ins=InstrumentationRegistry.getInstrumentation();val context=ins.targetContext;val assets=ins.context.assets
+        val manifest=JSONObject(assets.open("benchmark/manifest.json").bufferedReader().use { it.readText() })
+        val samples=manifest.getJSONArray("samples");assertEquals(300,samples.length())
+        val folder=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() };val records=JSONArray()
+        var reduced=0;var originals=0;var checkedLines=0;var codesChecked=0;var totalMs=0L
+        ScanOcr(context).use { ocr -> try {
+            for(i in 0 until samples.length()) {
+                val sample=samples.getJSONObject(i);val input=File(context.cacheDir,"processing-benchmark.jpeg")
+                assets.open("benchmark/"+sample.getString("file")).use { source -> input.outputStream().use { source.copyTo(it) } }
+                val hash=ScanSessionStore.sha256(input);assertEquals(sample.getString("sha256"),hash)
+                val info=ScanSourceImage.info(input)
+                // This ISOLATED filter benchmark uses publisher boundaries only
+                // to obtain the input paper. Detection metrics remain separate;
+                // these labels NEVER select or correct predicted crop corners.
+                val quad=DocumentQuad((0..3).map { k -> sample.getJSONArray("corners").getJSONArray(k).let {
+                    ScanPoint(it.getDouble(0)/(info.width-1),it.getDouble(1)/(info.height-1)) } })
+                require(quad.valid())
+                val base=ScanSourceImage.perspective(input,quad,maxSide=1400,maxPixels=1_400_000)
+                var changed: Bitmap?=null;val started=System.nanoTime()
+                val mode=if(i%2==0) ScanFilter.AUTO else ScanFilter.CLEAN_WHITE
+                val record=JSONObject().put("file",sample.getString("file")).put("requested_filter",mode.name)
+                try {
+                    val codes=ScanQualityGuard.barcodes(base);val before=ocr.read(base,maxLines=12)
+                    checkedLines+=before.lines.size;codesChecked+=codes.size
+                    fun reasons(image: Bitmap): List<String> {
+                        val reading=ocr.read(image,before.lines.map { it.box },12)
+                        return ScanGuardPolicy.evaluate(before.lines.map { it.text to it.confidence },reading.lines.map { it.text to it.confidence },
+                            codes,ScanQualityGuard.barcodes(image)).reasons+ScanQualityGuard.detailReasons(base,image,mode)
+                    }
+                    changed=ScanPaperProcessor.process(base,mode).bitmap
+                    var problems=reasons(changed);record.put("initial_guard_reasons",JSONArray(problems));var strength=1.0
+                    if(problems.isNotEmpty()) {
+                        changed.recycle();changed=null;strength=.35;reduced++
+                        changed=ScanPaperProcessor.process(base,mode,strength).bitmap;problems=reasons(changed)
+                        record.put("reduced_guard_reasons",JSONArray(problems))
+                    }
+                    if(problems.isNotEmpty()) { changed.recycle();changed=base;originals++;record.put("applied_filter","ORIGINAL") }
+                    else record.put("applied_filter",mode.name)
+                    assertTrue(ScanQualityGuard.barcodes(changed).containsAll(codes))
+                    assertTrue(ScanQualityGuard.detailReasons(base,changed,mode).isEmpty())
+                    assertEquals(hash,ScanSessionStore.sha256(input))
+                    val elapsed=(System.nanoTime()-started)/1_000_000;totalMs+=elapsed
+                    record.put("strength",strength).put("ocr_validated_lines",before.lines.size).put("barcode_count",codes.size)
+                        .put("validation_and_processing_ms",elapsed).put("source_sha256",hash)
+                    if(i%60==0 || (originals<=6 && changed===base)) {
+                        for((label,image) in listOf("rectified" to base,"final" to changed))
+                            File(folder,"processing-${i.toString().padStart(3,'0')}-$label.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG,100,it) }
+                    }
+                } finally { if(changed!==base) changed?.recycle();base.recycle();input.delete() }
+                records.put(record);File(folder,"processing-records.json").writeText(records.toString(2))
+            }
+            File(folder,"processing-summary.json").writeText(JSONObject().put("real_frames",300).put("independent_documents",30)
+                .put("reduced_strength",reduced).put("original_fallback",originals).put("ocr_validated_lines",checkedLines)
+                .put("readable_codes_checked",codesChecked).put("mean_validation_and_processing_ms",totalMs/300.0)
+                .put("scope","Isolated AUTO/CLEAN_WHITE processing at <=1.4 MP on publisher crop; first 12 OCR lines per image plus whole-image detail/QR guard. Safe fallback is counted, not hidden.")
+                .put("training_overlap","unknown").toString(2))
+            assertEquals(300,records.length())
+        } finally { ScannerTestDiagnostics.publish(folder) } }
+    }
     @Test fun diagnostic300RealFrames() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("scannerBenchmark")=="true")
         val ins=InstrumentationRegistry.getInstrumentation();val context=ins.targetContext;val assets=ins.context.assets

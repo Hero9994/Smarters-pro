@@ -225,6 +225,38 @@ class ProfessionalScannerInstrumentedTest {
             try { store.verifyHdr(page);fail("Corrupted HDR was trusted") } catch(_: IllegalStateException) { store.verifySource(page) }
         } finally { source.recycle();store.directory.deleteRecursively() }
     }
+    @Test fun bestFrameIsImmutableAndCannotUseAnArbitraryManifestPath() {
+        val source=sheet();val store=ScanSessionStore.create(context);val page=import(store,source)
+        try {
+            val bytes=ByteArrayOutputStream();source.compress(Bitmap.CompressFormat.PNG,100,bytes)
+            store.attachBest(page,ByteArrayInputStream(bytes.toByteArray()))
+            val reopened=ScanSessionStore.open(context,store.id);val saved=reopened.pages.single()
+            reopened.verifyBest(saved);reopened.verifySource(saved);assertEquals(page.sourceHash,saved.sourceHash)
+            try { store.attachBest(page,ByteArrayInputStream(bytes.toByteArray()));fail("Best capture was overwritten") }
+            catch(_: IllegalArgumentException) { store.verifyBest(page) }
+            val json=JSONObject(store.file("session.json").readText())
+            json.getJSONArray("pages").getJSONObject(0).put("best_source","../../other.jpg")
+            store.file("session.json").writeText(json.toString())
+            try { ScanSessionStore.open(context,store.id);fail("Manifest accepted a path outside its session") }
+            catch(_: IllegalArgumentException) { store.verifySource(page) }
+        } finally { source.recycle();store.directory.deleteRecursively() }
+    }
+    @Test fun sharperRealFrameIsAlignedValidatedAndKeepsTheFirstOriginal() {
+        val sharp=sheet();val source=Bitmap.createBitmap(sharp)
+        val input=Mat();val blurred=Mat();val store=ScanSessionStore.create(context)
+        try {
+            Utils.bitmapToMat(source,input);Imgproc.GaussianBlur(input,blurred,Size(5.0,5.0),1.1);Utils.matToBitmap(blurred,source)
+            val page=import(store,source);val bytes=ByteArrayOutputStream();sharp.compress(Bitmap.CompressFormat.PNG,100,bytes)
+            store.attachBest(page,ByteArrayInputStream(bytes.toByteArray()))
+            ScannerEngine(context).use { engine -> engine.process(store,page).use { result ->
+                assertTrue("Safer sharper capture was not adopted: ${result.report}",result.report.getBoolean("best_frame_applied"))
+                assertTrue(result.report.getString("ocr_text").contains("73071446"))
+                assertTrue(ScanQualityGuard.barcodes(result.after).contains("masahati-preserve-73071446"))
+                assertTrue(result.before!==result.after)
+            } }
+            store.verifySource(page);store.verifyBest(page)
+        } finally { input.release();blurred.release();source.recycle();sharp.recycle();store.directory.deleteRecursively() }
+    }
     @Test fun ghostingRejectsDoubledOrRemovedTextAndKeepsAnUnchangedImage() {
         val source=sheet();val doubled=Bitmap.createBitmap(source);val removed=Bitmap.createBitmap(source)
         try {
@@ -236,6 +268,69 @@ class ProfessionalScannerInstrumentedTest {
             paint.color=Color.rgb(202,202,197);Canvas(removed).drawRect(40f,115f,1050f,550f,paint)
             assertFalse("Removed original letters were accepted",ScanHdrFusion.ghosting(source,removed).acceptable())
         } finally { source.recycle();doubled.recycle();removed.recycle() }
+    }
+    @Test fun dewarpCoverageProtectsSignaturesOutsideRecognizedText() {
+        val source=Bitmap.createBitmap(900,1300,Bitmap.Config.ARGB_8888)
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLUE;strokeWidth=4f }
+        try {
+            Canvas(source).apply { drawColor(Color.WHITE);drawLine(12f,1240f,280f,1250f,paint) }
+            fun grid(inset: Float)=FloatArray(2790) { i ->
+                val offset=i%1395;val value=if(i<1395) offset%31/30f else offset/31/44f
+                (value*2-1)*(1-inset)
+            }
+            val unchanged=ScanDewarpGuard.coverage(source,grid(0f))
+            assertTrue("Identity grid lost source ink",unchanged.acceptable());assertTrue(unchanged.inkPixels>100)
+            val cropped=ScanDewarpGuard.coverage(source,grid(.16f))
+            assertFalse("Grid removed an edge signature that OCR need not recognize",cropped.acceptable())
+            assertTrue(cropped.damagedComponents>0)
+        } finally { source.recycle() }
+    }
+    @Test fun printedBarcodeSurvivesEveryColorDocumentMode() {
+        val source=sheet()
+        val barcode=com.google.zxing.MultiFormatWriter().encode("73071446",BarcodeFormat.CODE_128,500,140)
+        try {
+            for(y in 0 until barcode.height) for(x in 0 until barcode.width)
+                source.setPixel(50+x,1300+y,if(barcode[x,y]) Color.BLACK else Color.WHITE)
+            assertTrue("Source barcode was unreadable",ScanQualityGuard.barcodes(source).contains("73071446"))
+            for(mode in listOf(ScanFilter.AUTO,ScanFilter.CLEAN_WHITE,ScanFilter.CLEAR_TEXT,ScanFilter.PHOTO,ScanFilter.BLACK_WHITE)) {
+                val image=ScanPaperProcessor.process(source,mode).bitmap
+                try { assertTrue("Barcode damaged by $mode",ScanQualityGuard.barcodes(image).contains("73071446")) }
+                finally { image.recycle() }
+            }
+        } finally { source.recycle() }
+    }
+    @Test fun curvedPageRunsRealUvDocOrRecordsItsSafeFallback() {
+        val flat=sheet();val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK;textSize=22f }
+        repeat(6) { row -> Canvas(flat).drawText("Official document 73071446; text, signature and stamps.",70f,345f+row*40f,paint) }
+        val source=Bitmap.createBitmap(flat.width,flat.height,Bitmap.Config.ARGB_8888)
+        val input=Mat();val output=Mat();val mx=Mat(flat.height,flat.width,org.opencv.core.CvType.CV_32F);val my=Mat(flat.height,flat.width,org.opencv.core.CvType.CV_32F)
+        val store=ScanSessionStore.create(context);val folder=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+        try {
+            val xs=FloatArray(flat.width*flat.height);val ys=FloatArray(xs.size)
+            for(y in 0 until flat.height) for(x in 0 until flat.width) {
+                val u=x.toDouble()/(flat.width-1)*2-1;val i=y*flat.width+x
+                xs[i]=x.toFloat();ys[i]=(y-48*u*u).toFloat()
+            }
+            Utils.bitmapToMat(flat,input);mx.put(0,0,xs);my.put(0,0,ys)
+            Imgproc.remap(input,output,mx,my,Imgproc.INTER_CUBIC,org.opencv.core.Core.BORDER_CONSTANT,org.opencv.core.Scalar(255.0,255.0,255.0,255.0))
+            Utils.matToBitmap(output,source)
+            val geometry=ScanPageGeometry.analyze(source)
+            assertTrue("Curved text rows were not detected: $geometry",geometry.curved && geometry.curveConfidence>=.6)
+            val page=import(store,source)
+            ScannerEngine(context).use { engine -> engine.process(store,page).use { result ->
+                assertTrue(result.report.getBoolean("curved"))
+                assertTrue("UVDoc neither ran nor recorded a safe rejection",result.report.getBoolean("dewarp_applied") ||
+                    result.report.has("dewarp_fallback") || result.warnings.any { it.contains("التسطيح") })
+                assertTrue(result.report.getString("ocr_text").contains("73071446"))
+                File(folder,"curved-page-diagnostic.json").writeText(result.report.toString(2))
+                File(folder,"curved-page-original.png").outputStream().use { source.compress(Bitmap.CompressFormat.PNG,100,it) }
+                File(folder,"curved-page-final.png").outputStream().use { result.after.compress(Bitmap.CompressFormat.PNG,100,it) }
+            } }
+            store.verifySource(page)
+        } finally {
+            listOf(input,output,mx,my).forEach { it.release() };source.recycle();flat.recycle();store.directory.deleteRecursively()
+            ScannerTestDiagnostics.publish(folder)
+        }
     }
     @Test fun hdrRegistrationPreservesGeometryAndQrOnTheSameCapturedPixels() {
         val source=sheet();val store=ScanSessionStore.create(context);val page=import(store,source)
@@ -274,6 +369,7 @@ class ProfessionalScannerInstrumentedTest {
         try {
             val capture=ByteArrayOutputStream();source.compress(Bitmap.CompressFormat.JPEG,100,capture)
             store.attachHdr(page,ByteArrayInputStream(capture.toByteArray()))
+            store.attachBest(page,ByteArrayInputStream(capture.toByteArray()))
             store.saveBitmap(source,store.processed(page));page.ready=true;page.review=false;store.save();ScanPdfExporter.export(context,store,pdf)
             ParcelFileDescriptor.open(pdf,ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor -> PdfRenderer(descriptor).use { reader ->
                 assertEquals(1,reader.pageCount);reader.openPage(0).use { p ->
@@ -291,6 +387,7 @@ class ProfessionalScannerInstrumentedTest {
             restored=ScanSessionStore.forDocument(context,importedFile!!);assertNotNull(restored)
             assertEquals(page.sourceHash,restored!!.pages.single().sourceHash);restored!!.verifySource(restored!!.pages.single())
             assertEquals(page.hdrHash,restored!!.pages.single().hdrHash);restored!!.verifyHdr(restored!!.pages.single())
+            assertEquals(page.bestHash,restored!!.pages.single().bestHash);restored!!.verifyBest(restored!!.pages.single())
         } catch(error: Exception) {
             val diagnostic=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
             if(pdf.isFile) pdf.copyTo(File(diagnostic,"pdf-compatibility-api-"+android.os.Build.VERSION.SDK_INT+".pdf"),true)
