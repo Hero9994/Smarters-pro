@@ -295,6 +295,23 @@ class ProfessionalScannerInstrumentedTest {
             store.verifySource(page);store.verifyBest(page)
         } finally { input.release();blurred.release();source.recycle();sharp.recycle();store.directory.deleteRecursively() }
     }
+    @Test fun extraFrameWithAnOffscreenPaperEdgeIsRejectedWithoutClamping() {
+        val source=sheet();val cropped=Bitmap.createBitmap(source.width,source.height,Bitmap.Config.ARGB_8888)
+        val store=ScanSessionStore.create(context)
+        try {
+            Canvas(cropped).apply { drawColor(Color.rgb(202,202,197));drawBitmap(source,-45f,0f,null) }
+            val page=import(store,source);val bytes=ByteArrayOutputStream()
+            cropped.compress(Bitmap.CompressFormat.PNG,100,bytes)
+            store.attachBest(page,ByteArrayInputStream(bytes.toByteArray()))
+            val attempt=runCatching { ScanHdrFusion.align(store.source(page),checkNotNull(store.best(page)),
+                page.quad,page.turns,source,0.0,null) }
+            attempt.getOrNull()?.image?.recycle()
+            assertTrue("A camera frame that lost a paper edge was adopted",attempt.isFailure)
+            assertTrue("The missing edge must be rejected by the frame bounds guard: ${attempt.exceptionOrNull()}",
+                attempt.exceptionOrNull()?.message?.contains("تغير الإطار أو اختفت حافة")==true)
+            store.verifySource(page);store.verifyBest(page)
+        } finally { source.recycle();cropped.recycle();store.directory.deleteRecursively() }
+    }
     @Test fun ghostingRejectsDoubledOrRemovedTextAndKeepsAnUnchangedImage() {
         val source=sheet();val doubled=Bitmap.createBitmap(source);val removed=Bitmap.createBitmap(source)
         try {
