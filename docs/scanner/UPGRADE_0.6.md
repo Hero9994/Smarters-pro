@@ -103,3 +103,20 @@ Source originals and manual correction remain essential in uncertain crop cases.
 Final source CI, per-stage timings, measured RAM, API test counts, processing fallback
 counts, screenshots and signed/public-download APK evidence will be recorded after
 the final regression gates, before distribution.
+
+## Camera comparison regression correction
+The first native CI runs failed the new sharper-capture test, first at an
+offscreen mapped corner (the fixture was flush with the image boundary), and
+then at the exact-tone filter guard: sharpening reduced a defocus halo and was
+mistaken for erased ink/color. The realistic camera fixture includes all paper
+and its surrounding surface; the frame-bounds guard remains strict and has an
+explicit lost-edge negative regression.
+
+Independent sharper captures now use ScanCaptureContentGuard: bounded 1400-side
+local-paper ink masks, connected source components and hue-specific neighborhoods
+with a two-pixel registration tolerance. Disappearing punctuation/signatures are
+negative tests. OCR/QR, exposure/sharpness and symmetric ghosting gates remain
+mandatory. The filter comparison guard is unchanged. This preview check is not
+proof of preservation of every native-resolution pixel.
+Native source under test: 3dfd719f42d78a9aae50a38f95ba230a17384c7f,
+CI 37154157389. Do not sign it until all four required jobs have passed.

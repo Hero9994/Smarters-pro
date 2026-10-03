@@ -1,0 +1,61 @@
+name: Signed scanner preview 0.6
+on:
+  push:
+    branches:
+      - alpha/scanner-professional-2026-10-01
+      - work/scanner-release-0.6
+    paths:
+      - .github/workflows/scanner-release-0.6.yml
+      - scripts/release-scanner-06.py
+permissions:
+  contents: read
+concurrency:
+  group: masahati-preview-release-0.6
+  cancel-in-progress: false
+jobs:
+  validate-release-code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check release and identity exchange code
+        run: |
+          python3 -m py_compile scripts/release-scanner-06.py
+          deno check --config supabase/functions/masahati-preview-signing-06/deno.json supabase/functions/masahati-preview-signing-06/index.ts
+  sign-and-verify-public-download:
+    if: github.ref == 'refs/heads/alpha/scanner-professional-2026-10-01'
+    needs: validate-release-code
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate passed source, sign with existing certificate and verify public download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release-scanner-06.py
+      - name: Save release verification receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: masahati-preview-0.6-delivery
+          path: |
+            release-0.6/*.json
+            release-0.6/*.md
+          retention-days: 14

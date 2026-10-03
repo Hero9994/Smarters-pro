@@ -49,3 +49,16 @@ and verify its SHA-256 plus its conversion receipt; they do not rerun host-depen
 The original conversion recipe remains in tools/scanner/export_uvdoc.py for a future explicit model audit.
 Android activation is conditional on curvature, available memory, a valid positive-Jacobian grid,
 OCR/QR preservation and a measurable reduction in curvature. Adoption is not a claim of acceptance.
+
+## Temporary release tooling (outside the Android APK) — 2026-10-03
+- postgres.js 3.4.7: https://github.com/porsager/postgres/tree/v3.4.7 ;
+  Unlicense, https://github.com/porsager/postgres/blob/v3.4.7/UNLICENSE
+  (license blob efb98088164f5786b17e83ed384971fc3c74f93c).
+  Commercial use is explicitly permitted. This is used only by a temporary
+  GitHub OIDC signing exchange; no Android library/model/runtime was added.
+- OIDC signature validation uses Deno WebCrypto RSASSA-PKCS1-v1_5/SHA-256 with
+  GitHub's pinned issuer/JWKS. Repository, workflow SHA, run, branch, event,
+  audience and expiry are constrained. Neither GitHub/Vault tokens nor signing
+  passwords are committed or logged. The repository policy defaults to disabled.
+- Real SmartDoc evidence retains CC BY 4.0 publisher/author attribution in the
+  release evidence archive. No private user document is published.

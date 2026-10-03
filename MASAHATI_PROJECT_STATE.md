@@ -1,3 +1,29 @@
+# Checkpoint 2026-10-03 — scanner 0.6 under final native regression
+Native candidate: `3dfd719f42d78a9aae50a38f95ba230a17384c7f`, branch
+`alpha/scanner-professional-2026-10-01`, exact-source CI `37154157389`.
+Earlier CI candidates failed the new best-frame fixture/guard and must NOT be released.
+The new capture-only local ink/color guard has positive sharper-frame and negative
+punctuation/signature regressions. Bounds, OCR/QR and filter guards remain strict.
+117 local JVM tests/build/native Kotlin compilation passed before this additional
+capture comparison; the current full native/verify CI is the final gate.
+
+All native edits are pushed. The execution environment disconnected after the
+local builds. GitHub reads remain available; source-only official GitHub API
+writes use the existing backed-up PAT server-side without disclosing it. A
+temporary OIDC signing exchange is prepared at `masahati-preview-signing-06`;
+no identity is authorized until its exact workflow SHA/run and successful native
+CI are pinned. Its repository policy defaults to disabled, expires 23:00 UTC,
+and it must be retired after use. Negative requests without valid signatures
+returned 403; wrong method 405. No application schema/data was modified.
+
+Release helpers, Arabic 16-point report and audit are prepared on isolated
+`work/scanner-release-0.6`. Its workflow only validates code there; signing is
+conditional on the alpha branch and all exact-source gates. Public APK remains
+0.5 until a new release passes signature AND full unauthenticated public download
+verification. Preserve the existing preview package and certificate.
+
+---
+
 # Current scanner work — 2026-10-03, preview 0.6 candidate
 
 Source work is on `alpha/scanner-professional-2026-10-01`. Version code 13;
