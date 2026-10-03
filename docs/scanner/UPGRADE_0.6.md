@@ -42,6 +42,13 @@ ZXing and source-detail guard, reversible files and OEM HDR registration/validat
 - Native regression adds printed Code 128, edge-signature mesh coverage, a real
   UVDoc invocation on mathematically curved captured pixels, adaptive frame adoption,
   capture immutability and unsafe manifest-path rejection.
+- The native-resolution illumination guide now protects faint ink only three
+  LAB lightness levels below its local paper, even without a hard shadow. A
+  194-gray punctuation dot on 202-gray paper previously rounded close to white
+  in the whitening blend. A dedicated color-mode regression requires retained
+  dot contrast and a cleaned background. Closing/Sauvola tile halos include their
+  complete dependencies (8/24 rows). This preserves faint marks conservatively;
+  ambiguous printer specks are not automatically erased.
 - A separate native processing diagnostic covers all 300 real SmartDoc frames with
   AUTO/CLEAN_WHITE, QR/barcodes, local ink/color protection and the first 12 OCR lines.
   It records reduced-strength and original fallbacks. Publisher corners are used

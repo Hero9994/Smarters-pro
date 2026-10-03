@@ -198,6 +198,30 @@ class ProfessionalScannerInstrumentedTest {
             } finally { result.recycle() }
         } finally { source.recycle() }
     }
+    @Test fun faintPunctuationNearPaperColorDoesNotTurnIntoWhite() {
+        val source=sheet();val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(194,194,194) }
+        Canvas(source).drawCircle(550f,550f,2f,paint)
+        val folder=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+        fun saveCrop(image: Bitmap,label: String) {
+            val crop=Bitmap.createBitmap(image,530,530,40,40)
+            try { File(folder,"faint-dot-$label.png").outputStream().use { crop.compress(Bitmap.CompressFormat.PNG,100,it) } }
+            finally { crop.recycle() }
+        }
+        try {
+            saveCrop(source,"original")
+            assertEquals(194,Color.red(source.getPixel(550,550)))
+            for(mode in listOf(ScanFilter.AUTO,ScanFilter.CLEAN_WHITE,ScanFilter.CLEAR_TEXT,ScanFilter.PHOTO)) {
+                val image=ScanPaperProcessor.process(source,mode).bitmap
+                try {
+                    val ink=Color.red(image.getPixel(550,550));val paper=Color.red(image.getPixel(560,550))
+                    assertTrue("Faint dot vanished in $mode: ink=$ink, paper=$paper",paper-ink>=4)
+                    assertTrue("Background did not get cleaned in $mode",paper>=240)
+                    assertTrue(ScanQualityGuard.barcodes(image).contains("masahati-preserve-73071446"))
+                    saveCrop(image,mode.name.lowercase())
+                } finally { image.recycle() }
+            }
+        } finally { source.recycle();ScannerTestDiagnostics.publish(folder) }
+    }
     @Test fun nativePerspectivePreservesQrAndDeskewMarginsStayWhite() {
         val source=sheet();val store=ScanSessionStore.create(context);val page=import(store,source)
         try {

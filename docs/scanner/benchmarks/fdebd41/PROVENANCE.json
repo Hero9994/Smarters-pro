@@ -6,5 +6,9 @@
     "api26": 11276205745
   },
   "restore_date": "2026-10-03",
-  "scope": "Unmodified native baseline records. Source and input dataset licenses audited. No personal documents."
+  "scope": "Unmodified native baseline records. Source and input dataset licenses audited. No personal documents.",
+  "dataset_source": "https://github.com/jchazalon/smartdoc15-ch1-dataset/releases/tag/v2.0.0",
+  "dataset_license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "Burie, Chazalon, Coustaty, Eskenazi, Luqman, Mehri, Nayef, Ogier, Un and Rusinol; ICDAR 2015 SmartDoc competition"
 }

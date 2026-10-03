@@ -1,0 +1,29 @@
+{
+  "method": "Exact OpenCV RGB-to-LAB8 values; analytical old/new whitening at the constant paper level. This is a diagnosis, not a substitute for Android regression.",
+  "paper_rgb": [
+    202,
+    202,
+    197
+  ],
+  "dot_rgb": [
+    194,
+    194,
+    194
+  ],
+  "paper_lab": [
+    207,
+    127,
+    131
+  ],
+  "dot_lab": [
+    200,
+    128,
+    128
+  ],
+  "target_L": 254,
+  "old_center_L": 253.01104654328768,
+  "protected_center_L": 245.41062801932364,
+  "old_center_contrast_L": 0.98895345671232,
+  "protected_center_contrast_L": 8.58937198067636,
+  "Android_acceptance": "actual color-mode output keeps >=4 RGB-red levels of dot contrast and readable QR; native crops saved"
+}

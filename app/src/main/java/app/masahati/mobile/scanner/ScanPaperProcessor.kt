@@ -87,7 +87,10 @@ object ScanPaperProcessor {
         val sharpIllumination=map.indices.any { i -> val v=map[i].toInt() and 255
             (i%mw>0 && abs(v-(map[i-1].toInt() and 255))>=16) ||
                 (i>=mw && abs(v-(map[i-mw].toInt() and 255))>=16) }
-        val guideKernel=if(sharpIllumination) Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(9.0,9.0)) else null
+        // Always retain a native-resolution ink-suppressed guide. Low-contrast
+        // dots can be invisible to the downsampled map and to the 8-level edge
+        // threshold; a three-level local paper difference must not become white.
+        val guideKernel=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(9.0,9.0))
         val contrastLow=if(sharpIllumination) ByteArray(map.size) else null
         val contrastHigh=if(sharpIllumination) ByteArray(map.size) else null
         if(contrastLow!=null && contrastHigh!=null) {
@@ -129,7 +132,8 @@ object ScanPaperProcessor {
         try {
             for(y in 0 until h step 128) {
                 if(Thread.currentThread().isInterrupted) throw InterruptedException()
-                val halo=if(mode==ScanFilter.BLACK_WHITE) 16 else if(sharpIllumination) 8 else 2
+                // Closing needs an 8-row dependency halo; Sauvola adds 15 rows.
+                val halo=if(mode==ScanFilter.BLACK_WHITE) 24 else 8
                 val top=max(0,y-halo);val bottom=min(h,y+128+halo);val rows=bottom-top;val pixels=IntArray(w*rows)
                 source.getPixels(pixels,0,w,0,top,w,rows)
                 val patch=createBitmap(w,rows);patch.setPixels(pixels,0,w,0,0,w,rows)
@@ -137,14 +141,12 @@ object ScanPaperProcessor {
                 try {
                     Utils.bitmapToMat(patch,r);patch.recycle();Imgproc.cvtColor(r,c,Imgproc.COLOR_RGBA2RGB);Imgproc.cvtColor(c,l,Imgproc.COLOR_RGB2Lab)
                     val original=ByteArray(w*rows*3);l.get(0,0,original);val changed=original.copyOf()
-                    val backgroundGuide=if(guideKernel!=null) {
-                        Core.extractChannel(l,guide,0);Imgproc.morphologyEx(guide,guide,Imgproc.MORPH_CLOSE,guideKernel)
-                        ByteArray(w*rows).also { guide.get(0,0,it) }
-                    } else null
+                    Core.extractChannel(l,guide,0);Imgproc.morphologyEx(guide,guide,Imgproc.MORPH_CLOSE,guideKernel)
+                    val backgroundGuide=ByteArray(w*rows).also { guide.get(0,0,it) }
                     fun at(xx: Int,yy: Int)=original[(yy.coerceIn(0,rows-1)*w+xx.coerceIn(0,w-1))*3].toInt() and 255
                     for(yy in 0 until rows) for(x in 0 until w) {
                         val index=(yy*w+x)*3;val v=at(x,yy).toDouble()
-                        val localPaper=backgroundGuide?.let { it[yy*w+x].toInt() and 255 }?.toDouble() ?: v
+                        val localPaper=(backgroundGuide[yy*w+x].toInt() and 255).toDouble()
                         val bg=mapValue(x,top+yy,localPaper).coerceAtLeast(45.0)
                         val a=(original[index+1].toInt() and 255)-128;val b=(original[index+2].toInt() and 255)-128
                         val chroma=hypot(a-paperA,b-paperB)
@@ -154,7 +156,7 @@ object ScanPaperProcessor {
                         val photo=photoMap[min(mh-1,(top+yy)*mh/h)*mw+min(mw-1,x*mw/w)].toInt()!=0
                         val ratio=(v/bg).coerceIn(0.0,1.4)
                         val colored=chroma>17
-                        val protected=range>=8 || ratio<.86 || colored || photo
+                        val protected=range>=8 || localPaper-v>=3 || ratio<.86 || colored || photo
                         val gain=(target/bg).coerceIn(.9,2.8)
                         val inkStrength=if(colored || photo) min(strength,.45) else strength
                         var value=v*(1+(gain-1)*inkStrength)
@@ -189,6 +191,6 @@ object ScanPaperProcessor {
             }
             return PaperProcessing(output,severity,paperPixels.toDouble()/(w.toLong()*h),(System.nanoTime()-started)/1_000_000)
         } catch(error: Throwable) { output.recycle();throw error }
-        finally { guideKernel?.release() }
+        finally { guideKernel.release() }
     }
 }
