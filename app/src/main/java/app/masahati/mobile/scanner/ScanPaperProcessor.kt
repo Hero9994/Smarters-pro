@@ -80,6 +80,18 @@ object ScanPaperProcessor {
             (i%mw>0 && abs(v-(map[i-1].toInt() and 255))>=16) ||
                 (i>=mw && abs(v-(map[i-mw].toInt() and 255))>=16) }
         val guideKernel=if(sharpIllumination) Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(9.0,9.0)) else null
+        val contrastLow=if(sharpIllumination) ByteArray(map.size) else null
+        val contrastHigh=if(sharpIllumination) ByteArray(map.size) else null
+        if(contrastLow!=null && contrastHigh!=null) {
+            for(yy in 0 until mh) for(xx in 0 until mw) {
+                var low=255;var high=0
+                for(nearY in max(0,yy-1)..min(mh-1,yy+1)) for(nearX in max(0,xx-1)..min(mw-1,xx+1)) {
+                    val value=map[nearY*mw+nearX].toInt() and 255
+                    low=min(low,value);high=max(high,value)
+                }
+                contrastLow[yy*mw+xx]=low.toByte();contrastHigh[yy*mw+xx]=high.toByte()
+            }
+        }
         fun mapValue(x: Int,y: Int,guide: Double): Double {
             val fx=(x.toDouble()/max(1,w-1)*(mw-1)).coerceIn(0.0,(mw-1).toDouble())
             val fy=(y.toDouble()/max(1,h-1)*(mh-1)).coerceIn(0.0,(mh-1).toDouble())
@@ -87,11 +99,15 @@ object ScanPaperProcessor {
             val dx=fx-x0;val dy=fy-y0
             fun at(xx: Int,yy: Int)=map[yy*mw+xx].toInt() and 255
             val v00=at(x0,y0);val v10=at(x1,y0);val v01=at(x0,y1);val v11=at(x1,y1)
-            if(max(max(v00,v10),max(v01,v11))-min(min(v00,v10),min(v01,v11))>=16) {
-                var low=255;var high=0
-                for(yy in max(0,y0-1)..min(mh-1,y0+1)) for(xx in max(0,x0-1)..min(mw-1,x0+1)) {
-                    val value=at(xx,yy);low=min(low,value);high=max(high,value)
-                }
+            // A downsampled boundary may contain an intermediate pixel. The
+            // immediate interpolation cell then has little contrast even though
+            // its next neighbour is a genuine illumination step. Look for the
+            // two plateaus in a bounded 3x3 map neighbourhood, not just that cell.
+            // Precompute these bounds at preview resolution to avoid a full-size
+            // neighbourhood scan for every output pixel.
+            val low=contrastLow?.let { it[y0*mw+x0].toInt() and 255 } ?: 255
+            val high=contrastHigh?.let { it[y0*mw+x0].toInt() and 255 } ?: 0
+            if(high-low>=16) {
                 val nearest=if(abs(guide-low)<abs(guide-high)) low.toDouble() else high.toDouble()
                 if(abs(guide-nearest)<=max(8.0,nearest*.06)) return nearest
             }

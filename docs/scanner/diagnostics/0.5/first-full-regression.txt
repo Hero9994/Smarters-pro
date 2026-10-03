@@ -1,0 +1,30 @@
+Source: 0f527aec54740688bc3ce429bd0a4924587bde53
+CI: https://github.com/Hero9994/Smarters-pro/actions/runs/37123445364
+Both API 26 and API 36: sharp shadow boundary and HDR backup restore failed.
+Build/lint/JVM and deterministic backend passed.
+The failure was retained; no test gate was weakened.
+
+Job 111203929895:
+2026-10-03T12:48:13.9969929Z Finished 1 tests on test(AVD) - 16
+2026-10-03T12:49:33.3168307Z app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest > sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk[test(AVD) - 16] FAILED 
+2026-10-03T12:49:33.3170687Z 	java.lang.AssertionError: Shadow halo in AUTO at 439
+2026-10-03T12:49:34.1166774Z app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest > savedPdfRendersAndBackupRestoresImmutableOriginal[test(AVD) - 16] FAILED 
+2026-10-03T12:49:34.1173148Z 	java.lang.IllegalStateException: نسخة احتياطية غير صالحة
+2026-10-03T12:50:27.8228307Z Finished 66 tests on test(AVD) - 16
+2026-10-03T12:50:27.9238483Z java.lang.AssertionError: java.lang.AssertionError: Shadow halo in AUTO at 439
+2026-10-03T12:50:27.9587855Z java.lang.AssertionError: Shadow halo in AUTO at 439
+2026-10-03T12:50:27.9850564Z java.lang.IllegalStateException: java.lang.IllegalStateException: نسخة احتياطية غير صالحة
+2026-10-03T12:50:28.0018741Z java.lang.IllegalStateException: نسخة احتياطية غير صالحة
+
+Job 111203930040:
+2026-10-03T12:46:30.6652297Z Finished 1 tests on test(AVD) - 8.0.0
+2026-10-03T12:48:32.2289432Z app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest > sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk[test(AVD) - 8.0.0] FAILED 
+2026-10-03T12:48:32.2290457Z 	java.lang.AssertionError: Shadow halo in AUTO at 439
+2026-10-03T12:48:33.0297233Z app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest > savedPdfRendersAndBackupRestoresImmutableOriginal[test(AVD) - 8.0.0] FAILED 
+2026-10-03T12:48:33.0513320Z 	java.lang.IllegalStateException: نسخة احتياطية غير صالحة
+2026-10-03T12:48:45.7302101Z Finished 67 tests on test(AVD) - 8.0.0
+2026-10-03T12:48:45.7309044Z java.lang.AssertionError: java.lang.AssertionError: Shadow halo in AUTO at 439
+2026-10-03T12:48:45.7318072Z java.lang.AssertionError: Shadow halo in AUTO at 439
+2026-10-03T12:48:45.7322568Z java.lang.IllegalStateException: java.lang.IllegalStateException: نسخة احتياطية غير صالحة
+2026-10-03T12:48:45.7325361Z java.lang.IllegalStateException: نسخة احتياطية غير صالحة
+

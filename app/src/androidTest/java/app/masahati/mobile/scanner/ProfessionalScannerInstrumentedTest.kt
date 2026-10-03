@@ -87,6 +87,8 @@ class ProfessionalScannerInstrumentedTest {
             }
             source.setPixels(row,0,row.size,0,y,row.size,1)
         }
+        val diagnostics=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+        File(diagnostics,"sharp-shadow-original.png").outputStream().use { source.compress(Bitmap.CompressFormat.PNG,100,it) }
         try {
             ScanOcr(context).use { ocr ->
                 val before=ocr.read(source,maxLines=40)
@@ -95,9 +97,12 @@ class ProfessionalScannerInstrumentedTest {
                     val processed=ScanPaperProcessor.process(source,mode)
                     val image=processed.bitmap
                     try {
+                        File(diagnostics,"sharp-shadow-${mode.name.lowercase()}.png").outputStream().use {
+                            image.compress(Bitmap.CompressFormat.PNG,100,it)
+                        }
                         val floor=if(mode==ScanFilter.CLEAN_WHITE) 250 else 242
                         for(x in listOf(410,420,430,435,439,440,445,450,460))
-                            assertTrue("Shadow halo in $mode at $x",Color.red(image.getPixel(x,800))>=floor)
+                            assertTrue("Shadow halo in $mode at $x: red=${Color.red(image.getPixel(x,800))}, expected >=$floor",Color.red(image.getPixel(x,800))>=floor)
                         assertTrue("Small dot disappeared in $mode",Color.red(image.getPixel(150,600))<70)
                         assertTrue("QR damaged in $mode",ScanQualityGuard.barcodes(image).contains("masahati-preserve-73071446"))
                         val after=ocr.read(image,maxLines=40)
@@ -107,7 +112,7 @@ class ProfessionalScannerInstrumentedTest {
                     } finally { image.recycle() }
                 }
             }
-        } finally { source.recycle() }
+        } finally { ScannerTestDiagnostics.publish(diagnostics);source.recycle() }
     }
     @Test fun cleanWhiteNeutralizesMildAgedPaperTintAndKeepsColoredStampsAndSmallInk() {
         val source=sheet();val row=IntArray(source.width)

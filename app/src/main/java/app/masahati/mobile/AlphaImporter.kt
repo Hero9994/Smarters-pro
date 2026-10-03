@@ -325,7 +325,7 @@ object AlphaImporter {
                 normalized == "data/masahati.json" ||
                 normalized == "data/masahati.md" ||
                 normalized.startsWith("files/") ||
-                normalized.matches(Regex("scans/[1-9][0-9]*/(session\\.json|[0-9a-f-]{36}-(original\\.jpg|processed\\.png|rectified\\.png))")))
+                normalized.matches(Regex("scans/[1-9][0-9]*/(session\\.json|[0-9a-f-]{36}-(original\\.jpg|capture-hdr\\.jpg|processed\\.png|rectified\\.png))")))
         ) return null
         return normalized
     }
