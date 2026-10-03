@@ -1,0 +1,56 @@
+{
+  "release_id": 402414090,
+  "tag": "masahati-preview-0.4",
+  "html_url": "https://github.com/Hero9994/Smarters-pro/releases/tag/masahati-preview-0.4",
+  "published_at": "2026-10-03T08:36:53Z",
+  "release_source_commit": "21209da54be931493cbed96d217eccd7e642f58c",
+  "apk_source_commit": "a146ef5deee1886676d7d784aa68961d93ae6217",
+  "assets": [
+    {
+      "name": "Masahati-Preview-0.4.apk",
+      "id": 607460602,
+      "size": 448031288,
+      "sha256": "f6a1a4cd5073bd81fe67a1a1d8151e61511989763f3a2309dbc6d2496e641ed0",
+      "github_digest": "sha256:f6a1a4cd5073bd81fe67a1a1d8151e61511989763f3a2309dbc6d2496e641ed0",
+      "url": "https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.4/Masahati-Preview-0.4.apk"
+    },
+    {
+      "name": "delivery-0.4.json",
+      "id": 607461085,
+      "size": 415,
+      "sha256": "235f7ce4116bf4228b87bf8def25e87512bfa44297cb6c3bac9e5e910006daba",
+      "github_digest": "sha256:235f7ce4116bf4228b87bf8def25e87512bfa44297cb6c3bac9e5e910006daba",
+      "url": "https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.4/delivery-0.4.json"
+    },
+    {
+      "name": "Scanner-Evidence-2026-10-01.md",
+      "id": 607461238,
+      "size": 19818,
+      "sha256": "bc9341fab237109a51b1583f072f82d414d6c9744133ecf30cccf26b386cd026",
+      "github_digest": "sha256:bc9341fab237109a51b1583f072f82d414d6c9744133ecf30cccf26b386cd026",
+      "url": "https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.4/Scanner-Evidence-2026-10-01.md"
+    },
+    {
+      "name": "Backend-Live-36916316705.json",
+      "id": 607461413,
+      "size": 4719,
+      "sha256": "30b1b7a13e890d747104ac1560fe2962a693f665ae4bf55fa996e1be79945c32",
+      "github_digest": "sha256:30b1b7a13e890d747104ac1560fe2962a693f665ae4bf55fa996e1be79945c32",
+      "url": "https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.4/Backend-Live-36916316705.json"
+    }
+  ],
+  "public_download_verified": true,
+  "download_verification": {
+    "checked_at_utc": "2026-10-03T08:38:52.746240+00:00",
+    "server_date": "Sat, 03 Oct 2026 08:38:43 GMT",
+    "authenticated": false,
+    "http_status": 200,
+    "verified": true,
+    "apk_size_bytes": 448031288,
+    "apk_sha256": "f6a1a4cd5073bd81fe67a1a1d8151e61511989763f3a2309dbc6d2496e641ed0",
+    "signer_sha256": "134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a",
+    "native_libraries_aligned_16kb": 28,
+    "crc_all_entries": true,
+    "receipt_from_checked_in_source": true
+  }
+}

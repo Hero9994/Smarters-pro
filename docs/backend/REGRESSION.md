@@ -69,7 +69,9 @@ on retry. A later successful probe does not erase an earlier failure.
 For commit `c205c6eb1353ba7d6e9885e1111c0886c667b3f6`, the required
 `backend-regression` job in [Android CI 36916316467](https://github.com/Hero9994/Smarters-pro/actions/runs/36916316467)
 passed all 46 unit tests, seven conservative-reading cases and four offline
-fixtures. The independent [live run 36916316705](https://github.com/Hero9994/Smarters-pro/actions/runs/36916316705)
+fixtures. The same Android CI run subsequently completed all four jobs
+successfully: build/lint/JVM verification, deterministic backend regression,
+and instrumentation on APIs 26 and 36. The independent [live run 36916316705](https://github.com/Hero9994/Smarters-pro/actions/runs/36916316705)
 failed with exit 1, preserving all four single-request probe results:
 
 | Probe | Actual facts that differ from the expectation | Outcome |

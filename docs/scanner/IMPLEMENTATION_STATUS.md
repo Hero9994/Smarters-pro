@@ -13,6 +13,14 @@ Read the [detailed Arabic evidence report](SCANNER_EVIDENCE_2026-10-01.md),
 and [signed APK receipt](delivery-0.4.json).
 This checkpoint is a usable preview, **not full scanner acceptance**.
 
+Published on **2026-10-03**: [Preview 0.4 APK](https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.4/Masahati-Preview-0.4.apk).
+The complete 448,031,288-byte file was downloaded from this public HTTPS URL
+without authentication and passed the checked-in receipt's SHA-256, ZIP CRC,
+signing-certificate and 16 KB native-alignment checks. The
+[publication/download receipt](publication-0.4.json) retains GitHub asset IDs,
+server digests and verification time. This verifies distribution integrity,
+not installation on a physical phone or the remaining scanner acceptance work.
+
 Backend CI now separates 46 unit tests, seven conservative-reading cases and
 four offline provider fixtures from a strict semantic live workflow. The first
 diagnosed live run returned wrong/missing contract dates despite HTTP 200 and
