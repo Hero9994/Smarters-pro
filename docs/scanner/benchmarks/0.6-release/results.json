@@ -1,0 +1,262 @@
+{
+  "source": "8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0",
+  "ci_run": 37155633765,
+  "api26": {
+    "tests": 76,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2
+  },
+  "api36": {
+    "tests": 76,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "geometry": {
+    "dataset": "SmartDoc 2015 challenge 1 v2.0.0",
+    "attribution": "Burie, Chazalon, Coustaty, Eskenazi, Luqman, Mehri, Nayef, Ogier, Un and Rusinol; ICDAR 2015 SmartDoc competition",
+    "real_frames": 300,
+    "independent_documents": 30,
+    "sequences": 150,
+    "training_overlap": "unknown",
+    "device": "google/sdk_gphone64_x86_64/emu64xa:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys",
+    "api": 36,
+    "detected": 300,
+    "manual_review": 148,
+    "inward_over_2px": 79,
+    "unsafe_auto_crops": 0,
+    "corner_correspondence": "cyclic start aligned to initial polygon; adjacency/winding unchanged",
+    "legacy_logical_corner_px": {
+      "count": 300,
+      "mean": 120.7190663147593,
+      "p95": 590.5239237563193,
+      "max": 669.0979422553592
+    },
+    "model_confidence": {
+      "count": 300,
+      "mean": 0.9165291963754104,
+      "p95": 0.9652403077853672,
+      "max": 0.9742363180484149
+    },
+    "model_corner_px": {
+      "count": 300,
+      "mean": 7.1363795707951025,
+      "p95": 12.078796780074244,
+      "max": 53.63777833273498
+    },
+    "refined_corner_px": {
+      "count": 300,
+      "mean": 9.465845900698252,
+      "p95": 14.924515554860426,
+      "max": 54.57033151282536
+    },
+    "refined_edge_px": {
+      "count": 300,
+      "mean": 5.974630364664448,
+      "p95": 8.84619536643332,
+      "max": 23.3713605363315
+    },
+    "boundary_corner_px": {
+      "count": 300,
+      "mean": 4.9601043787482375,
+      "p95": 11.78302784460332,
+      "max": 53.63777833273498
+    },
+    "boundary_edge_px": {
+      "count": 300,
+      "mean": 2.6120595650526037,
+      "p95": 6.604286282154672,
+      "max": 22.386031659803034
+    },
+    "crop_padding_scope": "6 original source pixels outward; boundary and final padded crop errors are reported separately",
+    "diagnostic_total_ms": {
+      "count": 300,
+      "mean": 114.23131022333332,
+      "p95": 156.793179,
+      "max": 296.522164
+    },
+    "sampled_heap_and_native_bytes": 98656528,
+    "memory_scope": "phase-boundary samples, not peak PSS",
+    "timing_scope": "detection/refinement and conditional visual output, excludes full pipeline/OCR"
+  },
+  "processing": {
+    "real_frames": 300,
+    "independent_documents": 30,
+    "reduced_strength": 36,
+    "original_fallback": 8,
+    "ocr_validated_lines": 1684,
+    "readable_codes_checked": 9,
+    "mean_validation_and_processing_ms": 912.73,
+    "scope": "Isolated AUTO/CLEAN_WHITE processing at <=1.4 MP on publisher crop; first 12 OCR lines per image plus whole-image detail/QR guard. Safe fallback is counted, not hidden.",
+    "training_overlap": "unknown"
+  },
+  "memory": {
+    "26": {
+      "synthetic": true,
+      "source_pixels": 50000000,
+      "output_width": 3741,
+      "output_height": 1870,
+      "pipeline": {
+        "perspective_ms": 1096,
+        "deskew_degrees": 0,
+        "curved": false,
+        "curve_confidence": 0,
+        "curved_lines": 0,
+        "dewarp_applied": false,
+        "hdr_applied": false,
+        "best_frame_applied": false,
+        "illumination_ms": 1633,
+        "shadow_severity": 0.3153846153846154,
+        "paper_fraction": 0.9713175435662346,
+        "raw_preview_barcodes": [],
+        "guard_ms": 446,
+        "ocr_before_ms": 789,
+        "ocr_after_ms": 153,
+        "ocr_complete": true,
+        "ocr_validated_lines": 3,
+        "ocr_text": "OFFICIAL DOCUMENT 73071446\nReference 16010195K535\nPayment 15.07.2026 24.90 EUR",
+        "barcodes": [],
+        "requested_filter": "AUTO",
+        "applied_filter": "AUTO",
+        "strength": 1,
+        "warnings": [],
+        "output_width": 3741,
+        "output_height": 1870,
+        "total_ms": 4356
+      },
+      "elapsed_ms": 4762.96952,
+      "sampled_peak_pss_bytes": 433695744,
+      "sampled_peak_heap_native_bytes": 366099888,
+      "memory_scope": "25 ms samples on emulator; not a physical-device maximum"
+    },
+    "36": {
+      "synthetic": true,
+      "source_pixels": 50000000,
+      "output_width": 3741,
+      "output_height": 1870,
+      "pipeline": {
+        "perspective_ms": 1849,
+        "deskew_degrees": 0,
+        "curved": false,
+        "curve_confidence": 0,
+        "curved_lines": 0,
+        "dewarp_applied": false,
+        "hdr_applied": false,
+        "best_frame_applied": false,
+        "illumination_ms": 1936,
+        "shadow_severity": 0.3153846153846154,
+        "paper_fraction": 0.9713175435662346,
+        "raw_preview_barcodes": [],
+        "guard_ms": 523,
+        "ocr_before_ms": 854,
+        "ocr_after_ms": 165,
+        "ocr_complete": true,
+        "ocr_validated_lines": 3,
+        "ocr_text": "OFFICIAL DOCUMENT 73071446\nReference 16010195K535\nPayment 15.07.2026 24.90 EUR",
+        "barcodes": [],
+        "requested_filter": "AUTO",
+        "applied_filter": "AUTO",
+        "strength": 1,
+        "warnings": [],
+        "output_width": 3741,
+        "output_height": 1870,
+        "total_ms": 5509
+      },
+      "elapsed_ms": 5988.237523,
+      "sampled_peak_pss_bytes": 391084032,
+      "sampled_peak_heap_native_bytes": 340551792,
+      "memory_scope": "25 ms samples on emulator; not a physical-device maximum"
+    }
+  },
+  "camera": {
+    "source_boundary_regions": 0,
+    "perspective_ms": 728,
+    "deskew_degrees": 0,
+    "curved": false,
+    "curve_confidence": 0,
+    "curved_lines": 0,
+    "dewarp_applied": false,
+    "hdr_applied": false,
+    "best_frame_applied": true,
+    "best_frame_quality_improved": true,
+    "best_frame_sharpness_before": 1280.0673475693989,
+    "best_frame_sharpness_after": 2505.5127882655397,
+    "best_frame_matches": 842,
+    "best_frame_inlier_fraction": 0.9489311163895487,
+    "best_frame_lost_ink_fraction": 0,
+    "best_frame_new_ink_fraction": 0.00010837758751490192,
+    "best_frame_guard_reasons": [],
+    "best_frame_validation_ms": 1442,
+    "illumination_ms": 503,
+    "shadow_severity": 0.19230769230769232,
+    "paper_fraction": 0.934375884737737,
+    "raw_preview_barcodes": [
+      "masahati-preserve-73071446"
+    ],
+    "guard_ms": 460,
+    "ocr_before_ms": 672,
+    "ocr_after_ms": 231,
+    "ocr_complete": true,
+    "ocr_validated_lines": 6,
+    "ocr_text": "OFFICIAL DOCUMENT 73071446\nReference 16010195K535\nPayment 15.07.2026 24.90 EUR\nSmall punctuation: i j 1,234.56;\n.\n6",
+    "barcodes": [
+      "masahati-preserve-73071446"
+    ],
+    "requested_filter": "AUTO",
+    "applied_filter": "AUTO",
+    "strength": 1,
+    "warnings": [],
+    "output_width": 1111,
+    "output_height": 1561,
+    "total_ms": 4867
+  },
+  "curved_page": {
+    "perspective_ms": 797,
+    "deskew_degrees": 0,
+    "curved": true,
+    "curve_confidence": 0.8,
+    "curved_lines": 4,
+    "dewarp_applied": false,
+    "hdr_applied": false,
+    "best_frame_applied": false,
+    "dewarp_fallback": "التسطيح المتقدم قد يفقد حبرًا قرب الحواف؛ أبقينا القص العادي",
+    "illumination_ms": 523,
+    "shadow_severity": 0.19230769230769232,
+    "paper_fraction": 0.9280912103320643,
+    "raw_preview_barcodes": [
+      "masahati-preserve-73071446"
+    ],
+    "guard_ms": 1873,
+    "ocr_before_ms": 945,
+    "ocr_after_ms": 435,
+    "ocr_complete": true,
+    "ocr_validated_lines": 10,
+    "ocr_text": "OFFICIAL DOCUMENT 73071446\nReference 16010195535\nPayment 15..2026.EUR\n.\n.\n.\n.\nt.\n.\n6",
+    "barcodes": [
+      "masahati-preserve-73071446"
+    ],
+    "requested_filter": "AUTO",
+    "applied_filter": "AUTO",
+    "strength": 0.35,
+    "warnings": [
+      "التسطيح المتقدم قد يفقد حبرًا قرب الحواف؛ أبقينا القص العادي",
+      "خففنا التنظيف تلقائيًا لحماية التفاصيل"
+    ],
+    "output_width": 1099,
+    "output_height": 1549,
+    "total_ms": 5195
+  },
+  "signing": {
+    "commit": "8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0",
+    "ci_run": "37155633765",
+    "application_id": "app.masahati.mobile.preview",
+    "version": "alpha-0.6-preview",
+    "signer_sha256": "134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a",
+    "apk_sha256": "81120de55445cbe0f13dcb01ce439391172a4e2b1f33af1136447a2e2ebb64ff",
+    "apk_name": "Masahati-Preview-0.6.apk",
+    "apk_size_bytes": 448064255
+  },
+  "apk_delta_from_05_bytes": 0,
+  "evidence_sha256": "6d83d5ae8847095fa6e1a180ecda34f70c3316fdc2d88e81db2375b402eed51a"
+}

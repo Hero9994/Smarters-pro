@@ -1,0 +1,12 @@
+{
+  "verified": true,
+  "apk_size_bytes": 448064255,
+  "apk_sha256": "81120de55445cbe0f13dcb01ce439391172a4e2b1f33af1136447a2e2ebb64ff",
+  "signer_sha256": "134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a",
+  "native_libraries_aligned_16kb": 28,
+  "commit": "8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0",
+  "ci_run": 37155633765,
+  "public_url": "https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.6/Masahati-Preview-0.6.apk",
+  "http_status": 200,
+  "scope": "Complete public download verified against the local signing receipt"
+}

@@ -1,8 +1,80 @@
+# Current delivery — signed scanner preview 0.6 (2026-10-03)
+
+This section supersedes all older candidate/delivery status below.
+Published APK: https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.6/Masahati-Preview-0.6.apk
+Release: https://github.com/Hero9994/Smarters-pro/releases/tag/masahati-preview-0.6
+Final Arabic report: docs/scanner/DELIVERY_0.6_FINAL_AR.md
+Public visual evidence: https://github.com/Hero9994/Smarters-pro/releases/download/masahati-preview-0.6/scanner-0.6-evidence.zip
+
+Native source: `8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0`; exact-source CI `37155633765`.
+Package `app.masahati.mobile.preview`, versionCode13, `alpha-0.6-preview`.
+Signed APK 448064255 bytes; SHA256 `81120de55445cbe0f13dcb01ce439391172a4e2b1f33af1136447a2e2ebb64ff`.
+Persistent signer unchanged: `134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a`.
+Release workflow37157098979 SUCCESS. Full unauthenticated public APK download
+passed HTTP200, exact size/SHA256, ZIP CRC, persistent v2 signer and 28 native
+libraries' 16KiB alignment. Receipt and structured results are preserved under
+`docs/scanner/benchmarks/0.6-release/`. No new models/runtime or paid setup.
+
+Actual XML counts: API26 76 cases = 74 passed +2 intentional dataset diagnostic
+skips; API36 76 passed. Total150 Android tests passed, 2 intentional skips,
+0 failures/errors. 117 JVM tests passed. Core deterministic backend46 tests,
+7 synthetic document-role cases and 4 recorded response probes passed.
+
+300 real SmartDoc frames /150 sequences /30 independent documents: detection300;
+mean true-boundary error2.61206 sourcepx, P95=6.60429; manual review148;
+inward error>2px79 (all sent to manual review); unsafe auto-crops accepted0
+in this dataset. Six-source-pixel outward padding is deliberate, and padded crop
+error is reported separately. Training overlap unknown. These measurements
+do NOT establish millimeter accuracy or performance on all document types.
+Same300 frames for isolated AUTO/CLEAN_WHITE processing at <=1.4MP:
+1684 OCR lines, 9 readable codes, 36 reduced strength, 8 unfiltered safe fallbacks,
+mean processing/validation912.73ms. First12 OCR lines per image plus whole-image
+ink/color/code guards; not complete-document OCR validation.
+
+The actual second-JPEG registration test adopted the sharper capture (842 matches,
+0.949 inlier fraction, source ink preserved). The actual curved-page UVDoc test
+DETECTED curvature but REJECTED the neural result because source-edge ink might
+be lost. It retained homography output and reduced cleaning. This demonstrates
+safe rejection, NOT successful curved-page flattening; curved-page quality needs
+more real examples. Do not weaken the ink guard to force model adoption.
+50MP fixture passed without OOM; API26 sampled PSS433695744B/pipeline4356ms,
+API36 PSS391084032B/pipeline5509ms. 25ms emulator samples, not physical-phone
+maxima. User-phone camera, HDR/ZSL, latency/RAM and tough real papers remain
+unverified. FSENet excluded: unclear external weight grant. GCDRNet excluded:
+original checkpoint unavailable for evaluation. No unknown/NC/research-only
+weights were introduced.
+
+Temporary release exchange `masahati-preview-signing-06` was RETIRED after
+verified public download: deployment version3, JWT verification enabled,
+credential-free handler returns410. Repository policy remains disabled.
+No database schema or user data was changed. Existing signing/Vault secrets
+must never enter source or logs. Workspace execution is disconnected; use
+the GitHub-backed source and published evidence, not stale scratch files.
+
+## Separate existing cloud-analysis diagnostic
+
+Optional live smoke37157098969 failed one of four probes (Arabic contract).
+HTTP200, semantic Gemini `gemini-3.1-flash-lite`, expected due_date2027-09-15,
+actual due_date empty. Type/reference/expiry/action were correct; no degraded
+reason/issue code/provider transport failure. German contract and both agent
+probes passed. This is a missing extracted field, not evidence of quota/outage.
+The scanner changes did not modify the backend. Core recorded tests stay
+deterministic; do not retry successful HTTP200 solely to hide this mismatch.
+The deployed document function currently reports version12 and includes existing
+fair-use code; preserve those files if repairing the date gate. Its
+document-understanding.ts matches this branch. Do NOT redeploy older index/shared
+files and regress existing quota controls. No backend modification was made in
+this delivery. Full-app 100% accuracy is not established.
+
+---
+
+# Historical 0.6 checkpoints — superseded by the delivery above
+
 # Checkpoint 2026-10-03 — scanner 0.6 native gates passed
 Accepted native source: `8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0`.
 CI `37155633765`: verify, backend-regression, native API26 and API36 ALL SUCCESS.
-API26 finished 78 cases including 2 intentional diagnostic skips; API36 finished
-76 cases. Decode actual counts from XML in release evidence. 300 real frames
+API26 XML contains 76 cases (74 passed, 2 intentional diagnostic skips); API36
+contains 76 passed cases. XML counts are authoritative. 300 real frames
 detected, mean boundary edge error 2.61206 source px, P95 6.60429; 148 manual
 review cases; unsafe automatic crop proposals accepted 0 in this dataset.
 Processing 300 same frames: 1684 OCR lines, 9 codes, 36 weaker processing,
