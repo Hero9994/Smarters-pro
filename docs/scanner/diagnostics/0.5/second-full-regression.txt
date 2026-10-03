@@ -1,0 +1,12 @@
+Source: dde4bc1e444d2cc19c7ce99d617c1b91af82d816
+CI: https://github.com/Hero9994/Smarters-pro/actions/runs/37124786648
+API 36: 65 passed, one failed in the main 66-test suite; isolated PDF control passed.
+HDR restore passed. The shadow assertion was not weakened.
+Retained synthetic original and actual Android result: second-failed-sharp-shadow-*.png
+
+2026-10-03T13:10:50.0406571Z Finished 1 tests on test(AVD) - 16
+2026-10-03T13:11:58.6620124Z app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest > sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk[test(AVD) - 16] FAILED 
+2026-10-03T13:11:58.6621653Z 	java.lang.AssertionError: Shadow halo in AUTO at 439: red=223, expected >=242
+2026-10-03T13:12:43.0571446Z Finished 66 tests on test(AVD) - 16
+2026-10-03T13:12:43.1706425Z java.lang.AssertionError: java.lang.AssertionError: Shadow halo in AUTO at 439: red=223, expected >=242
+2026-10-03T13:12:43.1824945Z java.lang.AssertionError: Shadow halo in AUTO at 439: red=223, expected >=242

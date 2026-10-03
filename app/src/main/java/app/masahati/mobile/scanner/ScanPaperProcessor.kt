@@ -23,7 +23,7 @@ object ScanPaperProcessor {
         val scale=min(1.0,640.0/max(source.width,source.height))
         val thumb=source.scale(max(1,(source.width*scale).roundToInt()),max(1,(source.height*scale).roundToInt()))
         val rgba=Mat();val rgb=Mat();val lab=Mat();val lum=Mat();val background=Mat();val closed=Mat();val kernel=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(29.0,29.0))
-        val texture=Mat();val mean=Mat();val squared=Mat();val variance=Mat();val mids=Mat();val midFraction=Mat()
+        val texture=Mat();val mean=Mat();val squared=Mat();val variance=Mat();val mids=Mat();val midFraction=Mat();val brightFraction=Mat()
         val map: ByteArray;val photoMap: ByteArray;val mw=thumb.width;val mh=thumb.height
         var paperA=0.0;var paperB=0.0
         var severity=0.0
@@ -42,14 +42,22 @@ object ScanPaperProcessor {
             lum.convertTo(texture,CvType.CV_32F);Imgproc.boxFilter(texture,mean,-1,Size(17.0,17.0))
             Core.multiply(texture,texture,squared);Imgproc.boxFilter(squared,squared,-1,Size(17.0,17.0));Core.multiply(mean,mean,variance)
             Core.subtract(squared,variance,variance)
-            // Dense photographic texture is not blank paper. Preserve its tonal relationships.
+            // A bold paragraph also has high variance and many antialiased
+            // midtones. It is not a photograph: there is still abundant local
+            // paper between the strokes. Requiring few paper-like bright pixels
+            // avoids grey islands behind headings without weakening the content
+            // protection applied independently to the original ink pixels.
             val grayBytes=ByteArray(mw*mh);lum.get(0,0,grayBytes)
             val medium=FloatArray(mw*mh) { i -> val v=grayBytes[i].toInt() and 255;val bg=map[i].toInt() and 255
                 if(v>bg*.2 && v<bg*.75) 1f else 0f }
             mids.create(mh,mw,CvType.CV_32F);mids.put(0,0,medium);Imgproc.boxFilter(mids,midFraction,-1,Size(17.0,17.0))
+            val bright=FloatArray(mw*mh) { i -> if((grayBytes[i].toInt() and 255)>(map[i].toInt() and 255)*.86) 1f else 0f }
+            mids.put(0,0,bright);Imgproc.boxFilter(mids,brightFraction,-1,Size(17.0,17.0))
+            Imgproc.threshold(brightFraction,brightFraction,.35,255.0,Imgproc.THRESH_BINARY_INV);brightFraction.convertTo(brightFraction,CvType.CV_8U)
             Imgproc.threshold(midFraction,midFraction,.25,255.0,Imgproc.THRESH_BINARY);midFraction.convertTo(midFraction,CvType.CV_8U)
             Imgproc.threshold(variance,variance,850.0,255.0,Imgproc.THRESH_BINARY);variance.convertTo(variance,CvType.CV_8U)
             Core.bitwise_and(variance,midFraction,variance)
+            Core.bitwise_and(variance,brightFraction,variance)
             Imgproc.dilate(variance,variance,kernel);photoMap=ByteArray(mw*mh);variance.get(0,0,photoMap)
             if(mode==ScanFilter.CLEAN_WHITE) {
                 val colors=ByteArray(mw*mh*3);lab.get(0,0,colors)
@@ -72,7 +80,7 @@ object ScanPaperProcessor {
             }
         } finally {
             if(thumb!==source) thumb.recycle()
-            listOf(rgba,rgb,lab,lum,background,closed,kernel,texture,mean,squared,variance,mids,midFraction).forEach { it.release() }
+            listOf(rgba,rgb,lab,lum,background,closed,kernel,texture,mean,squared,variance,mids,midFraction,brightFraction).forEach { it.release() }
         }
         val w=source.width;val h=source.height;val output=createBitmap(w,h)
         var paperPixels=0L
@@ -85,7 +93,10 @@ object ScanPaperProcessor {
         if(contrastLow!=null && contrastHigh!=null) {
             for(yy in 0 until mh) for(xx in 0 until mw) {
                 var low=255;var high=0
-                for(nearY in max(0,yy-1)..min(mh-1,yy+1)) for(nearX in max(0,xx-1)..min(mw-1,xx+1)) {
+                // The interpolation cell spans (x,y)..(x+1,y+1). Include
+                // one neighbour around ALL four corners, not just its top-left
+                // corner; the real bright plateau may start at x+2 or y+2.
+                for(nearY in max(0,yy-1)..min(mh-1,yy+2)) for(nearX in max(0,xx-1)..min(mw-1,xx+2)) {
                     val value=map[nearY*mw+nearX].toInt() and 255
                     low=min(low,value);high=max(high,value)
                 }
@@ -102,7 +113,8 @@ object ScanPaperProcessor {
             // A downsampled boundary may contain an intermediate pixel. The
             // immediate interpolation cell then has little contrast even though
             // its next neighbour is a genuine illumination step. Look for the
-            // two plateaus in a bounded 3x3 map neighbourhood, not just that cell.
+            // two plateaus around all four interpolation corners, not just its
+            // top-left corner. Their one-pixel neighbourhoods form a 4x4 union.
             // Precompute these bounds at preview resolution to avoid a full-size
             // neighbourhood scan for every output pixel.
             val low=contrastLow?.let { it[y0*mw+x0].toInt() and 255 } ?: 255

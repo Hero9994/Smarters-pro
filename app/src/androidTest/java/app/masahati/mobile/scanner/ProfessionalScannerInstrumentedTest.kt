@@ -57,6 +57,26 @@ class ProfessionalScannerInstrumentedTest {
     }
     @Test fun whitePaperPreservesQrColorAndTinyPunctuation() {
         val source=sheet()
+        val canvas=Canvas(source);val bold=Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color=Color.BLACK;textSize=42f;typeface=Typeface.DEFAULT_BOLD
+        }
+        repeat(5) { line -> canvas.drawText("OFFICIAL TEXT 73071446",80f,850f+line*52f,bold) }
+        // Tonal image without any colored pixels: do not solve text halos by
+        // deleting photo protection or relying only on chroma.
+        for(y in 330 until 590) for(x in 650 until 980) {
+            val value=(128+60*kotlin.math.sin((x-650)*.18)+35*kotlin.math.cos((y-330)*.13)).toInt().coerceIn(0,255)
+            source.setPixel(x,y,Color.rgb(value,value,value))
+        }
+        fun tonalSpread(image: Bitmap): Double {
+            var n=0;var sum=0.0;var squares=0.0
+            for(y in 360 until 560 step 3) for(x in 680 until 950 step 3) {
+                val v=Color.red(image.getPixel(x,y)).toDouble();n++;sum+=v;squares+=v*v
+            }
+            return kotlin.math.sqrt((squares/n-(sum/n)*(sum/n)).coerceAtLeast(0.0))
+        }
+        val photoSpread=tonalSpread(source)
+        val diagnostics=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+        File(diagnostics,"text-and-photo-original.png").outputStream().use { source.compress(Bitmap.CompressFormat.PNG,100,it) }
         try {
             val before=ScanQualityGuard.barcodes(source);assertTrue(before.contains("masahati-preserve-73071446"))
             for(mode in listOf(ScanFilter.AUTO,ScanFilter.CLEAN_WHITE,ScanFilter.CLEAR_TEXT,ScanFilter.PHOTO)) {
@@ -68,10 +88,23 @@ class ProfessionalScannerInstrumentedTest {
                     val blue=result.getPixel(285,1225);assertTrue("Signature hue lost in "+mode,Color.blue(blue)>Color.red(blue)*1.8)
                     assertTrue("Whitening not applied in "+mode,Color.red(result.getPixel(50,800))>=235)
                     if(mode==ScanFilter.CLEAN_WHITE) assertTrue("Clean White background must reach 250",Color.red(result.getPixel(50,800))>=250)
+                    var paper=0;var white=0
+                    val floor=if(mode==ScanFilter.CLEAN_WHITE) 250 else if(mode==ScanFilter.PHOTO) 240 else 242
+                    for(y in 815 until 1100 step 2) for(x in 80 until 550 step 2) {
+                        val original=source.getPixel(x,y)
+                        if(Color.red(original)>=170 && kotlin.math.abs(Color.red(original)-Color.blue(original))<=6) {
+                            paper++;if(Color.red(result.getPixel(x,y))>=floor) white++
+                        }
+                    }
+                    assertTrue("Grey islands behind bold text in $mode: $white/$paper",paper>1000 && white.toDouble()/paper>=.97)
+                    assertTrue("Grayscale photo contrast damaged in $mode",tonalSpread(result)>=photoSpread*.85)
+                    if(mode==ScanFilter.CLEAN_WHITE) File(diagnostics,"text-and-photo-clean-white.png").outputStream().use {
+                        result.compress(Bitmap.CompressFormat.PNG,100,it)
+                    }
                     assertTrue("Foreground details lost in "+mode,ScanQualityGuard.detailReasons(source,result,mode).isEmpty())
                 } finally { result.recycle() }
             }
-        } finally { source.recycle() }
+        } finally { ScannerTestDiagnostics.publish(diagnostics);source.recycle() }
     }
     @Test fun sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk() {
         val source=sheet();val canvas=Canvas(source)
