@@ -27,7 +27,8 @@ class ScannerEngine(context: Context): AutoCloseable {
         val refined=initial?.let { FullResolutionEdgeRefiner.refine(store.source(page),it,page.turns) }
         page.quad=refined?.quad ?: DocumentQuad.inset()
         page.ready=false;page.review=refined?.needsManualReview ?: true
-        page.report=JSONObject().put("detection_ms",detection.elapsedMs).put("mask_agreement",detection.maskAgreement)
+        val captureReport=page.report.optJSONObject("capture")
+        page.report=JSONObject().put("capture",captureReport).put("detection_ms",detection.elapsedMs).put("mask_agreement",detection.maskAgreement)
             .put("detection_warning",detection.warning).put("model_polygon",polygon(initial))
             .put("refined_polygon",polygon(refined?.quad)).put("refinement_ms",refined?.elapsedMs)
             .put("boundary_polygon",polygon(refined?.boundaryQuad)).put("crop_padding_source_px",refined?.paddingPixels)
@@ -41,7 +42,7 @@ class ScannerEngine(context: Context): AutoCloseable {
     private fun processLocked(store: ScanSessionStore,page: ScanPage,onStage: (String)->Unit): ScanProcessedPage {
         store.verifySource(page);require(page.quad.valid())
         val started=System.nanoTime();val warnings=mutableListOf<String>()
-        val key=page.sourceHash+page.turns+page.quad.points.toString()+page.dewarp+page.paperRatio
+        val key=page.sourceHash+page.hdrHash+page.turns+page.quad.points.toString()+page.dewarp+page.paperRatio
         val report=JSONObject(page.report.toString())
         onStage("التأكد من حدود المحتوى في الصورة الأصلية")
         val rawPreview=ScanSourceImage.preview(store.source(page),page.turns,2200)
@@ -69,7 +70,7 @@ class ScannerEngine(context: Context): AutoCloseable {
             }
             codes
         } finally { rawPreview.recycle() }
-        var base: Bitmap?=null;var changed: Bitmap?=null
+        var base: Bitmap?=null;var changed: Bitmap?=null;var originalBase: Bitmap?=null
         try {
             onStage("تصحيح شكل الورقة")
             val warpStart=System.nanoTime()
@@ -102,6 +103,51 @@ class ScannerEngine(context: Context): AutoCloseable {
                 if(protectedLines.size<sourceReading.lines.size || protectedLines.isEmpty())
                     warnings.add("بعض النص قرب الحافة غير واضح؛ راجع القص في الصورة الأصلية")
             }
+            val originalReading=baseline
+            report.put("hdr_applied",false)
+            if(page.hdrSource!=null && page.filter!=ScanFilter.ORIGINAL) {
+                onStage("محاذاة HDR وفحص الحركة والنص والرموز")
+                val hdrStarted=System.nanoTime()
+                try {
+                    val free=Runtime.getRuntime().let { it.maxMemory()-(it.totalMemory()-it.freeMemory()) }
+                    require(free>=64_000_000L+base.width.toLong()*base.height*8) { "الذاكرة لا تكفي لفحص HDR؛ بقي الأصل" }
+                    store.verifyHdr(page)
+                    val aligned=ScanHdrFusion.align(store.source(page),checkNotNull(store.hdr(page)),page.quad,page.turns,
+                        base,geometry.deskewDegrees,page.paperRatio)
+                    changed=aligned.image
+                    val ghosts=ScanHdrFusion.ghosting(base,changed)
+                    val reading=ocr.read(changed,maxLines=40)
+                    val afterCodes=ScanQualityGuard.barcodes(changed)
+                    val guard=ScanGuardPolicy.evaluate(baseline.lines.map { it.text to it.confidence },
+                        reading.lines.map { it.text to it.confidence },codes,afterCodes)
+                    val beforeQuality=ScanQuality.analyze(base,DocumentQuad.inset(.02))
+                    val afterQuality=ScanQuality.analyze(changed,DocumentQuad.inset(.02))
+                    val improved=afterQuality.shadowSeverity<beforeQuality.shadowSeverity*.85 ||
+                        afterQuality.clippedFraction+.003<beforeQuality.clippedFraction ||
+                        afterQuality.darkFraction+.015<beforeQuality.darkFraction
+                    val measurable=baseline.lines.count { it.confidence>=.88 }>=3 || codes.isNotEmpty()
+                    val details=ScanQualityGuard.detailReasons(base,changed,ScanFilter.PHOTO)
+                    val accepted=ghosts.acceptable() && guard.accepted && details.isEmpty() && measurable &&
+                        improved && afterQuality.sharpness>=beforeQuality.sharpness*.80
+                    report.put("hdr_matches",aligned.matches).put("hdr_inlier_fraction",aligned.inlierFraction)
+                        .put("hdr_lost_ink_fraction",ghosts.lostInk).put("hdr_new_ink_fraction",ghosts.newInk)
+                        .put("hdr_quality_improved",improved).put("hdr_guard_reasons",JSONArray(guard.reasons+details))
+                    if(accepted) {
+                        originalBase=base;base=changed;changed=null;baseline=reading;codes=afterCodes
+                        report.put("hdr_applied",true)
+                    } else {
+                        changed.recycle();changed=null
+                        warnings.add("أبقينا اللقطة العادية لأن HDR لم يثبت تحسنًا يحافظ على التفاصيل")
+                    }
+                } catch(error: Exception) {
+                    changed?.recycle();changed=null
+                    report.put("hdr_fallback",error.localizedMessage ?: error.javaClass.simpleName)
+                    warnings.add("أبقينا اللقطة العادية لأن محاذاة HDR أو فحصه لم ينجح")
+                } catch(_: OutOfMemoryError) {
+                    changed?.recycle();changed=null;report.put("hdr_fallback","memory pressure")
+                    warnings.add("أبقينا اللقطة العادية لأن الذاكرة مشغولة")
+                } finally { report.put("hdr_validation_ms",elapsed(hdrStarted)) }
+            }
             if(page.dewarp && geometry.curved && geometry.curveConfidence>=.6 && cachedKey!=key) {
                 onStage("تسطيح الانحناء وفحص النتيجة")
                 try {
@@ -118,7 +164,7 @@ class ScannerEngine(context: Context): AutoCloseable {
                 finally { dewarper.close() }
             }
             if(report.optBoolean("dewarp_applied")) { cachedKey="";cachedReading=null }
-            else { cachedKey=key;cachedReading=baseline;cachedCodes=codes }
+            else { cachedKey=key;cachedReading=originalReading;cachedCodes=warpedCodes }
             val stableBase=base
             onStage("إزالة اختلاف الإضاءة وتنظيف الورق")
             var applied=page.filter
@@ -153,12 +199,18 @@ class ScannerEngine(context: Context): AutoCloseable {
                 .put("output_width",stableBase.width).put("output_height",stableBase.height).put("total_ms",elapsed(started))
             if(Thread.currentThread().isInterrupted) throw InterruptedException()
             val latest=ScanSessionStore.open(ENGINE_CONTEXT,store.id).pages.first { it.id==page.id }
-            require(latest.quad.points==page.quad.points && latest.turns==page.turns && latest.filter==page.filter && latest.dewarp==page.dewarp && latest.paperRatio==page.paperRatio) { "تغيرت إعدادات الصفحة؛ أعد تطبيق القص" }
-            store.saveBitmap(stableBase,store.rectified(page));store.saveBitmap(checkNotNull(changed),store.processed(page))
+            require(latest.quad.points==page.quad.points && latest.turns==page.turns && latest.filter==page.filter && latest.dewarp==page.dewarp && latest.paperRatio==page.paperRatio && latest.hdrHash==page.hdrHash) { "تغيرت إعدادات الصفحة؛ أعد تطبيق القص" }
+            val comparison=originalBase ?: stableBase
+            store.saveBitmap(comparison,store.rectified(page));store.saveBitmap(checkNotNull(changed),store.processed(page))
             if(Thread.currentThread().isInterrupted) throw InterruptedException()
             page.report=report;page.ready=true;page.review=false;store.save()
-            return ScanProcessedPage(stableBase,checkNotNull(changed),warnings.distinct(),report).also { base=null;changed=null }
-        } finally { if(changed!==base) changed?.recycle();base?.recycle() }
+            val output=checkNotNull(changed)
+            if(stableBase!==comparison && stableBase!==output) stableBase.recycle()
+            return ScanProcessedPage(comparison,output,warnings.distinct(),report).also { base=null;changed=null;originalBase=null }
+        } finally {
+            if(changed!==base && changed!==originalBase) changed?.recycle()
+            if(base!==originalBase) base?.recycle();originalBase?.recycle()
+        }
     }
     override fun close() { detector.close();ocr.close();dewarper.close();cachedReading=null }
     companion object {

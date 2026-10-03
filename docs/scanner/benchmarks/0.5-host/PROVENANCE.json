@@ -1,0 +1,31 @@
+{
+  "scope": "Paired desktop diagnostic, not Android acceptance or unseen-data accuracy",
+  "dataset": "SmartDoc 2015 challenge 1 v2.0.0, CC-BY-4.0",
+  "real_frames": 300,
+  "sequences": 150,
+  "independent_documents": 30,
+  "training_overlap": "unknown",
+  "input_records": "../a146ef5/records.json",
+  "input_records_sha256": "a6174a679ab38ee5f8ccf6aa8853c3b61beb090f50de2c6d701d7fdd886cc1e5",
+  "baseline": {
+    "boundary_edge_mean_px": 2.672582472958017,
+    "boundary_corner_mean_px": 5.073595614208281,
+    "manual": 148,
+    "crop_inward_gt2": 81,
+    "unsafe_confident": 0
+  },
+  "selected": {
+    "boundary_edge_mean_px": 2.6120595650526144,
+    "boundary_corner_mean_px": 4.960104378748252,
+    "manual": 148,
+    "crop_inward_gt2": 79,
+    "unsafe_confident": 0,
+    "improved_cases": 12
+  },
+  "rejections": [
+    "Persistent contrast introduced an unsafe confident inward crop.",
+    "Hard persistence gate increased mean error and manual review.",
+    "Weak-edge hypotheses and unrestricted three-edge fitting worsened individual cases."
+  ],
+  "gate": "Only three >=95% supported narrow edges improve the editor suggestion; the fourth remains the model line and review is mandatory."
+}

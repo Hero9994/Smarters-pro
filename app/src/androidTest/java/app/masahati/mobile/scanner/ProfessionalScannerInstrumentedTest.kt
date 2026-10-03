@@ -73,6 +73,66 @@ class ProfessionalScannerInstrumentedTest {
             }
         } finally { source.recycle() }
     }
+    @Test fun sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk() {
+        val source=sheet();val canvas=Canvas(source)
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK;textSize=27f }
+        canvas.drawText("73071446 i j 1,234.56;",320f,850f,paint)
+        // Multiplicative, very hard phone shadow crossing text and the signature.
+        // Every source pixel, including the ink, is dimmed; no detail is redrawn.
+        val row=IntArray(source.width)
+        for(y in 0 until source.height) {
+            source.getPixels(row,0,row.size,0,y,row.size,1)
+            for(x in row.indices) if(x<440) {
+                val c=row[x];row[x]=Color.rgb((Color.red(c)*.6).toInt(),(Color.green(c)*.6).toInt(),(Color.blue(c)*.6).toInt())
+            }
+            source.setPixels(row,0,row.size,0,y,row.size,1)
+        }
+        try {
+            ScanOcr(context).use { ocr ->
+                val before=ocr.read(source,maxLines=40)
+                assertTrue("Fixture number was unreadable before processing",before.text.contains("73071446"))
+                for(mode in listOf(ScanFilter.AUTO,ScanFilter.CLEAN_WHITE,ScanFilter.CLEAR_TEXT)) {
+                    val processed=ScanPaperProcessor.process(source,mode)
+                    val image=processed.bitmap
+                    try {
+                        val floor=if(mode==ScanFilter.CLEAN_WHITE) 250 else 242
+                        for(x in listOf(410,420,430,435,439,440,445,450,460))
+                            assertTrue("Shadow halo in $mode at $x",Color.red(image.getPixel(x,800))>=floor)
+                        assertTrue("Small dot disappeared in $mode",Color.red(image.getPixel(150,600))<70)
+                        assertTrue("QR damaged in $mode",ScanQualityGuard.barcodes(image).contains("masahati-preserve-73071446"))
+                        val after=ocr.read(image,maxLines=40)
+                        val guard=ScanGuardPolicy.evaluate(before.lines.map { it.text to it.confidence },after.lines.map { it.text to it.confidence },emptySet(),emptySet())
+                        assertTrue("Numbers or punctuation changed in $mode: ${guard.reasons}",guard.accepted)
+                        assertTrue("Stamp or signature weakened in $mode",ScanQualityGuard.detailReasons(source,image,mode).isEmpty())
+                    } finally { image.recycle() }
+                }
+            }
+        } finally { source.recycle() }
+    }
+    @Test fun cleanWhiteNeutralizesMildAgedPaperTintAndKeepsColoredStampsAndSmallInk() {
+        val source=sheet();val row=IntArray(source.width)
+        for(y in 0 until source.height) {
+            source.getPixels(row,0,row.size,0,y,row.size,1)
+            for(x in row.indices) {
+                val c=row[x]
+                if(kotlin.math.abs(Color.red(c)-Color.blue(c))<12 && Color.red(c)>100)
+                    row[x]=Color.rgb((Color.red(c)*1.02).toInt().coerceAtMost(255),(Color.green(c)*.96).toInt(),(Color.blue(c)*.77).toInt())
+            }
+            source.setPixels(row,0,row.size,0,y,row.size,1)
+        }
+        try {
+            val result=ScanPaperProcessor.process(source,ScanFilter.CLEAN_WHITE).bitmap
+            try {
+                for(point in listOf(100 to 800,500 to 800)) {
+                    val c=result.getPixel(point.first,point.second)
+                    assertTrue("Aged paper did not become white",minOf(Color.red(c),Color.green(c),Color.blue(c))>=249)
+                }
+                assertTrue(Color.red(result.getPixel(150,600))<70)
+                assertTrue(ScanQualityGuard.barcodes(result).contains("masahati-preserve-73071446"))
+                assertTrue(ScanQualityGuard.detailReasons(source,result,ScanFilter.CLEAN_WHITE).isEmpty())
+            } finally { result.recycle() }
+        } finally { source.recycle() }
+    }
     @Test fun nativePerspectivePreservesQrAndDeskewMarginsStayWhite() {
         val source=sheet();val store=ScanSessionStore.create(context);val page=import(store,source)
         try {
@@ -81,6 +141,54 @@ class ProfessionalScannerInstrumentedTest {
                 assertTrue(ScanQualityGuard.barcodes(output).contains("masahati-preserve-73071446"))
                 assertTrue(output.width>=source.width);assertTrue(output.height>=source.height);assertEquals(Color.WHITE,output.getPixel(0,0))
             } finally { output.recycle() };store.verifySource(page)
+        } finally { source.recycle();store.directory.deleteRecursively() }
+    }
+    @Test fun hdrSourceSurvivesReopenAndCannotReplaceTheNormalOriginal() {
+        val source=sheet();val store=ScanSessionStore.create(context);val page=import(store,source)
+        try {
+            val originalHash=page.sourceHash
+            val bytes=ByteArrayOutputStream();source.compress(Bitmap.CompressFormat.JPEG,100,bytes)
+            store.attachHdr(page,ByteArrayInputStream(bytes.toByteArray()))
+            val reopened=ScanSessionStore.open(context,store.id);val saved=reopened.pages.single()
+            assertNotNull(saved.hdrSource);reopened.verifyHdr(saved);reopened.verifySource(saved)
+            assertEquals(originalHash,saved.sourceHash)
+            assertTrue(saved.hdrSource!=saved.source)
+            val old=store.hdr(page)!!.readBytes()
+            try { store.attachHdr(page,ByteArrayInputStream(bytes.toByteArray()));fail("HDR was overwritten") }
+            catch(_: IllegalArgumentException) { assertArrayEquals(old,store.hdr(page)!!.readBytes()) }
+            store.hdr(page)!!.appendBytes(byteArrayOf(1))
+            try { store.verifyHdr(page);fail("Corrupted HDR was trusted") } catch(_: IllegalStateException) { store.verifySource(page) }
+        } finally { source.recycle();store.directory.deleteRecursively() }
+    }
+    @Test fun ghostingRejectsDoubledOrRemovedTextAndKeepsAnUnchangedImage() {
+        val source=sheet();val doubled=Bitmap.createBitmap(source);val removed=Bitmap.createBitmap(source)
+        try {
+            assertTrue(ScanHdrFusion.ghosting(source,source).acceptable())
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK;textSize=34f }
+            val canvas=Canvas(doubled)
+            repeat(5) { row -> canvas.drawText("73071446 duplicated ghost",82f,174f+row*130f,paint) }
+            assertFalse("New ghost letters were accepted",ScanHdrFusion.ghosting(source,doubled).acceptable())
+            paint.color=Color.rgb(202,202,197);Canvas(removed).drawRect(40f,115f,1050f,550f,paint)
+            assertFalse("Removed original letters were accepted",ScanHdrFusion.ghosting(source,removed).acceptable())
+        } finally { source.recycle();doubled.recycle();removed.recycle() }
+    }
+    @Test fun hdrRegistrationPreservesGeometryAndQrOnTheSameCapturedPixels() {
+        val source=sheet();val store=ScanSessionStore.create(context);val page=import(store,source)
+        try {
+            val bytes=ByteArrayOutputStream();source.compress(Bitmap.CompressFormat.PNG,100,bytes)
+            store.attachHdr(page,ByteArrayInputStream(bytes.toByteArray()))
+            val quad=DocumentQuad.inset(.02)
+            val base=ScanSourceImage.perspective(store.source(page),quad,maxSide=1600,maxPixels=2_000_000)
+            try {
+                val aligned=ScanHdrFusion.align(store.source(page),store.hdr(page)!!,quad,0,base,0.0,null)
+                try {
+                    assertEquals(base.width,aligned.image.width);assertEquals(base.height,aligned.image.height)
+                    assertTrue(aligned.inlierFraction>.95)
+                    assertTrue(ScanHdrFusion.ghosting(base,aligned.image).acceptable())
+                    assertTrue(ScanQualityGuard.barcodes(aligned.image).contains("masahati-preserve-73071446"))
+                } finally { aligned.image.recycle() }
+            } finally { base.recycle() }
+            store.verifySource(page);store.verifyHdr(page)
         } finally { source.recycle();store.directory.deleteRecursively() }
     }
     @Test fun paddleGuardReadsNumbersAndNeverChangesRawCapture() {
@@ -99,6 +207,8 @@ class ProfessionalScannerInstrumentedTest {
         val pdf=File(context.filesDir,"documents/scanner-regression-"+System.nanoTime()+".pdf").apply { parentFile?.mkdirs() }
         val db=MasahatiDatabase(context);val spaces=mutableListOf<Long>();var restored: ScanSessionStore?=null;var importedFile: File?=null
         try {
+            val capture=ByteArrayOutputStream();source.compress(Bitmap.CompressFormat.JPEG,100,capture)
+            store.attachHdr(page,ByteArrayInputStream(capture.toByteArray()))
             store.saveBitmap(source,store.processed(page));page.ready=true;page.review=false;store.save();ScanPdfExporter.export(context,store,pdf)
             ParcelFileDescriptor.open(pdf,ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor -> PdfRenderer(descriptor).use { reader ->
                 assertEquals(1,reader.pageCount);reader.openPage(0).use { p ->
@@ -115,6 +225,7 @@ class ProfessionalScannerInstrumentedTest {
             spaces.add(copied.spaceId);importedFile=File(copied.filePath!!)
             restored=ScanSessionStore.forDocument(context,importedFile!!);assertNotNull(restored)
             assertEquals(page.sourceHash,restored!!.pages.single().sourceHash);restored!!.verifySource(restored!!.pages.single())
+            assertEquals(page.hdrHash,restored!!.pages.single().hdrHash);restored!!.verifyHdr(restored!!.pages.single())
         } catch(error: Exception) {
             val diagnostic=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
             if(pdf.isFile) pdf.copyTo(File(diagnostic,"pdf-compatibility-api-"+android.os.Build.VERSION.SDK_INT+".pdf"),true)
@@ -210,6 +321,29 @@ class ProfessionalScannerInstrumentedTest {
                 -((b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x))/a.distance(b)
             } }
             assertTrue("Crop cut into known paper: "+inward,inward<=.75)
+        } finally { source.recycle();store.directory.deleteRecursively() }
+    }
+    @Test fun threeClearEdgesImproveTheSuggestionButNeverApproveAMissingFourthEdge() {
+        val source=Bitmap.createBitmap(1400,1800,Bitmap.Config.ARGB_8888)
+        val store=ScanSessionStore.create(context)
+        try {
+            val canvas=Canvas(source);canvas.drawColor(Color.rgb(55,70,60))
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(242,242,237) }
+            // The bottom physical edge is outside the image. The coarse model
+            // suggests one; a precise fit of the other three cannot validate it.
+            canvas.drawRect(100f,100f,1300f,1800f,paint)
+            val page=import(store,source)
+            val coarse=DocumentQuad(listOf(ScanPoint(118.0/1399,118.0/1799),ScanPoint(1282.0/1399,118.0/1799),
+                ScanPoint(1282.0/1399,1700.0/1799),ScanPoint(118.0/1399,1700.0/1799)),1.0)
+            val result=FullResolutionEdgeRefiner.refine(store.source(page),coarse)
+            assertEquals(3,result.acceptedEdges)
+            assertTrue("A missing edge must require review",result.needsManualReview)
+            assertEquals("native-three-edge-review",result.boundaryQuad.origin)
+            val boundary=result.boundaryQuad.points.map { ScanPoint(it.x*1399,it.y*1799) }
+            assertTrue("Clear top-left corner was not refined",boundary[0].distance(ScanPoint(100.0,100.0))<3)
+            assertTrue("Clear top-right corner was not refined",boundary[1].distance(ScanPoint(1300.0,100.0))<3)
+            assertEquals("Unknown bottom line must stay a suggestion",1700.0,boundary[2].y,1e-4)
+            store.verifySource(page)
         } finally { source.recycle();store.directory.deleteRecursively() }
     }
     @Test fun straightButBlurredPaperEdgesRequireManualReview() {

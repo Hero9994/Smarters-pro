@@ -8,6 +8,8 @@ import android.hardware.camera2.*
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 import android.view.*
 import android.widget.*
 import androidx.activity.ComponentActivity
@@ -19,6 +21,9 @@ import androidx.camera.core.*
 import androidx.camera.core.Camera
 import androidx.camera.core.resolutionselector.*
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.extensions.ExtensionMode
+import androidx.camera.extensions.ExtensionSessionConfig
+import androidx.camera.extensions.ExtensionsManager
 import androidx.camera.view.PreviewView
 import androidx.camera.view.TransformExperimental
 import androidx.camera.view.transform.*
@@ -28,6 +33,8 @@ import android.util.Size
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONObject
 import kotlin.math.*
 
 /** Native scanner screen. Raw captures are durable before detection starts.
@@ -57,6 +64,12 @@ class ProfessionalScannerActivity: ComponentActivity() {
     @Volatile private var focused=false
     @Volatile private var occupied=false
     private var lastAnalysis=0L
+    private var lastQuality: CaptureQuality?=null
+    private var lastQualityAt=0L
+    private var lastStable=false
+    private var extensions: ExtensionsManager?=null
+    private var hdrSupported=false
+    private var hdrLatency: Long?=null
     private var generation=0
     private var taskToken=0
     private val permission=registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -116,7 +129,7 @@ class ProfessionalScannerActivity: ComponentActivity() {
                     val p=future.get();provider=p;val rotation=view.display?.rotation ?: Surface.ROTATION_0
                     val live=Preview.Builder().setTargetRotation(rotation).build().also { it.surfaceProvider=view.surfaceProvider }
                     val photoBuilder=ImageCapture.Builder().setTargetRotation(rotation).setJpegQuality(100).setCaptureMode(ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG)
-                    val info=p.availableCameraInfos.firstOrNull { Camera2CameraInfo.from(it).getCameraCharacteristic(CameraCharacteristics.LENS_FACING)==CameraCharacteristics.LENS_FACING_BACK }
+                    val info=p.getCameraInfo(CameraSelector.DEFAULT_BACK_CAMERA)
                     val fixed=(info?.let { Camera2CameraInfo.from(it).getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) } ?: 1f)==0f
                     focused=fixed
                     val callback=object: CameraCaptureSession.CaptureCallback() {
@@ -139,6 +152,15 @@ class ProfessionalScannerActivity: ComponentActivity() {
                     val group=UseCaseGroup.Builder().addUseCase(live).addUseCase(photo).addUseCase(analyzer)
                     view.viewPort?.let { group.setViewPort(it) };p.unbindAll()
                     camera=p.bindToLifecycle(this,CameraSelector.DEFAULT_BACK_CAMERA,group.build());camera?.cameraControl?.setZoomRatio(1f)
+                    val extensionsFuture=ExtensionsManager.getInstanceAsync(this,p)
+                    extensionsFuture.addListener({
+                        if(request!=generation || !cameraVisible || isDestroyed) return@addListener
+                        runCatching {
+                            val manager=extensionsFuture.get();extensions=manager
+                            hdrSupported=manager.isExtensionAvailable(CameraSelector.DEFAULT_BACK_CAMERA,ExtensionMode.HDR)
+                            hdrLatency=if(hdrSupported) manager.getEstimatedCaptureLatencyRange(CameraSelector.DEFAULT_BACK_CAMERA,ExtensionMode.HDR)?.upper else null
+                        }.onFailure { extensions=null;hdrSupported=false;hdrLatency=null }
+                    },ContextCompat.getMainExecutor(this))
                     view.setOnTouchListener { v,event ->
                         if(event.action==MotionEvent.ACTION_UP) { v.performClick();camera?.cameraControl?.startFocusAndMetering(
                             FocusMeteringAction.Builder(view.meteringPointFactory.createPoint(event.x,event.y)).setAutoCancelDuration(3,TimeUnit.SECONDS).build()) };true
@@ -160,6 +182,7 @@ class ProfessionalScannerActivity: ComponentActivity() {
             val transform=ImageProxyTransformFactory().apply { isUsingCropRect=true;isUsingRotationDegrees=true }.getOutputTransform(proxy)
             ui {
                 if(request!=generation || !cameraVisible) return@ui
+                lastQuality=quality;lastQualityAt=now;lastStable=stable
                 val destination=view.outputTransform
                 if(points!=null && destination!=null) { CoordinateTransform(transform,destination).mapPoints(points);overlay.points=points } else overlay.points=null
                 status.text=if(result.quad==null) "ضع الورقة كاملة داخل الإطار" else if(!result.quad.fullyVisible()) "أبعد الهاتف قليلًا حتى تظهر جميع الحواف"
@@ -184,17 +207,94 @@ class ProfessionalScannerActivity: ComponentActivity() {
     }
     private fun takePhoto() {
         val photo=capture ?: return;if(occupied || !cameraVisible) return
+        val attemptHdr=ScanHdrPolicy.shouldAttempt(hdrSupported,hdrLatency,lastStable,lastQuality,
+            SystemClock.elapsedRealtime()-lastQualityAt)
         occupied=true;gate.reset();status.text="جارٍ حفظ الصورة الأصلية"
         val target=File(cacheDir,"scan-capture-"+java.util.UUID.randomUUID()+".jpg")
         photo.takePicture(ImageCapture.OutputFileOptions.Builder(target).build(),ContextCompat.getMainExecutor(this),object: ImageCapture.OnImageSavedCallback {
             override fun onError(error: ImageCaptureException) { occupied=false;target.delete();status.text="تعذر التصوير؛ حاول مرة أخرى" }
             override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                occupied=false;stopCamera()
-                task("كشف الورقة وتدقيق الحواف") { val page=target.inputStream().use { store.import(it) };target.delete();engine.detect(store,page);done { showCorners(page) } }
+                if(isDestroyed || isFinishing || worker.isShutdown) { target.delete();return }
+                val request=generation
+                worker.execute {
+                    try {
+                        val page=target.inputStream().use { store.import(it) };target.delete()
+                        page.report.put("capture",JSONObject().put("normal_saved_first",true).put("hdr_requested",attemptHdr)
+                            .put("hdr_supported",hdrSupported).put("hdr_estimated_max_ms",hdrLatency));store.save()
+                        ui {
+                            if(request!=generation || isDestroyed) { occupied=false;return@ui }
+                            if(attemptHdr) takeHdr(page,request) else finishCapture(page)
+                        }
+                    } catch(error: Exception) { target.delete();ui { occupied=false;status.text=error.localizedMessage ?: "تعذر حفظ الصورة" } }
+                }
             }
         })
     }
-    private fun stopCamera() { cameraVisible=false;analysis?.clearAnalyzer();provider?.unbindAll();analysis=null;capture=null;camera=null;preview=null;gate.reset() }
+    private fun finishCapture(page: ScanPage) {
+        occupied=false;stopCamera()
+        task("كشف الورقة وتدقيق الحواف") { engine.detect(store,page);done { showCorners(page) } }
+    }
+    private fun takeHdr(page: ScanPage,request: Int) {
+        val manager=extensions;val p=provider;val view=preview
+        if(manager==null || p==null || view==null) { finishCapture(page);return }
+        val completed=AtomicBoolean(false);val handler=Handler(Looper.getMainLooper())
+        val target=File(cacheDir,"scan-hdr-"+java.util.UUID.randomUUID()+".jpg")
+        val captureReport=page.report.optJSONObject("capture") ?: JSONObject()
+        val started=SystemClock.elapsedRealtime()
+        fun finish(reason: String?) {
+            if(!completed.compareAndSet(false,true)) return
+            captureReport.put("hdr_capture_ms",SystemClock.elapsedRealtime()-started).put("hdr_capture_fallback",reason)
+            page.report.put("capture",captureReport);store.save();target.delete()
+            if(request==generation && !isDestroyed) finishCapture(page) else { stopCamera();occupied=false }
+        }
+        val timeout=Runnable { finish("HDR استغرق وقتًا طويلًا؛ بقي الأصل") }
+        handler.postDelayed(timeout,3500)
+        try {
+            cameraVisible=false;analysis?.clearAnalyzer();p.unbindAll();analysis=null
+            val rotation=view.display?.rotation ?: Surface.ROTATION_0
+            val live=Preview.Builder().setTargetRotation(rotation).build().also { it.surfaceProvider=view.surfaceProvider }
+            val photo=ImageCapture.Builder().setTargetRotation(rotation).setJpegQuality(100)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY).build()
+            val config=ExtensionSessionConfig.Builder(ExtensionMode.HDR,manager).addUseCase(live).addUseCase(photo)
+            view.viewPort?.let { config.setViewPort(it) }
+            camera=p.bindToLifecycle(this,CameraSelector.DEFAULT_BACK_CAMERA,config.build());capture=photo
+            camera?.cameraControl?.setZoomRatio(1f);status.text="تحسين الإضاءة • حافظ على ثبات الهاتف"
+            fun captureHdr() {
+                if(completed.get() || request!=generation || isDestroyed) return
+                photo.takePicture(ImageCapture.OutputFileOptions.Builder(target).build(),ContextCompat.getMainExecutor(this),object: ImageCapture.OnImageSavedCallback {
+                    override fun onError(error: ImageCaptureException) { handler.removeCallbacks(timeout);finish("تعذر HDR؛ بقي الأصل") }
+                    override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                        handler.removeCallbacks(timeout)
+                        if(!completed.compareAndSet(false,true)) { target.delete();return }
+                        if(request!=generation || isDestroyed || isFinishing || worker.isShutdown) { target.delete();return }
+                        stopCamera()
+                        worker.execute {
+                            try {
+                                target.inputStream().use { store.attachHdr(page,it) }
+                                captureReport.put("hdr_capture_ms",SystemClock.elapsedRealtime()-started).put("hdr_source_saved",true)
+                            } catch(_: Exception) { captureReport.put("hdr_capture_fallback","تعذر حفظ HDR؛ بقي الأصل") }
+                            finally { target.delete();page.report.put("capture",captureReport);store.save()
+                                ui { if(request==generation && !isDestroyed) finishCapture(page) else occupied=false } }
+                        }
+                    }
+                })
+            }
+            val action=FocusMeteringAction.Builder(view.meteringPointFactory.createPoint(view.width/2f,view.height/2f))
+                .setAutoCancelDuration(2,TimeUnit.SECONDS).build()
+            val focus=camera!!.cameraControl.startFocusAndMetering(action)
+            val fixedFocus=runCatching { Camera2CameraInfo.from(camera!!.cameraInfo)
+                .getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)==0f }.getOrDefault(false)
+            focus.addListener({
+                if(completed.get() || request!=generation || isDestroyed) return@addListener
+                runCatching { if(focus.get().isFocusSuccessful || fixedFocus) captureHdr() else finish("تركيز HDR غير مؤكد؛ بقي الأصل") }
+                    .onFailure { finish("تركيز HDR غير متاح؛ بقي الأصل") }
+            },ContextCompat.getMainExecutor(this))
+        } catch(_: Exception) { handler.removeCallbacks(timeout);finish("HDR غير متاح لهذا الجهاز؛ بقي الأصل") }
+    }
+    private fun stopCamera() {
+        cameraVisible=false;analysis?.clearAnalyzer();provider?.unbindAll();analysis=null;capture=null;camera=null;preview=null;gate.reset()
+        lastStable=false;lastQuality=null;lastQualityAt=0;extensions=null;hdrSupported=false;hdrLatency=null
+    }
     private fun showCorners(page: ScanPage) {
         clearScreen("زوايا الورقة • "+(store.visiblePages.indexOf(page)+1)+"/"+store.visiblePages.size)
         status.text=if(page.review) "راجع الزوايا جيدًا؛ الكشف غير مؤكد. كبّر بإصبعين واسحب النقاط" else "راجع القص، كبّر بإصبعين واسحب أي زاوية تحتاج تعديلًا"

@@ -97,10 +97,15 @@ object FullResolutionEdgeRefiner {
         val candidate=initial.copy(points=normalized,origin="native-edge-refinement")
         val plausible=candidate.valid() && candidate.area()/initial.area() in .75..1.3 &&
             candidate.points.zip(initial.points).all { (a,b) -> a.distance(b)<.10 }
-        // Mixing fitted and model edges magnified corner errors. If a physical
-        // edge is uncertain, retain the coherent model polygon and require review.
-        val chosen=if(plausible && accepted==4) candidate else initial
         val padding=6.0
+        // Three exceptionally well-supported, narrow physical edges may improve
+        // the editor's suggestion even when the fourth edge is obscured. Keep
+        // that fourth MODEL line and always require manual review. Ordinary
+        // partial fits are too ambiguous and still retain the whole model quad.
+        val strongPartial=accepted==3 && fractions.filter { it>0 }.size==3 &&
+            fractions.filter { it>0 }.all { it>=.95 } && widths.filter { it>0 }.all { it<=padding }
+        val chosen=if(plausible && (accepted==4 || strongPartial))
+            candidate.copy(origin=if(strongPartial) "native-three-edge-review" else candidate.origin) else initial
         val safe=chosen.copy(points=ScanGeometry.padded(chosen.points,info.width,info.height,padding))
         // Broad gradient ridges can fit a very straight line INSIDE a blurred
         // physical edge. Preserve the same geometry/margin, but require corner

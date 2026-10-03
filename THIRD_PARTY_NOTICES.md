@@ -8,7 +8,7 @@ No training datasets are bundled. Geometry models predict coordinates/grids; no 
 | PP-OCRv5 mobile det + Latin/Arabic recognition | Same MakeACopy conversion commit; original [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) | Apache-2.0 | Explicit weight licensing and conversion provenance in packaged `PaddleOCR-PROVENANCE.txt`. Copyright PaddlePaddle authors. No training data. |
 | ONNX Runtime Android | [Microsoft](https://github.com/microsoft/onnxruntime/tree/v1.24.1), Maven `1.24.1` | MIT | Runtime only; packaged MIT notice. |
 | OpenCV Android | [OpenCV](https://github.com/opencv/opencv/tree/4.12.0), Maven `4.12.0` (existing) | Apache-2.0 and distribution third-party notices | No weights added by this dependency; packaged Apache license. |
-| CameraX | [AndroidX](https://developer.android.com/jetpack/androidx/releases/camera), stable `1.6.2` | Apache-2.0 | Camera2/lifecycle/view, no inference weights. Copyright Android Open Source Project. |
+| CameraX | [AndroidX](https://developer.android.com/jetpack/androidx/releases/camera), stable `1.6.2` | Apache-2.0 | Camera2/lifecycle/view/extensions, no bundled inference weights. Extensions use the device manufacturer's camera implementation only when available. Copyright Android Open Source Project. |
 
 Model paths, source commit and SHA-256 are pinned in `prepareScannerModels` in `app/build.gradle.kts`. Downloads are verified, and runtime extraction verifies them again. The scanner adapter and native-resolution refinement are implemented for Masahati; no upstream app is copied wholesale.
 

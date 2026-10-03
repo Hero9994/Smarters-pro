@@ -22,15 +22,20 @@ object ScanPaperProcessor {
         check(OpenCvDocumentRectifier.isAvailable())
         val scale=min(1.0,640.0/max(source.width,source.height))
         val thumb=source.scale(max(1,(source.width*scale).roundToInt()),max(1,(source.height*scale).roundToInt()))
-        val rgba=Mat();val rgb=Mat();val lab=Mat();val lum=Mat();val background=Mat();val kernel=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(29.0,29.0))
+        val rgba=Mat();val rgb=Mat();val lab=Mat();val lum=Mat();val background=Mat();val closed=Mat();val kernel=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(29.0,29.0))
         val texture=Mat();val mean=Mat();val squared=Mat();val variance=Mat();val mids=Mat();val midFraction=Mat()
         val map: ByteArray;val photoMap: ByteArray;val mw=thumb.width;val mh=thumb.height
+        var paperA=0.0;var paperB=0.0
         var severity=0.0
         try {
             Utils.bitmapToMat(thumb,rgba);Imgproc.cvtColor(rgba,rgb,Imgproc.COLOR_RGBA2RGB);Imgproc.cvtColor(rgb,lab,Imgproc.COLOR_RGB2Lab)
             Core.extractChannel(lab,lum,0)
-            Imgproc.morphologyEx(lum,background,Imgproc.MORPH_CLOSE,kernel)
-            Imgproc.GaussianBlur(background,background,Size(0.0,0.0),14.0)
+            Imgproc.morphologyEx(lum,closed,Imgproc.MORPH_CLOSE,kernel)
+            // Blur across a sharp illumination step invents an intermediate
+            // background on both sides, leaving a grey halo and lifting nearby
+            // ink unevenly. Smooth the bounded, ink-suppressed map while keeping
+            // real illumination steps. The source image itself is never blurred.
+            Imgproc.bilateralFilter(closed,background,29,12.0,14.0)
             map=ByteArray(mw*mh);background.get(0,0,map)
             val sorted=map.map { it.toInt() and 255 }.sorted()
             severity=((sorted[(sorted.lastIndex*.9).toInt()]-sorted[(sorted.lastIndex*.1).toInt()])/130.0).coerceIn(0.0,1.0)
@@ -46,37 +51,75 @@ object ScanPaperProcessor {
             Imgproc.threshold(variance,variance,850.0,255.0,Imgproc.THRESH_BINARY);variance.convertTo(variance,CvType.CV_8U)
             Core.bitwise_and(variance,midFraction,variance)
             Imgproc.dilate(variance,variance,kernel);photoMap=ByteArray(mw*mh);variance.get(0,0,photoMap)
+            if(mode==ScanFilter.CLEAN_WHITE) {
+                val colors=ByteArray(mw*mh*3);lab.get(0,0,colors)
+                val ah=IntArray(256);val bh=IntArray(256);var samples=0
+                for(i in map.indices) {
+                    val v=grayBytes[i].toInt() and 255;val bg=map[i].toInt() and 255
+                    val aa=colors[i*3+1].toInt() and 255;val bb=colors[i*3+2].toInt() and 255
+                    if(photoMap[i].toInt()==0 && bg>=80 && v>=bg*.92 && hypot(aa-128.0,bb-128.0)<=35) {
+                        ah[aa]++;bh[bb]++;samples++
+                    }
+                }
+                fun median(histogram: IntArray): Double {
+                    var total=0;for(i in histogram.indices) { total+=histogram[i];if(total>=samples/2) return i-128.0 }
+                    return 0.0
+                }
+                // A dominant mild paper tint can be neutralized in the explicit
+                // white-paper mode. Photos and distinct stamp/signature colors
+                // are excluded; Auto/Photo retain their conservative color policy.
+                if(samples>=mw*mh*.35) { paperA=median(ah);paperB=median(bh) }
+            }
         } finally {
             if(thumb!==source) thumb.recycle()
-            listOf(rgba,rgb,lab,lum,background,kernel,texture,mean,squared,variance,mids,midFraction).forEach { it.release() }
+            listOf(rgba,rgb,lab,lum,background,closed,kernel,texture,mean,squared,variance,mids,midFraction).forEach { it.release() }
         }
         val w=source.width;val h=source.height;val output=createBitmap(w,h)
         var paperPixels=0L
-        fun mapValue(x: Int,y: Int): Double {
+        val sharpIllumination=map.indices.any { i -> val v=map[i].toInt() and 255
+            (i%mw>0 && abs(v-(map[i-1].toInt() and 255))>=16) ||
+                (i>=mw && abs(v-(map[i-mw].toInt() and 255))>=16) }
+        val guideKernel=if(sharpIllumination) Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(9.0,9.0)) else null
+        fun mapValue(x: Int,y: Int,guide: Double): Double {
             val fx=(x.toDouble()/max(1,w-1)*(mw-1)).coerceIn(0.0,(mw-1).toDouble())
             val fy=(y.toDouble()/max(1,h-1)*(mh-1)).coerceIn(0.0,(mh-1).toDouble())
             val x0=fx.toInt();val y0=fy.toInt();val x1=min(x0+1,mw-1);val y1=min(y0+1,mh-1)
             val dx=fx-x0;val dy=fy-y0
             fun at(xx: Int,yy: Int)=map[yy*mw+xx].toInt() and 255
-            return (at(x0,y0)*(1-dx)+at(x1,y0)*dx)*(1-dy)+(at(x0,y1)*(1-dx)+at(x1,y1)*dx)*dy
+            val v00=at(x0,y0);val v10=at(x1,y0);val v01=at(x0,y1);val v11=at(x1,y1)
+            if(max(max(v00,v10),max(v01,v11))-min(min(v00,v10),min(v01,v11))>=16) {
+                var low=255;var high=0
+                for(yy in max(0,y0-1)..min(mh-1,y0+1)) for(xx in max(0,x0-1)..min(mw-1,x0+1)) {
+                    val value=at(xx,yy);low=min(low,value);high=max(high,value)
+                }
+                val nearest=if(abs(guide-low)<abs(guide-high)) low.toDouble() else high.toDouble()
+                if(abs(guide-nearest)<=max(8.0,nearest*.06)) return nearest
+            }
+            return (v00*(1-dx)+v10*dx)*(1-dy)+(v01*(1-dx)+v11*dx)*dy
         }
         val target=when(mode) { ScanFilter.CLEAN_WHITE->254.0;ScanFilter.CLEAR_TEXT->252.0;ScanFilter.PHOTO->246.0;else->250.0 }
         try {
             for(y in 0 until h step 128) {
                 if(Thread.currentThread().isInterrupted) throw InterruptedException()
-                val halo=if(mode==ScanFilter.BLACK_WHITE) 16 else 2
+                val halo=if(mode==ScanFilter.BLACK_WHITE) 16 else if(sharpIllumination) 8 else 2
                 val top=max(0,y-halo);val bottom=min(h,y+128+halo);val rows=bottom-top;val pixels=IntArray(w*rows)
                 source.getPixels(pixels,0,w,0,top,w,rows)
                 val patch=createBitmap(w,rows);patch.setPixels(pixels,0,w,0,0,w,rows)
-                val r=Mat();val c=Mat();val l=Mat();val result=Mat();var converted: Bitmap?=null
+                val r=Mat();val c=Mat();val l=Mat();val guide=Mat();val result=Mat();var converted: Bitmap?=null
                 try {
                     Utils.bitmapToMat(patch,r);patch.recycle();Imgproc.cvtColor(r,c,Imgproc.COLOR_RGBA2RGB);Imgproc.cvtColor(c,l,Imgproc.COLOR_RGB2Lab)
                     val original=ByteArray(w*rows*3);l.get(0,0,original);val changed=original.copyOf()
+                    val backgroundGuide=if(guideKernel!=null) {
+                        Core.extractChannel(l,guide,0);Imgproc.morphologyEx(guide,guide,Imgproc.MORPH_CLOSE,guideKernel)
+                        ByteArray(w*rows).also { guide.get(0,0,it) }
+                    } else null
                     fun at(xx: Int,yy: Int)=original[(yy.coerceIn(0,rows-1)*w+xx.coerceIn(0,w-1))*3].toInt() and 255
                     for(yy in 0 until rows) for(x in 0 until w) {
-                        val index=(yy*w+x)*3;val v=at(x,yy).toDouble();val bg=mapValue(x,top+yy).coerceAtLeast(45.0)
+                        val index=(yy*w+x)*3;val v=at(x,yy).toDouble()
+                        val localPaper=backgroundGuide?.let { it[yy*w+x].toInt() and 255 }?.toDouble() ?: v
+                        val bg=mapValue(x,top+yy,localPaper).coerceAtLeast(45.0)
                         val a=(original[index+1].toInt() and 255)-128;val b=(original[index+2].toInt() and 255)-128
-                        val chroma=hypot(a.toDouble(),b.toDouble())
+                        val chroma=hypot(a-paperA,b-paperB)
                         val left=at(x-1,yy);val right=at(x+1,yy);val above=at(x,yy-1);val below=at(x,yy+1)
                         val range=max(max(left,right),max(max(above,below),v.toInt()))-
                             min(min(left,right),min(min(above,below),v.toInt()))
@@ -114,9 +157,10 @@ object ScanPaperProcessor {
                     converted=createBitmap(w,rows);Utils.matToBitmap(result,converted)
                     val middle=IntArray(w*min(128,h-y));converted.getPixels(middle,0,w,0,y-top,w,min(128,h-y))
                     output.setPixels(middle,0,w,0,y,w,min(128,h-y))
-                } finally { if(!patch.isRecycled) patch.recycle();converted?.recycle();r.release();c.release();l.release();result.release() }
+                } finally { if(!patch.isRecycled) patch.recycle();converted?.recycle();r.release();c.release();l.release();guide.release();result.release() }
             }
             return PaperProcessing(output,severity,paperPixels.toDouble()/(w.toLong()*h),(System.nanoTime()-started)/1_000_000)
         } catch(error: Throwable) { output.recycle();throw error }
+        finally { guideKernel?.release() }
     }
 }

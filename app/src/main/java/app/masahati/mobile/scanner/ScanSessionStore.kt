@@ -18,7 +18,8 @@ enum class ScanFilter(val title: String) {
 data class ScanPage(val id: String,val source: String,val sourceHash: String,
     var quad: DocumentQuad=DocumentQuad.inset(),var turns: Int=0,var filter: ScanFilter=ScanFilter.AUTO,
     var deleted: Boolean=false,var ready: Boolean=false,var review: Boolean=true,
-    var dewarp: Boolean=true,var report: JSONObject=JSONObject(),var paperRatio: Double?=null)
+    var dewarp: Boolean=true,var report: JSONObject=JSONObject(),var paperRatio: Double?=null,
+    var hdrSource: String?=null,var hdrHash: String?=null)
 
 /** Originals are immutable, durable files. A separate recipe survives process death.
  * Deleted/reordered pages keep their raw sources. All paths are internal and validated.
@@ -37,6 +38,21 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
     fun source(p: ScanPage)=file(p.source)
     fun processed(p: ScanPage)=file("${p.id}-processed.png")
     fun rectified(p: ScanPage)=file("${p.id}-rectified.png")
+    fun hdr(p: ScanPage): File?=p.hdrSource?.let(::file)
+    fun verifyHdr(p: ScanPage) { val source=hdr(p) ?: error("لا توجد صورة HDR")
+        check(sha256(source)==p.hdrHash) { "تغيرت صورة HDR؛ بقيت الصورة الأصلية محفوظة" } }
+    fun attachHdr(p: ScanPage,input: InputStream) {
+        require(p in pages && p.hdrSource==null)
+        val target=file("${p.id}-capture-hdr.jpg");require(!target.exists())
+        val partial=file("${p.id}-capture-hdr.partial")
+        try {
+            partial.outputStream().buffered().use { output -> val buffer=ByteArray(65536);var total=0L
+                while(true) { val n=input.read(buffer);if(n<0) break;total+=n
+                    require(total<=128_000_000);output.write(buffer,0,n) } }
+            ScanSourceImage.info(partial);val hash=sha256(partial);check(partial.renameTo(target))
+            p.hdrSource=target.name;p.hdrHash=hash;save()
+        } finally { partial.delete() }
+    }
     fun import(uri: Uri): ScanPage = context.contentResolver.openInputStream(uri)?.use { import(it) } ?: error("تعذر فتح الصورة")
     fun import(input: InputStream): ScanPage {
         require(visiblePages.size<20) { "الحد الأقصى 20 صفحة" }
@@ -65,6 +81,7 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                 pages.forEach { p -> put(JSONObject().put("id",p.id).put("source",p.source).put("source_sha256",p.sourceHash)
                     .put("turns",p.turns).put("filter",p.filter.name).put("deleted",p.deleted).put("ready",p.ready)
                     .put("review",p.review).put("dewarp",p.dewarp).put("report",p.report).put("paper_ratio",p.paperRatio)
+                    .put("hdr_source",p.hdrSource).put("hdr_sha256",p.hdrHash)
                     .put("quad",JSONArray().apply { p.quad.points.forEach { put(JSONArray().put(it.x).put(it.y)) } })
                     .put("confidence",p.quad.confidence).put("origin",p.quad.origin)) } })
         val atomic=AtomicFile(file("session.json"));val stream=atomic.startWrite()
@@ -91,10 +108,14 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                 val quad=DocumentQuad((0..3).map { q.getJSONArray(it).let { a -> ScanPoint(a.getDouble(0),a.getDouble(1)) } },
                     p.optDouble("confidence",0.0),origin=p.optString("origin","manual"))
                 val sourceHash=p.getString("source_sha256");require(sourceHash.matches(Regex("[0-9a-f]{64}")))
+                val hdrSource=p.optString("hdr_source").takeUnless { it.isBlank() || it=="null" }
+                val hdrHash=p.optString("hdr_sha256").takeUnless { it.isBlank() || it=="null" }
+                require((hdrSource==null)==(hdrHash==null))
+                require(hdrSource==null || (hdrSource=="$pageId-capture-hdr.jpg" && hdrHash!!.matches(Regex("[0-9a-f]{64}"))))
                 store.pages.add(ScanPage(pageId,source,sourceHash,if(quad.valid()) quad else DocumentQuad.inset(),
                     p.optInt("turns").mod(4),runCatching { ScanFilter.valueOf(p.optString("filter")) }.getOrDefault(ScanFilter.AUTO),
                     p.optBoolean("deleted"),p.optBoolean("ready"),p.optBoolean("review",true),p.optBoolean("dewarp",true),
-                    p.optJSONObject("report") ?: JSONObject(),p.optDouble("paper_ratio",Double.NaN).takeIf { it.isFinite() && it in .03..35.0 }))
+                    p.optJSONObject("report") ?: JSONObject(),p.optDouble("paper_ratio",Double.NaN).takeIf { it.isFinite() && it in .03..35.0 },hdrSource,hdrHash))
             }
             return store
         }
@@ -116,6 +137,11 @@ class ScanSessionStore private constructor(private val context: Context,val id: 
                     val source=File(backup,page.source)
                     require(source.isFile && source.length()<=128_000_000 && sha256(source)==page.sourceHash)
                     ScanSourceImage.info(source);source.copyTo(validated.source(page),false)
+                    validated.hdr(page)?.let { target ->
+                        val original=File(backup,target.name)
+                        require(original.isFile && original.length()<=128_000_000 && sha256(original)==page.hdrHash)
+                        ScanSourceImage.info(original);original.copyTo(target,false)
+                    }
                     listOf(validated.rectified(page),validated.processed(page)).forEach { target ->
                         val old=File(backup,target.name)
                         if(old.isFile) { require(old.length()<=128_000_000);ScanSourceImage.info(old);old.copyTo(target,false) }

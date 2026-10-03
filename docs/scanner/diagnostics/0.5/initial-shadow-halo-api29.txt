@@ -1,0 +1,55 @@
+INSTRUMENTATION_STATUS: class=app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=
+app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest:
+INSTRUMENTATION_STATUS: test=sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: Shadow halo in AUTO at 439
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest.sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk(ProfessionalScannerInstrumentedTest.kt:100)
+
+INSTRUMENTATION_STATUS: stream=
+Error in sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk(app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest):
+java.lang.AssertionError: Shadow halo in AUTO at 439
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest.sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk(ProfessionalScannerInstrumentedTest.kt:100)
+
+INSTRUMENTATION_STATUS: test=sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_STATUS: class=app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=whitePaperPreservesQrColorAndTinyPunctuation
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=whitePaperPreservesQrColorAndTinyPunctuation
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 1,492.019
+There was 1 failure:
+1) sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk(app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest)
+java.lang.AssertionError: Shadow halo in AUTO at 439
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at app.masahati.mobile.scanner.ProfessionalScannerInstrumentedTest.sharpShadowBoundaryIsWhiteWithoutErasingNearbyNumbersOrColoredInk(ProfessionalScannerInstrumentedTest.kt:100)
+
+FAILURES!!!
+Tests run: 2,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1

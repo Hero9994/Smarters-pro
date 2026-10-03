@@ -98,8 +98,8 @@ android {
         applicationId = "app.masahati.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "alpha-0.4"
+        versionCode = 12
+        versionName = "alpha-0.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -171,6 +171,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
+    implementation("androidx.camera:camera-extensions:1.6.2")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
