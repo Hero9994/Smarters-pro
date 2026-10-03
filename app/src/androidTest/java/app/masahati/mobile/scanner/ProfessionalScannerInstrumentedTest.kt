@@ -312,6 +312,22 @@ class ProfessionalScannerInstrumentedTest {
             store.verifySource(page);store.verifyBest(page)
         } finally { source.recycle();cropped.recycle();store.directory.deleteRecursively() }
     }
+    @Test fun captureGuardAcceptsSharpenedInkButRejectsRemovedPunctuationAndSignature() {
+        val sharp=sheet();val blurred=Bitmap.createBitmap(sharp)
+        val erased=Bitmap.createBitmap(sharp)
+        val input=Mat();val output=Mat()
+        try {
+            Utils.bitmapToMat(blurred,input);Imgproc.GaussianBlur(input,output,Size(5.0,5.0),1.1);Utils.matToBitmap(output,blurred)
+            assertTrue("A sharper version of the same content was rejected",
+                ScanCaptureContentGuard.reasons(blurred,sharp).isEmpty())
+            val paint=Paint().apply { color=Color.rgb(175,175,170) }
+            Canvas(erased).drawRect(140f,590f,160f,610f,paint)
+            assertFalse("Removed tiny punctuation was accepted",ScanCaptureContentGuard.reasons(blurred,erased).isEmpty())
+            Canvas(erased).drawBitmap(sharp,0f,0f,null);paint.color=Color.rgb(202,202,197)
+            Canvas(erased).drawRect(135f,1185f,440f,1270f,paint)
+            assertFalse("Removed blue signature was accepted",ScanCaptureContentGuard.reasons(blurred,erased).isEmpty())
+        } finally { input.release();output.release();sharp.recycle();blurred.recycle();erased.recycle() }
+    }
     @Test fun ghostingRejectsDoubledOrRemovedTextAndKeepsAnUnchangedImage() {
         val source=sheet();val doubled=Bitmap.createBitmap(source);val removed=Bitmap.createBitmap(source)
         try {

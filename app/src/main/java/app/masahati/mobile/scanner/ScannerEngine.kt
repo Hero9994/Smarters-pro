@@ -134,7 +134,8 @@ class ScannerEngine(context: Context): AutoCloseable {
                     val guard=ScanGuardPolicy.evaluate(baseline.lines.map { it.text to it.confidence },
                         reading.lines.map { it.text to it.confidence },codes,afterCodes)
                     val measurable=baseline.lines.count { it.confidence>=.88 }>=3 || codes.isNotEmpty()
-                    val details=ScanQualityGuard.detailReasons(frameBase,candidate,ScanFilter.PHOTO)
+                    val details=if(kind=="best_frame") ScanCaptureContentGuard.reasons(frameBase,candidate) else
+                        ScanQualityGuard.detailReasons(frameBase,candidate,ScanFilter.PHOTO)
                     val accepted=ghosts.acceptable() && guard.accepted && details.isEmpty() && measurable &&
                         improved && afterQuality.sharpness>=beforeQuality.sharpness*.80
                     report.put(kind+"_matches",aligned.matches).put(kind+"_inlier_fraction",aligned.inlierFraction)
