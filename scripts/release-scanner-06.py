@@ -4,8 +4,8 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 os.umask(0o077)
 REPO="Hero9994/Smarters-pro"
-SOURCE="3dfd719f42d78a9aae50a38f95ba230a17384c7f"
-RUN=37154157389
+SOURCE="8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0"
+RUN=37155633765
 TAG="masahati-preview-0.6"
 CERT="134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a"
 EXCHANGE="https://hxrvlvqlkfylbjicdfzs.supabase.co/functions/v1/masahati-preview-signing-06"
@@ -72,10 +72,15 @@ with tempfile.TemporaryDirectory(prefix="masahati-release-") as private:
     native26=fetched["masahati-alpha-instrumented-reports-api-26"];native36=fetched["masahati-alpha-instrumented-reports-api-36"]
     tests26=counts(native26);tests36=counts(native36)
     geometry=summary(native36,"summary.json");processing=summary(native36,"processing-summary.json")
+    camera=summary(native36,"camera-report.json");curved=summary(native36,"curved-page-diagnostic.json")
+    if not camera["best_frame_applied"]: raise RuntimeError("Camera adoption regression gate rejected")
     if geometry["real_frames"]!=300 or geometry["unsafe_auto_crops"]!=0 or processing["real_frames"]!=300: raise RuntimeError("Dataset acceptance gate rejected")
     metadata=json.loads((bundle/"output-metadata.json").read_text())
     if metadata["elements"][0]["versionCode"]!=13 or metadata["elements"][0]["versionName"]!="alpha-0.6-preview": raise RuntimeError("Unexpected APK version")
-    query=os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]+"&audience=masahati-preview-signing-0.6"
+    parsed_identity_url=urllib.parse.urlparse(os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"])
+    identity_query=urllib.parse.parse_qs(parsed_identity_url.query)
+    identity_query["audience"]=["masahati-preview-signing-0.6"]
+    query=urllib.parse.urlunparse(parsed_identity_url._replace(query=urllib.parse.urlencode(identity_query,doseq=True)))
     request=urllib.request.Request(query,headers={"Authorization":"Bearer "+os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
     with urllib.request.urlopen(request,timeout=30) as response: identity=json.load(response)["value"]
     material=None
@@ -84,8 +89,19 @@ with tempfile.TemporaryDirectory(prefix="masahati-release-") as private:
             request=urllib.request.Request(EXCHANGE,data=b"{}",method="POST",headers={"Authorization":"Bearer "+identity,"Content-Type":"application/json"})
             with urllib.request.urlopen(request,timeout=40) as response: material=json.load(response)
             break
-        except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError):
-            if attempt==29: raise RuntimeError("Protected signing exchange unavailable") from None
+        except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError) as problem:
+            if attempt==29:
+                stage="transport"
+                if isinstance(problem,urllib.error.HTTPError):
+                    try: stage=json.loads(problem.read()).get("stage","transport")
+                    except (ValueError,UnicodeError): pass
+                if stage not in {"transport","identity","database","ci","release","key-identity"}: stage="unknown"
+                print("SIGNING_EXCHANGE_REJECTED_STAGE="+stage)
+                segment=identity.split(".")[1]
+                claims=json.loads(base64.urlsafe_b64decode(segment+"="*((-len(segment))%4)))
+                fields=["repository","repository_id","ref","workflow_ref","workflow_sha","sha","run_id","run_attempt","event_name","runner_environment","aud","iss","exp","iat"]
+                print("SIGNING_PUBLIC_IDENTITY_CONTEXT="+json.dumps({key:claims.get(key) for key in fields}))
+                raise RuntimeError("Protected signing exchange unavailable") from None
             time.sleep(2)
     if material["alias"]!="masahati-preview" or material["package"]!="app.masahati.mobile.preview" or material["certificate_sha256"]!=CERT: raise RuntimeError("Wrong signing identity")
     keystore=task_dir/"preview.keystore";password=task_dir/"preview-password"
@@ -113,11 +129,13 @@ with tempfile.TemporaryDirectory(prefix="masahati-release-") as private:
         if len(entries)!=1: raise RuntimeError("Missing/duplicate 50MP memory diagnostic")
         memory[str(api_level)]=json.loads(entries[0])
         log.unlink()
-    statistics={"source":SOURCE,"ci_run":RUN,"api26":tests26,"api36":tests36,"geometry":geometry,"processing":processing,"memory":memory,"signing":signed,"apk_delta_from_05_bytes":signed["apk_size_bytes"]-448064255,"evidence_sha256":digest(evidence)}
+    statistics={"source":SOURCE,"ci_run":RUN,"api26":tests26,"api36":tests36,"geometry":geometry,"processing":processing,"memory":memory,"camera":camera,"curved_page":curved,"signing":signed,"apk_delta_from_05_bytes":signed["apk_size_bytes"]-448064255,"evidence_sha256":digest(evidence)}
     (delivery/"scanner-0.6-results.json").write_text(json.dumps(statistics,ensure_ascii=False,indent=2)+"\n")
     report=Path("docs/scanner/DELIVERY_0.6_AR.md").read_text()+"\n\n## نتائج الإصدار الذي اجتاز الفحص\n\nالمصدر: "+SOURCE+"؛ تشغيل CI: "+str(RUN)+".\n\n"
     report+="| الفحص | إجمالي الحالات | فشل | تخطي متعمد |\n|---|---:|---:|---:|\n"
     for label,result in [("Android 8",tests26),("Android 16",tests36)]: report+=f'| {label} | {result["tests"]} | {result["failures"]+result["errors"]} | {result["skipped"]} |\n'
+    report+=f'\nمثال الالتقاط: اللقطة الأوضح معتمدة={camera["best_frame_applied"]}؛ الحدة {camera["best_frame_sharpness_before"]:.1f}→{camera["best_frame_sharpness_after"]:.1f}؛ الفلتر النهائي {camera["applied_filter"]}. صور camera-before/aligned/final مرفقة.\n'
+    report+=f'\nمثال الصفحة المنحنية: تشغيل UVDoc الفعلي محفوظ في curved-page-diagnostic.json؛ اعتماد النتيجة={curved["dewarp_applied"]}؛ سبب الرجوع إن وجد: {curved.get("dewarp_fallback",curved.get("warnings",[]))}. رفض النموذج الآمن ليس نجاحًا في إزالة الانحناء.\n'
     edge=geometry["boundary_edge_px"];corner=geometry["boundary_corner_px"]
     report+=f'\nالكشف {geometry["detected"]}/300؛ المراجعة اليدوية {geometry["manual_review"]}؛ حالات قص تلقائي غير آمن {geometry["unsafe_auto_crops"]}.\n'
     report+=f'\nمتوسط خطأ الحافة {edge["mean"]:.3f} بكسل مصدر؛ P95={edge["p95"]:.3f}. متوسط خطأ الزوايا {corner["mean"]:.3f}؛ P95={corner["p95"]:.3f}.\n'

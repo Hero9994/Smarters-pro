@@ -281,16 +281,30 @@ class ProfessionalScannerInstrumentedTest {
             val left=margin.toDouble()/(source.width-1);val top=margin.toDouble()/(source.height-1)
             val right=(source.width-margin-1).toDouble()/(source.width-1)
             val bottom=(source.height-margin-1).toDouble()/(source.height-1)
-            page.quad=DocumentQuad(listOf(ScanPoint(left,top),ScanPoint(right,top),ScanPoint(right,bottom),ScanPoint(left,bottom)),
-                confidence=1.0,origin="manual-camera-fixture")
+            val boundary=listOf(ScanPoint(left,top),ScanPoint(right,top),ScanPoint(right,bottom),ScanPoint(left,bottom))
+            // Production refinement pads six SOURCE pixels outward to preserve
+            // the paper. Test that real capture recipe, including its surface
+            // context, instead of a tight zero-margin warp with a defocus halo.
+            page.quad=DocumentQuad(ScanGeometry.padded(boundary,source.width,source.height,6.0),
+                confidence=1.0,origin="camera-fixture-with-production-padding")
             store.save()
             val bytes=ByteArrayOutputStream();sharp.compress(Bitmap.CompressFormat.PNG,100,bytes)
             store.attachBest(page,ByteArrayInputStream(bytes.toByteArray()))
+            val folder=File(context.filesDir,"scanner-benchmark-report").apply { mkdirs() }
+            val warp=ScanSourceImage.perspective(store.source(page),page.quad,page.turns)
+            try {
+                File(folder,"camera-before.png").outputStream().use { warp.compress(Bitmap.CompressFormat.PNG,100,it) }
+                val aligned=ScanHdrFusion.align(store.source(page),checkNotNull(store.best(page)),page.quad,page.turns,warp,0.0,null)
+                try { File(folder,"camera-sharper-aligned.png").outputStream().use { aligned.image.compress(Bitmap.CompressFormat.PNG,100,it) } }
+                finally { aligned.image.recycle() }
+            } finally { warp.recycle();ScannerTestDiagnostics.publish(folder) }
             ScannerEngine(context).use { engine -> engine.process(store,page).use { result ->
                 assertTrue("Safer sharper capture was not adopted: ${result.report}",result.report.getBoolean("best_frame_applied"))
                 assertTrue(result.report.getString("ocr_text").contains("73071446"))
                 assertTrue(ScanQualityGuard.barcodes(result.after).contains("masahati-preserve-73071446"))
                 assertTrue(result.before!==result.after)
+                File(folder,"camera-final.png").outputStream().use { result.after.compress(Bitmap.CompressFormat.PNG,100,it) }
+                File(folder,"camera-report.json").writeText(result.report.toString(2));ScannerTestDiagnostics.publish(folder)
             } }
             store.verifySource(page);store.verifyBest(page)
         } finally { input.release();blurred.release();source.recycle();sharp.recycle();store.directory.deleteRecursively() }

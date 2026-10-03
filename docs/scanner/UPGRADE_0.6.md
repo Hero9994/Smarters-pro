@@ -118,5 +118,5 @@ with a two-pixel registration tolerance. Disappearing punctuation/signatures are
 negative tests. OCR/QR, exposure/sharpness and symmetric ghosting gates remain
 mandatory. The filter comparison guard is unchanged. This preview check is not
 proof of preservation of every native-resolution pixel.
-Native source under test: 3dfd719f42d78a9aae50a38f95ba230a17384c7f,
-CI 37154157389. Do not sign it until all four required jobs have passed.
+Native source under test: 8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0,
+CI 37155633765: all four required jobs passed. The capture integration fixture now uses the production six-source-pixel outward padding and exports before/aligned/final images. No boundary-ink exception was introduced. Signing/public download verification remain separate delivery gates.

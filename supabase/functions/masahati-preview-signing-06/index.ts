@@ -47,10 +47,12 @@ Deno.serve(async (req: Request) => {
   if (policy.disabled || Date.now() >= Date.parse(policy.expires_at))
     return new Response('{"error":"Release exchange retired"}', { status: 410, headers: noCache });
   if (req.method !== "POST") return new Response('{"error":"Method not allowed"}', { status: 405, headers: noCache });
+  let stage = "identity";
   try {
     const authorization = req.headers.get("authorization") || "";
     if (!authorization.startsWith("Bearer ")) throw Error("Invalid token");
     await claims(authorization.slice(7));
+    stage = "database";
     const db = postgres(Deno.env.get("SUPABASE_DB_URL")!, {
       prepare: false, max: 1, idle_timeout: 5, connect_timeout: 10,
       ssl: "require", onnotice: () => {}
@@ -70,6 +72,7 @@ Deno.serve(async (req: Request) => {
         if (!response.ok) throw Error("Unavailable");
         return await response.json();
       }
+      stage = "ci";
       const run = await github("actions/runs/" + policy.ci_run);
       const jobs = await github("actions/runs/" + policy.ci_run + "/jobs?per_page=100");
       const required = ["verify","backend-regression","instrumented (26)","instrumented (36)"];
@@ -78,10 +81,12 @@ Deno.serve(async (req: Request) => {
           !required.every((name) => jobs.jobs.some((j: {name:string;status:string;conclusion:string}) =>
             j.name === name && j.status === "completed" && j.conclusion === "success")))
         throw Error("CI gate rejected");
+      stage = "release";
       const release = await github("actions/runs/" + policy.release_run);
       if (release.head_sha !== policy.workflow_sha || release.status !== "in_progress" ||
-          release.event !== "push" || release.path !== ".github/workflows/scanner-release-0.6.yml")
+          release.run_attempt !== 1 || release.event !== "push" || release.path !== ".github/workflows/scanner-release-0.6.yml")
         throw Error("Release gate rejected");
+      stage = "key-identity";
       const parsed = JSON.parse(material);
       if (parsed.alias !== "masahati-preview" || parsed.package !== "app.masahati.mobile.preview" ||
           parsed.certificate_sha256 !== "134b86f90a4d739167f9890139fefb665979c410fa2b011e3b82e7bd1bb0cd9a")
@@ -90,6 +95,6 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify(parsed), { status: 200, headers: noCache });
     } finally { await db.end({ timeout: 2 }); }
   } catch {
-    return new Response('{"error":"Unauthorized or release gate unavailable"}', { status: 403, headers: noCache });
+    return new Response(JSON.stringify({ error: "Unauthorized or release gate unavailable", stage }), { status: 403, headers: noCache });
   }
 });

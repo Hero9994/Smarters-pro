@@ -1,26 +1,31 @@
-# Checkpoint 2026-10-03 — scanner 0.6 under final native regression
-Native candidate: `3dfd719f42d78a9aae50a38f95ba230a17384c7f`, branch
-`alpha/scanner-professional-2026-10-01`, exact-source CI `37154157389`.
-Earlier CI candidates failed the new best-frame fixture/guard and must NOT be released.
-The new capture-only local ink/color guard has positive sharper-frame and negative
-punctuation/signature regressions. Bounds, OCR/QR and filter guards remain strict.
-117 local JVM tests/build/native Kotlin compilation passed before this additional
-capture comparison; the current full native/verify CI is the final gate.
+# Checkpoint 2026-10-03 — scanner 0.6 native gates passed
+Accepted native source: `8093f50e2ccaa6a95d4dca03a6c343e42db0e4d0`.
+CI `37155633765`: verify, backend-regression, native API26 and API36 ALL SUCCESS.
+API26 finished 78 cases including 2 intentional diagnostic skips; API36 finished
+76 cases. Decode actual counts from XML in release evidence. 300 real frames
+detected, mean boundary edge error 2.61206 source px, P95 6.60429; 148 manual
+review cases; unsafe automatic crop proposals accepted 0 in this dataset.
+Processing 300 same frames: 1684 OCR lines, 9 codes, 36 weaker processing,
+8 unfiltered safe fallbacks, mean isolated processing/validation 912.73ms.
+50MP output 3741x1870: API26 pipeline4356ms, sampled PSS433695744B;
+API36 pipeline5509ms, sampled PSS391084032B. Emulator samples, not device maxima.
 
-All native edits are pushed. The execution environment disconnected after the
-local builds. GitHub reads remain available; source-only official GitHub API
-writes use the existing backed-up PAT server-side without disclosing it. A
-temporary OIDC signing exchange is prepared at `masahati-preview-signing-06`;
-no identity is authorized until its exact workflow SHA/run and successful native
-CI are pinned. Its repository policy defaults to disabled, expires 23:00 UTC,
-and it must be retired after use. Negative requests without valid signatures
-returned 403; wrong method 405. No application schema/data was modified.
+The accepted camera test uses the SAME six-source-pixel outward crop padding as
+production. It saves actual before/aligned/final images and camera-report.json.
+No edge-ink exclusions were added to the capture guard. The sharper capture and
+removed punctuation/signature/edge negatives all pass. The filter guard is strict.
+Earlier native candidates failed this new fixture/guard and must NOT be released.
 
-Release helpers, Arabic 16-point report and audit are prepared on isolated
-`work/scanner-release-0.6`. Its workflow only validates code there; signing is
-conditional on the alpha branch and all exact-source gates. Public APK remains
-0.5 until a new release passes signature AND full unauthenticated public download
-verification. Preserve the existing preview package and certificate.
+The signed release helper is gated on EXACT source8093/CI37155633765 and preserves
+the existing preview certificate/package. Temporary OIDC exchange
+`masahati-preview-signing-06` authorizes only the pinned release workflow SHA/run,
+successful CI, correct repo ID/ref/event/attempt and short-lived signed identity.
+Default repository policy is disabled and expires 23:00 UTC. Retire after delivery.
+No application schema/data was modified. The old signing/Vault credentials must
+never appear in source or logs. The local execution environment is disconnected;
+all code is preserved on GitHub. The prepared work branch validates release code
+and only signs on the alpha branch after all gates. Public APK remains0.5 until
+the new signed release passes a full unauthenticated download verification.
 
 ---
 
